@@ -10,11 +10,14 @@ from pydantic import ValidationError
 from limit_pullback.models import (
     AnchorSnapshot,
     B2TriggerSnapshot,
+    InvalidPriceSnapshot,
     ReviewGroup,
+    S1Snapshot,
     ScoreBreakdown,
     ScoreProfile,
     SetupStage,
     StrategySignal,
+    SupportSnapshot,
 )
 
 
@@ -39,7 +42,7 @@ def test_valid_open_space_fixture(project_root):
     signal = StrategySignal.model_validate(load_cases(project_root)["valid_open_space"])
 
     assert signal.review_group is ReviewGroup.OPEN_SPACE
-    assert signal.s1 is None
+    assert signal.target_s1 is None
     assert signal.risk_reward_ratio is None
 
 
@@ -105,9 +108,62 @@ def test_b2_confirmed_rejects_same_day_freeze(project_root):
 def test_invalid_price_cannot_loosen(project_root):
     payload = load_cases(project_root)["valid_open_space"]
     payload["invalid_price"] = "10.50"
+    payload["invalid_price_snapshot"]["invalid_price"] = "10.50"
 
     with pytest.raises(ValidationError, match="cannot loosen"):
         StrategySignal.model_validate(payload)
+
+
+@pytest.mark.parametrize(
+    "snapshot",
+    (
+        SupportSnapshot(
+            support_low=Decimal("10.80"),
+            support_high=Decimal("11.00"),
+            support_center=Decimal("10.90"),
+            sources=("ANCHOR_PRICE",),
+            frozen_as_of=date(2024, 1, 5),
+            eligible_from=date(2024, 1, 6),
+            reference_close=Decimal("10.95"),
+            max_above_reference_close=Decimal("0.002"),
+        ),
+        S1Snapshot(
+            s1_low=Decimal("12"),
+            s1_high=Decimal("12.10"),
+            sources=("LEFT_HIGH_60",),
+            frozen_as_of=date(2024, 1, 5),
+            eligible_from=date(2024, 1, 6),
+        ),
+        InvalidPriceSnapshot(
+            initial_invalid_price=Decimal("10.70"),
+            invalid_price=Decimal("10.70"),
+            frozen_as_of=date(2024, 1, 5),
+            eligible_from=date(2024, 1, 6),
+        ),
+    ),
+)
+def test_structure_snapshots_require_future_eligibility(snapshot):
+    with pytest.raises(ValidationError, match="later than frozen_as_of"):
+        snapshot.model_copy(
+            update={"eligible_from": snapshot.frozen_as_of}
+        ).__class__.model_validate(
+            snapshot.model_dump()
+            | {"eligible_from": snapshot.frozen_as_of}
+        )
+
+
+def test_support_snapshot_rejects_level_materially_above_close():
+    with pytest.raises(ValidationError, match="too far above"):
+        SupportSnapshot(
+            support_low=Decimal("16.90"),
+            support_high=Decimal("17.04"),
+            support_center=Decimal("16.97"),
+            sources=("PLATFORM_HIGH_20",),
+            frozen_as_of=date(2026, 7, 24),
+            eligible_from=date(2026, 7, 25),
+            reference_close=Decimal("16.57"),
+            max_above_reference_close=Decimal("0.002"),
+        )
 
 
 def test_open_space_cannot_contain_risk_reward(project_root):
@@ -151,3 +207,11 @@ def test_generated_at_accepts_timezone_aware_datetime(project_root):
     payload["generated_at"] = datetime(2024, 1, 5, 8, 10, tzinfo=timezone.utc)
 
     assert StrategySignal.model_validate(payload).generated_at.utcoffset() is not None
+
+
+def test_is_entry_candidate_cannot_be_supplied_by_caller(project_root):
+    payload = load_cases(project_root)["valid_open_space"]
+    payload["is_entry_candidate"] = True
+
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        StrategySignal.model_validate(payload)

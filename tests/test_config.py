@@ -32,3 +32,12 @@ def test_config_rejects_python_float(project_root):
 
     with pytest.raises(TypeError, match="float is forbidden"):
         type(config).model_validate(payload)
+
+
+def test_support_above_close_tolerance_must_remain_small(project_root):
+    config = load_strategy_config(project_root / "config" / "strategy.yaml")
+    payload = config.model_dump(mode="python")
+    payload["support"]["max_above_reference_close"] = Decimal("0.006")
+
+    with pytest.raises(ValidationError, match="less than or equal to 0.005"):
+        type(config).model_validate(payload)

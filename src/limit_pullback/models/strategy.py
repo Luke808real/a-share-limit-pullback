@@ -117,4 +117,24 @@ class ConditionScore(FrozenDomainModel):
 class PatternEvaluation(FrozenDomainModel):
     air_refuel: ConditionScore
     bearish_pullback: ConditionScore
-    patterns: frozenset[PatternType] = frozenset()
+    matched_patterns: frozenset[PatternType] = frozenset()
+    primary_pattern: PatternType | None = None
+    pattern_scores: dict[PatternType, DecimalValue] = Field(default_factory=dict)
+    primary_pattern_reason: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_pattern_selection(self) -> "PatternEvaluation":
+        if self.matched_patterns and self.primary_pattern is None:
+            raise ValueError("matched patterns require one primary_pattern")
+        if not self.matched_patterns and self.primary_pattern is not None:
+            raise ValueError("primary_pattern requires at least one matched pattern")
+        if (
+            self.primary_pattern is not None
+            and self.primary_pattern not in self.matched_patterns
+        ):
+            raise ValueError("primary_pattern must be a matched pattern")
+        if not self.matched_patterns.issubset(self.pattern_scores):
+            raise ValueError("every matched pattern requires a pattern score")
+        if any(score < 0 or score > 100 for score in self.pattern_scores.values()):
+            raise ValueError("pattern scores must be between 0 and 100")
+        return self

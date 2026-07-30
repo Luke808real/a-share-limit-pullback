@@ -38,3 +38,17 @@ class ScoreProfile(StrEnum):
 class PatternType(StrEnum):
     AIR_REFUEL = "AIR_REFUEL"
     BEARISH_PULLBACK = "BEARISH_PULLBACK"
+
+
+class EntryRoomState(StrEnum):
+    SUFFICIENT = "SUFFICIENT"
+    THIN = "THIN"
+    NONE = "NONE"
+    OPEN_SPACE = "OPEN_SPACE"
+
+
+class SetupTerminationReason(StrEnum):
+    ACTIVE = "ACTIVE"
+    INVALIDATED = "INVALIDATED"
+    SUPERSEDED_BY_NEW_ANCHOR = "SUPERSEDED_BY_NEW_ANCHOR"
+    EXPIRED = "EXPIRED"

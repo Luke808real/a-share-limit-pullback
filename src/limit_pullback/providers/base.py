@@ -1,4 +1,4 @@
-"""Minimal provider boundary; no implementation is included in stage 1."""
+"""Two fixed provider responsibilities used by the stage-2A adapters."""
 
 from __future__ import annotations
 
@@ -12,9 +12,21 @@ from limit_pullback.models.market import (
 )
 
 
-class Provider(Protocol):
+class ProviderError(RuntimeError):
+    """An explicit upstream/provider failure; never triggers a silent fallback."""
+
+
+class DailyBarProvider(Protocol):
+    provider_name: str
+    provider_version: str
+
     def fetch_daily_bars(self, request: DailyBarsRequest) -> DailyBarsResult:
         ...
+
+
+class LimitUpPoolProvider(Protocol):
+    provider_name: str
+    provider_version: str
 
     def fetch_limit_up_pool(
         self,

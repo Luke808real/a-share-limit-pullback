@@ -8,7 +8,13 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
-def block_all_socket_network(monkeypatch: pytest.MonkeyPatch) -> None:
+def block_all_socket_network(
+    monkeypatch: pytest.MonkeyPatch,
+    request: pytest.FixtureRequest,
+) -> None:
+    if request.node.get_closest_marker("integration") is not None:
+        return
+
     def blocked(*args: object, **kwargs: object) -> NoReturn:
         raise AssertionError("network access is forbidden in the test suite")
 
