@@ -306,7 +306,17 @@ class StrategySignal(DomainModel):
     entry_room_state: EntryRoomState | None = None
     entry_room_reasons: tuple[str, ...] = ()
     risk_reward_ratio: DecimalValue | None = None
+    entry_quality_score: DecimalValue | None = Field(
+        default=None,
+        ge=Decimal("0"),
+        le=Decimal("100"),
+    )
     invalidation_reasons: tuple[str, ...] = ()
+
+    @computed_field(return_type=Decimal)
+    @property
+    def setup_quality_score(self) -> Decimal:
+        return self.score.normalized_score
 
     @computed_field(return_type=bool)
     @property
@@ -541,6 +551,19 @@ class StrategySignal(DomainModel):
                 raise ValueError("risk_reward_ratio cannot be negative")
             if self.target_s1 is None:
                 raise ValueError("risk_reward_ratio requires an S1 snapshot")
+        if self.setup_stage in ENTRY_CANDIDATE_STAGES:
+            if self.entry_quality_score is None:
+                raise ValueError(
+                    "entry stages require an entry_quality_score"
+                )
+            if not self.is_entry_candidate and self.entry_quality_score != 0:
+                raise ValueError(
+                    "disqualified entry stage requires zero entry_quality_score"
+                )
+        elif self.entry_quality_score is not None:
+            raise ValueError(
+                "entry_quality_score is only valid for B1/B2 stages"
+            )
         if self.setup_stage is SetupStage.INVALID:
             if not self.invalidation_reasons:
                 raise ValueError("INVALID requires explicit invalidation reasons")

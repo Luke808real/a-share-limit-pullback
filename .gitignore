@@ -17,3 +17,6 @@ htmlcov/
 
 build/
 dist/
+
+# Local Codex desktop environment metadata.
+.codex/

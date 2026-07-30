@@ -94,7 +94,6 @@ b1:
   volume_to_anchor_max: "0.85"
   recent_volume_days: 3
   recent_volume_to_post_anchor_max: "0.80"
-  minimum_risk_reward: "1.50"
   minimum_condition_ratio: "0.60"
 
 b2:
@@ -111,6 +110,7 @@ b2:
 entry_room:
   thin_headroom_max: "0.05"
   sufficient_headroom_min: "0.05"
+  minimum_risk_reward: "1.50"
 
 events:
   near_s1_distance: "0.02"

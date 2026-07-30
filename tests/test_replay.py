@@ -113,6 +113,9 @@ def test_anchor_and_first_b1_do_not_use_same_day_structure(project_root):
     assert b1.support_snapshot is not None
     assert b1.invalid_price_snapshot is not None
     assert b1.target_s1 is not None
+    assert b1.setup_quality_score == b1.normalized_score
+    assert b1.entry_quality_score is not None
+    assert b1.risk_reward_ratio is not None
     assert b1.support_snapshot.frozen_as_of == b1.trade_date
     assert b1.support_snapshot.eligible_from > b1.trade_date
     assert b1.invalid_price_snapshot.eligible_from > b1.trade_date

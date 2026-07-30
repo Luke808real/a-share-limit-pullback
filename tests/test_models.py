@@ -35,7 +35,10 @@ def test_valid_b2_confirmed_fixture(project_root):
     assert signal.score.available_score == Decimal("12")
     assert signal.score.available_max_score == Decimal("14")
     assert signal.score.normalized_score == Decimal("85.71")
+    assert signal.setup_quality_score == Decimal("85.71")
+    assert signal.entry_quality_score == Decimal("85.71")
     assert '"normalized_score":"85.71"' in signal.model_dump_json()
+    assert '"setup_quality_score":"85.71"' in signal.model_dump_json()
 
 
 def test_valid_open_space_fixture(project_root):

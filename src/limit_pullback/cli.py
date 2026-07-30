@@ -1,4 +1,4 @@
-"""Stage-2A CLI: one explicit network command plus inert future placeholders."""
+"""Stage-2B.3 CLI: explicit single-stock inspect and replay commands."""
 
 from __future__ import annotations
 
@@ -43,7 +43,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="limit_pullback",
         description=(
-            "A股涨停回调盘后筛选器（阶段2B.2：指定股票日线回放）"
+            "A股涨停回调盘后筛选器（阶段2B.3：指定股票日线回放）"
         ),
         epilog=(
             "仅 inspect/replay 会访问固定免费数据源；不建立数据库，不写文件，"
@@ -156,7 +156,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if getattr(args, "_not_implemented", False):
-        parser.error(f"命令 {args.command!r} 尚未在阶段2B.2实现")
+        parser.error(f"命令 {args.command!r} 尚未在阶段2B.3实现")
     if args.command == "inspect":
         return _run_inspect(args)
     if args.command == "replay":

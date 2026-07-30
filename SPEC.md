@@ -180,6 +180,17 @@ normalized_score =
 
 已知且表现不佳的规则仍是“可评价规则”，可以获得零分并形成风险理由。
 
+策略信号另外派生两层分数：
+
+- `setup_quality_score = score.normalized_score`，只评价锚点、回调、支撑、
+  量价、K线、均线、形态和B1/B2结构质量；不得读取S1、risk/reward或entry room；
+- `entry_quality_score`只在`B1_READY`、`B2_READY`、`B2_CONFIRMED`存在，
+  用setup质量作为基准，再应用入场空间和可用risk/reward的折减；结构未到入场阶段
+  时为null，已被入场规则淘汰时为0。
+
+缺少可靠target S1不会作为零分条件：OPEN_SPACE不应用entry room或risk/reward
+折减，继续人工复核。
+
 ## 8. 数据质量
 
 `DataQuality`：
@@ -293,10 +304,19 @@ AIR_REFUEL 对以下可用项等权计数：价格保持、当前不低于锚点
 - `NORMAL`：回看窗口内没有有效锚点。
 - `LIMIT_ANCHOR`：评价日就是有效锚点日。
 - `WATCH_PULLBACK`：有锚点但 B1 多数条件未达到。
-- `B1_READY`：B1 可用条件命中比例达到阈值，且存在支撑和初始失效价。
+- `B1_READY`：B1结构条件命中比例达到阈值，且存在支撑和初始失效价。结构条件
+  只包括锚点后交易日窗口、价格回调区间、支撑触及/守住、缩量、无放量长阴和
+  止跌K线；不得包含target S1、S1候选数量/质量、risk/reward、entry reference、
+  headroom或entry room。
 - `B2_READY`：上一信号为同 setup 的 B1_READY 时冻结触发价；或已有未确认触发价。
-- `B2_CONFIRMED`：最高价触发、收盘站稳冻结价，且其余 B2 量价条件命中比例达到阈值。
+- `B2_CONFIRMED`：最高价触发、收盘站稳冻结价，且其余纯B2量价条件命中比例达到
+  阈值；S1空间和risk/reward不参与该比例。
 - `INVALID`：触及当前失效价，或触发任一严重结构失效条件；同 setup 中为终态。
+
+`setup_stage`只表达结构生命周期。`immediate_resistance`、`target_s1`、
+`risk_reward_ratio`、entry room相关字段以及所有S1压力事件只能改变入场评价、
+风险解释和候选排序，不得把WATCH升级为B1、把B1降回WATCH或改写B2阶段。
+`INVALID`仍可优先终止setup，因为它是结构失效。
 
 B2 触发价为冻结日最近配置窗口最高价乘 trigger buffer，按价格 tick 取整。
 冻结日当天不能确认。
@@ -357,6 +377,10 @@ is_entry_candidate =
 提示中明确标记接近压力区或剩余空间偏薄。未来主候选过滤必须同时检查分数阈值与
 `is_entry_candidate`，不能只按 score。
 
+`NEAR_S1`、`S1_BREAKOUT`和`S2_EXHAUSTED`不改写`setup_stage`。其中NEAR_S1
+只形成风险提示；S1_BREAKOUT和S2_EXHAUSTED把`is_entry_candidate`置为false，
+但原结构阶段保持不变。
+
 ## 16. 阶段2A真实数据边界
 
 阶段2A只有两个固定职责的适配器，不静默切换或混用来源：
@@ -415,6 +439,9 @@ signal[T] = evaluate_strategy(..., previous_signal=signal[T-1])
   unavailable 子条件；
 - `primary_pattern_reason`：唯一命中、最高分或同分优先级原因；
 - `b1_conditions`、`b2_conditions`：用于解释人工标签和状态结果的条件集合。
+- `setup_quality_score`：与压力/入场空间无关的结构质量分；
+- `entry_quality_score`：只用于新建仓评价的派生分。
+- `review_group`、`risk_reward_ratio`：随逐日入场评价一起输出，不参与结构状态。
 
 SUPPORT_WARNING 的“支撑附近异常放量”和“连续测试”必须同时满足支撑上下
 配置距离，远低于支撑的低点不能只因单边比较被视作“附近”。单纯触及支撑不会
@@ -503,3 +530,57 @@ B2或失效阈值。
 
 INVALIDATED优先于后续新锚点。旧setup即使最后一个逐日状态是LIMIT_ANCHOR，也会
 在新锚点出现时明确标记SUPERSEDED，不再呈现为永久活动状态。
+
+## 20. 阶段2B.3 Setup识别与入场价值解耦
+
+### 20.1 生命周期不读取压力价值
+
+WATCH_PULLBACK到B1_READY只评价第13.2节列出的B1结构条件。S1不存在、S1改变、
+risk/reward为null或低于入场参考值、entry room为NONE，都不能反向改变
+`setup_stage`。因此允许：
+
+```text
+setup_stage = B1_READY
+review_group = OPEN_SPACE
+target_s1 = null
+risk_reward_ratio = null
+entry_room_state = OPEN_SPACE
+```
+
+同样，S1_BREAKOUT和S2_EXHAUSTED只改变事件及新建仓资格，不能把B1_READY或
+B2_READY改写为WATCH_PULLBACK。只有INVALID等结构失效可以终止生命周期。
+
+### 20.2 两层评分
+
+```text
+setup_quality_score = score.normalized_score
+
+entry_quality_score = null
+    when setup_stage not in {B1_READY, B2_READY, B2_CONFIRMED}
+
+entry_quality_score = 0.00
+    when data_quality == UNUSABLE
+      or entry_room_state == NONE
+      or S1_BREAKOUT in event_flags
+      or S2_EXHAUSTED in event_flags
+```
+
+其余入场阶段从`setup_quality_score`开始，取以下可用折减因子的最小值：
+
+```text
+room_factor =
+    entry_headroom_pct / entry_room.thin_headroom_max  when THIN
+    1                                                  otherwise
+
+risk_reward_factor =
+    min(risk_reward_ratio / entry_room.minimum_risk_reward, 1)
+    when risk_reward_ratio is available
+
+entry_quality_score =
+    quantize(setup_quality_score * min(available factors), 0.01)
+```
+
+OPEN_SPACE没有target、headroom和risk/reward，因此这些缺失因子不参与计算，也不
+按零分处理。`entry_quality_score`、target、risk/reward、entry room、review group、
+S1事件及对应风险解释允许随合法S1变化；同一价格序列的setup_id、setup_stage
+时间线、B1/B2结构条件和`setup_quality_score`必须保持不变。

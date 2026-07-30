@@ -72,6 +72,7 @@ valid_b2_confirmed:
     - "B2_CONFIRMED_CLOSE"
     - "TARGET_S1_HEADROOM_SUFFICIENT"
   risk_reward_ratio: "1.75"
+  entry_quality_score: "85.71"
 
 valid_open_space:
   strategy_version: "0.1.0"
@@ -126,3 +127,4 @@ valid_open_space:
     - "B1_READY_CLOSE"
     - "NO_RELIABLE_TARGET_S1"
   risk_reward_ratio: null
+  entry_quality_score: "100.00"

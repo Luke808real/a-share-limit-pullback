@@ -68,7 +68,10 @@ def _merge_signal_quality(
     merged = _worst_quality((signal.data_quality, *source_qualities))
     if merged is signal.data_quality:
         return signal
-    return signal.model_copy(update={"data_quality": merged})
+    updates: dict[str, object] = {"data_quality": merged}
+    if merged is DataQuality.UNUSABLE and signal.entry_quality_score is not None:
+        updates["entry_quality_score"] = signal.entry_quality_score * 0
+    return signal.model_copy(update=updates)
 
 
 def _timeline_item(signal: StrategySignal) -> ReplayTimelineItem:
@@ -89,6 +92,8 @@ def _timeline_item(signal: StrategySignal) -> ReplayTimelineItem:
         b2_conditions=signal.b2_conditions,
         score_profile=signal.score.profile,
         normalized_score=signal.score.normalized_score,
+        setup_quality_score=signal.setup_quality_score,
+        entry_quality_score=signal.entry_quality_score,
         is_entry_candidate=signal.is_entry_candidate,
         anchor_snapshot=signal.anchor,
         support_snapshot=signal.support,
@@ -102,6 +107,8 @@ def _timeline_item(signal: StrategySignal) -> ReplayTimelineItem:
         entry_headroom_pct=signal.entry_headroom_pct,
         entry_room_state=signal.entry_room_state,
         entry_room_reasons=signal.entry_room_reasons,
+        risk_reward_ratio=signal.risk_reward_ratio,
+        review_group=signal.review_group,
         initial_invalid_price=signal.initial_invalid_price,
         invalid_price=signal.invalid_price,
         reasons=signal.score.reasons,

@@ -12,6 +12,7 @@ def test_strategy_yaml_loads_with_decimal_values(project_root):
 
     assert config.strategy_version == "0.1.0"
     assert config.support.cluster_distance == Decimal("0.02")
+    assert config.entry_room.minimum_risk_reward == Decimal("1.50")
     assert config.scoring.normalized_score_quantum == Decimal("0.01")
     assert set(config.scoring.profiles) == set(ScoreProfile)
 

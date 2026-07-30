@@ -195,8 +195,6 @@ def _evaluate_b1(
     current: DailyBar,
     anchor: AnchorEvaluation,
     support: PriceCluster | None,
-    invalid_price: Decimal | None,
-    s1: PriceCluster | None,
     config: StrategyConfig,
 ) -> ConditionScore:
     anchor_index = next(
@@ -247,11 +245,6 @@ def _evaluate_b1(
             and current.volume < anchor_bar.volume
         )
     )
-    risk_reward = (
-        _risk_reward(current.close, invalid_price, s1)
-        if invalid_price is not None
-        else None
-    )
     return _conditions(
         {
             "anchor_day_window": (
@@ -278,11 +271,6 @@ def _evaluate_b1(
             "recent_volume_contraction": recent_volume_contraction,
             "no_volume_long_bearish": no_long_bearish,
             "reversal_kline": reversal,
-            "risk_reward": (
-                risk_reward >= config.b1.minimum_risk_reward
-                if risk_reward is not None
-                else None
-            ),
         }
     )
 
@@ -294,8 +282,6 @@ def _evaluate_b2_confirmation(
     current: DailyBar,
     anchor: AnchorEvaluation,
     trigger: B2TriggerSnapshot,
-    invalid_price: Decimal | None,
-    s1: PriceCluster | None,
     config: StrategyConfig,
 ) -> ConditionScore:
     anchor_index = next(
@@ -319,11 +305,6 @@ def _evaluate_b2_confirmation(
         value
         for window in (5, 10)
         if (value := current_indicator.raw_equivalent_mas.get(window)) is not None
-    )
-    risk_reward = (
-        _risk_reward(current.close, invalid_price, s1)
-        if invalid_price is not None
-        else None
     )
     moderate_body = (
         current_indicator.kline.is_bullish
@@ -364,12 +345,54 @@ def _evaluate_b2_confirmation(
                 if volume_ratio is not None
                 else None
             ),
-            "reasonable_s1_space": (
-                risk_reward >= config.b1.minimum_risk_reward
-                if risk_reward is not None
-                else None
-            ),
         }
+    )
+
+
+def _entry_quality_score(
+    *,
+    setup_quality_score: Decimal,
+    stage: SetupStage,
+    data_quality: DataQuality,
+    event_flags: frozenset[EventFlag],
+    entry_headroom_pct: Decimal | None,
+    entry_room_state: EntryRoomState | None,
+    risk_reward_ratio: Decimal | None,
+    config: StrategyConfig,
+) -> Decimal | None:
+    """Derive entry value without feeding it back into setup lifecycle state."""
+
+    if stage not in ACTIONABLE:
+        return None
+    if (
+        data_quality is DataQuality.UNUSABLE
+        or entry_room_state is EntryRoomState.NONE
+        or EventFlag.S1_BREAKOUT in event_flags
+        or EventFlag.S2_EXHAUSTED in event_flags
+    ):
+        return ZERO.quantize(config.scoring.normalized_score_quantum)
+
+    factor = ONE
+    if (
+        entry_room_state is EntryRoomState.THIN
+        and entry_headroom_pct is not None
+    ):
+        factor = min(
+            factor,
+            max(
+                ZERO,
+                entry_headroom_pct / config.entry_room.thin_headroom_max,
+            ),
+        )
+    if risk_reward_ratio is not None:
+        factor = min(
+            factor,
+            risk_reward_ratio / config.entry_room.minimum_risk_reward,
+            ONE,
+        )
+    return (setup_quality_score * factor).quantize(
+        config.scoring.normalized_score_quantum,
+        rounding=ROUND_HALF_UP,
     )
 
 
@@ -778,8 +801,6 @@ def evaluate_strategy(
         current=current,
         anchor=anchor,
         support=setup_support,
-        invalid_price=setup_invalid_price,
-        s1=setup_target_s1,
         config=config,
     )
     b1_ready = (
@@ -803,12 +824,6 @@ def evaluate_strategy(
             current=current,
             anchor=anchor,
             trigger=trigger,
-            invalid_price=(
-                eligible_invalid_snapshot.invalid_price
-                if eligible_invalid_snapshot is not None
-                else None
-            ),
-            s1=eligible_target_s1,
             config=config,
         )
         mandatory_b2 = {
@@ -1067,6 +1082,16 @@ def evaluate_strategy(
                 }
             }
         )
+    entry_quality_score = _entry_quality_score(
+        setup_quality_score=score.normalized_score,
+        stage=stage,
+        data_quality=data_quality,
+        event_flags=flags,
+        entry_headroom_pct=entry_headroom_pct,
+        entry_room_state=entry_room_state,
+        risk_reward_ratio=risk_reward,
+        config=config,
+    )
 
     return StrategySignal(
         strategy_version=config.strategy_version,
@@ -1126,5 +1151,6 @@ def evaluate_strategy(
         entry_room_state=entry_room_state,
         entry_room_reasons=entry_room_reasons,
         risk_reward_ratio=risk_reward,
+        entry_quality_score=entry_quality_score,
         invalidation_reasons=invalidation_reasons,
     )

@@ -205,3 +205,16 @@ OPEN_SPACE不虚构S1和risk/reward，继续进入人工复核。
 setup摘要用ACTIVE、INVALIDATED、SUPERSEDED_BY_NEW_ANCHOR和EXPIRED表达生命周期。
 INVALID在首次失效日闭合；仍有效的旧setup在新锚点日被替代；没有新锚点且离开
 回看窗口则过期。否决仅因setup最后一条记录是LIMIT_ANCHOR而永久显示为活动状态。
+
+## D-024 Setup生命周期与入场价值解耦
+
+**状态：已采纳**
+
+`setup_stage`只表达结构生命周期。B1门槛删除risk/reward条件，B2确认的“其余条件”
+删除S1空间条件；target S1是否存在、压力质量、risk/reward、entry room及S1事件
+不得改变B1/B2状态。INVALID仍是结构终止条件。
+
+现有缺失感知`ScoreBreakdown.normalized_score`明确作为
+`setup_quality_score`，其数值不读取S1和入场空间。`entry_quality_score`单独从
+setup质量派生：NONE、S1_BREAKOUT、S2_EXHAUSTED或UNUSABLE为0；THIN和可用
+risk/reward只做入场折减；OPEN_SPACE不因缺失target被记零分，继续人工复核。

@@ -174,7 +174,6 @@ class B1Config(DomainModel):
     volume_to_anchor_max: PositiveDecimal
     recent_volume_days: int = Field(ge=1)
     recent_volume_to_post_anchor_max: PositiveDecimal
-    minimum_risk_reward: PositiveDecimal
     minimum_condition_ratio: RatioDecimal
 
     @model_validator(mode="after")
@@ -218,6 +217,7 @@ class B2Config(DomainModel):
 class EntryRoomConfig(DomainModel):
     thin_headroom_max: RatioDecimal
     sufficient_headroom_min: RatioDecimal
+    minimum_risk_reward: PositiveDecimal
 
     @model_validator(mode="after")
     def validate_boundary(self) -> "EntryRoomConfig":

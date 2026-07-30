@@ -16,6 +16,7 @@ from limit_pullback.models.enums import (
     EntryRoomState,
     EventFlag,
     PatternType,
+    ReviewGroup,
     ScoreProfile,
     SetupStage,
     SetupTerminationReason,
@@ -50,6 +51,8 @@ class ReplayTimelineItem(DomainModel):
     b2_conditions: ConditionSnapshot | None = None
     score_profile: ScoreProfile
     normalized_score: DecimalValue
+    setup_quality_score: DecimalValue
+    entry_quality_score: DecimalValue | None = None
     is_entry_candidate: bool
     anchor_snapshot: AnchorSnapshot | None = None
     support_snapshot: SupportSnapshot | None = None
@@ -63,6 +66,8 @@ class ReplayTimelineItem(DomainModel):
     entry_headroom_pct: DecimalValue | None = None
     entry_room_state: EntryRoomState | None = None
     entry_room_reasons: tuple[str, ...] = ()
+    risk_reward_ratio: DecimalValue | None = None
+    review_group: ReviewGroup
     initial_invalid_price: PositiveDecimal | None = None
     invalid_price: PositiveDecimal | None = None
     reasons: dict[str, str] = Field(default_factory=dict)
