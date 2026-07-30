@@ -1,0 +1,30 @@
+b1_ready:
+  setup_stage: B1_READY
+  event_flags: [NEAR_S1, SUPPORT_WARNING]
+  patterns: [AIR_REFUEL, BEARISH_PULLBACK]
+  review_group: STANDARD
+
+b2_ready:
+  setup_stage: B2_READY
+  event_flags: [NEAR_S1, SUPPORT_WARNING]
+  review_group: STANDARD
+
+b2_confirmed:
+  setup_stage: B2_CONFIRMED
+  event_flags: [NEAR_S1, S1_BREAKOUT, SUPPORT_WARNING]
+  review_group: STANDARD
+
+s2_exhausted:
+  setup_stage: B2_READY
+  event_flags: [NEAR_S1, S2_EXHAUSTED, SUPPORT_WARNING]
+  review_group: STANDARD
+
+invalid:
+  setup_stage: INVALID
+  event_flags: [NEAR_S1]
+  review_group: STANDARD
+
+open_space:
+  setup_stage: B1_READY
+  event_flags: [SUPPORT_WARNING]
+  review_group: OPEN_SPACE

@@ -1,0 +1,90 @@
+valid_b2_confirmed:
+  strategy_version: "0.1.0"
+  setup_id: "600000:2024-01-03"
+  trade_date: 2024-01-08
+  code: "600000"
+  generated_at: "2024-01-08T16:10:00+08:00"
+  setup_stage: "B2_CONFIRMED"
+  event_flags: ["NEAR_S1"]
+  review_group: "STANDARD"
+  data_quality: "OK"
+  quality_flags: []
+  score:
+    profile: "FULL"
+    profile_max_score: "100"
+    component_scores:
+      limit_close: "6"
+      position_120: "6"
+    component_max_scores:
+      limit_close: "6"
+      position_120: "8"
+    unavailable_rules: []
+    reasons:
+      limit_close: "涨停收盘确认"
+    risks:
+      position_120: "位置分未满"
+    quality_flags: []
+  anchor:
+    anchor_date: 2024-01-03
+    anchor_price: "11.00"
+    frozen_as_of: 2024-01-03
+    source: "SYNTHETIC"
+  support:
+    support_low: "10.80"
+    support_high: "11.05"
+    support_center: "10.925"
+    sources: ["ANCHOR_PRICE", "MA10"]
+    frozen_as_of: 2024-01-05
+  initial_invalid_price: "10.70"
+  invalid_price: "10.80"
+  b2_trigger:
+    trigger_price: "11.35"
+    frozen_as_of: 2024-01-05
+    eligible_from: 2024-01-08
+    sources: ["PULLBACK_PLATFORM_HIGH"]
+  s1:
+    s1_low: "12.00"
+    s1_high: "12.15"
+    sources: ["LEFT_HIGH_60"]
+    frozen_as_of: 2024-01-05
+  risk_reward_ratio: "1.75"
+
+valid_open_space:
+  strategy_version: "0.1.0"
+  setup_id: "600001:2024-01-03"
+  trade_date: 2024-01-05
+  code: "600001"
+  generated_at: "2024-01-05T16:10:00+08:00"
+  setup_stage: "B1_READY"
+  event_flags: []
+  review_group: "OPEN_SPACE"
+  data_quality: "PARTIAL"
+  quality_flags: ["INFERRED_LIMIT_ANCHOR", "MISSING_SCORE_FIELD:seal_before_cutoff"]
+  score:
+    profile: "PRICE_ONLY"
+    profile_max_score: "91"
+    component_scores:
+      limit_close: "6"
+    component_max_scores:
+      limit_close: "6"
+    unavailable_rules: ["seal_before_cutoff"]
+    reasons:
+      limit_close: "价格推断涨停收盘"
+    risks: {}
+    quality_flags: ["MISSING_SCORE_FIELD:seal_before_cutoff"]
+  anchor:
+    anchor_date: 2024-01-03
+    anchor_price: "11.00"
+    frozen_as_of: 2024-01-03
+    source: "PRICE_ONLY"
+  support:
+    support_low: "10.75"
+    support_high: "11.05"
+    support_center: "10.90"
+    sources: ["ANCHOR_PRICE"]
+    frozen_as_of: 2024-01-05
+  initial_invalid_price: "10.69"
+  invalid_price: "10.69"
+  b2_trigger: null
+  s1: null
+  risk_reward_ratio: null

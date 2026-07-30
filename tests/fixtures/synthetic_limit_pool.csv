@@ -1,0 +1,2 @@
+trade_date,code,name,limit_price,first_seal_time,last_seal_time,open_count,consecutive_count,turnover_rate,float_market_cap,total_market_cap,industry,source,fetched_at
+2024-01-03,600000,合成股份,11.00,10:15:00,14:10:00,1,1,0.05,1000000000,2000000000,合成行业,SYNTHETIC,2024-01-03T16:05:00+08:00

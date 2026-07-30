@@ -1,0 +1,178 @@
+strategy_version: "0.1.0"
+
+universe:
+  exchanges:
+    - "SH"
+    - "SZ"
+  boards:
+    - "MAIN"
+  minimum_listing_trade_days: 120
+  exclude_st: true
+  require_active_trade: true
+
+price_system:
+  raw_price_uses:
+    - "limit_price"
+    - "support"
+    - "resistance"
+    - "b2_trigger"
+    - "invalid_price"
+    - "execution"
+    - "chart"
+  continuous_seed: "FIRST_VALID_CLOSE"
+  continuous_return_numerator: "close"
+  continuous_return_denominator: "preclose"
+  reject_invalid_preclose: true
+
+anchor:
+  limit_rate: "0.10"
+  price_tick: "0.01"
+  lookback_trade_days: 10
+  recent_limit_window: 7
+  recent_limit_count_min: 1
+  recent_limit_count_max: 2
+  first_seal_cutoff: "14:30:00"
+  require_non_consecutive: true
+  require_first_board: true
+  require_positive_volume: true
+  require_positive_amount: true
+  limit_price_tolerance: "0.01"
+
+indicators:
+  moving_average_windows: [5, 10, 20, 30, 120, 250]
+  position_window: 120
+  position_thresholds:
+    high_score_max: "0.35"
+    medium_score_max: "0.55"
+    low_score_max: "0.70"
+  ma_compression_thresholds:
+    high_max: "0.025"
+    good_max: "0.04"
+    normal_max: "0.06"
+  kline:
+    doji_body_share_max: "0.10"
+    small_body_share_max: "0.40"
+    long_body_share_min: "0.60"
+    long_shadow_share_min: "0.40"
+
+patterns:
+  minimum_condition_ratio: "0.60"
+  air_refuel:
+    minimum_close_to_anchor: "0.98"
+    current_close_to_anchor_minimum: "1.00"
+    recent_volume_days: 3
+    recent_volume_to_anchor_maximum: "0.80"
+    amplitude_contraction_maximum: "0.90"
+    ma_distance_maximum: "0.02"
+  bearish_pullback:
+    require_bearish_bar: true
+    support_touch_tolerance: "0.02"
+    volume_contraction_maximum: "0.85"
+
+support:
+  cluster_distance: "0.02"
+  invalid_buffer: "0.005"
+  platform_lookback_days: 20
+  moving_average_sources: [5, 10, 20, 30, 120, 250]
+  prefer_anchor_or_ma10: true
+
+resistance:
+  cluster_distance: "0.02"
+  left_high_lookback_days: 60
+  recent_high_lookback_days: 20
+  first_post_anchor_window_days: 3
+
+b1:
+  days_after_anchor_min: 1
+  days_after_anchor_max: 7
+  optimal_days_min: 2
+  optimal_days_max: 5
+  close_to_anchor_min: "0.96"
+  close_to_anchor_max: "1.08"
+  volume_to_anchor_max: "0.85"
+  recent_volume_days: 3
+  recent_volume_to_post_anchor_max: "0.80"
+  minimum_risk_reward: "1.50"
+  minimum_condition_ratio: "0.60"
+
+b2:
+  daily_return_min: "0.02"
+  daily_return_max: "0.07"
+  close_location_min: "0.65"
+  volume_expansion_min: "1.10"
+  volume_expansion_max: "1.80"
+  trigger_buffer: "0.001"
+  platform_lookback_days: 2
+  skip_gap_open: "0.03"
+  minimum_condition_ratio: "0.60"
+
+events:
+  near_s1_distance: "0.02"
+  s1_breakout_close_buffer: "0.00"
+  support_warning_distance: "0.02"
+  s2:
+    close_off_high_min: "0.03"
+    upper_shadow_share_min: "0.40"
+    volume_to_ma5_min: "1.50"
+    minimum_condition_ratio: "0.60"
+
+invalidation:
+  support_break_buffer: "0.005"
+  volume_expansion_min: "1.50"
+  consecutive_distribution_days: 2
+  recovery_days: 1
+  invalid_price_may_loosen: false
+
+scoring:
+  normalized_score_quantum: "0.01"
+  profiles:
+    FULL:
+      profile_max_score: "100"
+      rule_max_scores:
+        limit_close: "6"
+        non_one_word: "4"
+        non_t_board: "4"
+        first_board: "4"
+        seal_before_cutoff: "4"
+        normal_liquidity: "3"
+        position_120: "8"
+        ma_compression: "7"
+        bullish_cross_ma: "5"
+        price_retention: "5"
+        amplitude_contraction: "5"
+        volume_contraction: "8"
+        no_volume_break: "4"
+        stabilization: "3"
+        support_sources: "6"
+        support_key_source: "5"
+        support_not_broken: "4"
+        b1_quality: "5"
+        b2_quality: "5"
+        industry_resonance: "5"
+    PRICE_ONLY:
+      profile_max_score: "91"
+      rule_max_scores:
+        limit_close: "6"
+        non_one_word: "4"
+        non_t_board: "4"
+        first_board: "4"
+        normal_liquidity: "3"
+        position_120: "8"
+        ma_compression: "7"
+        bullish_cross_ma: "5"
+        price_retention: "5"
+        amplitude_contraction: "5"
+        volume_contraction: "8"
+        no_volume_break: "4"
+        stabilization: "3"
+        support_sources: "6"
+        support_key_source: "5"
+        support_not_broken: "4"
+        b1_quality: "5"
+        b2_quality: "5"
+
+quality:
+  missing_score_flag_prefix: "MISSING_SCORE_FIELD:"
+  invalid_preclose_flag: "INVALID_PRECLOSE"
+  inferred_anchor_flag: "INFERRED_LIMIT_ANCHOR"
+  minimum_score_coverage: "0.70"
