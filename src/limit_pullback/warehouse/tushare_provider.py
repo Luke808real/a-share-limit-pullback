@@ -128,10 +128,12 @@ class TushareProProvider:
         *,
         client_factory: Callable[[str], Any] | None = None,
         clock: Callable[[], datetime] = _now_utc,
+        rate_limit_sink: Callable[[datetime], None] | None = None,
     ) -> None:
         self._client_factory = client_factory
         self._client: Any | None = None
         self._clock = clock
+        self._rate_limit_sink = rate_limit_sink
 
     @property
     def provider_version(self) -> str:
@@ -175,10 +177,24 @@ class TushareProProvider:
                     attempts += 1
                     if _is_rate_limit(message):
                         # Cross the provider's per-minute window.
-                        time.sleep(max(65.0, backoff_seconds * (2 ** (attempts - 1))))
+                        delay = max(
+                            65.0, backoff_seconds * (2 ** (attempts - 1))
+                        )
+                        if self._rate_limit_sink is not None:
+                            self._rate_limit_sink(
+                                datetime.now(timezone.utc).timestamp() + delay
+                            )
+                        time.sleep(delay)
                     else:
                         time.sleep(backoff_seconds * (2 ** (attempts - 1)))
                     continue
+                if _is_rate_limit(message):
+                    raise CapabilityUnavailable(
+                        capability,
+                        "UNAVAILABLE_PROVIDER",
+                        error_code="RATE_LIMITED",
+                        detail=message,
+                    ) from exc
                 if _looks_like_permission(message):
                     raise CapabilityUnavailable(
                         capability,
@@ -350,14 +366,21 @@ class TushareProProvider:
         return sorted(dates)
 
     def fetch_stock_basic(self, codes: tuple[str, ...]) -> list[dict[str, Any]]:
-        rows = self._frame_call(
-            "stock_basic",
-            lambda client: client.stock_basic(
-                exchange="",
-                list_status="L",
-                fields="ts_code,symbol,name,industry,market,list_date",
-            ),
-        )
+        rows: list[dict[str, Any]] = []
+        for list_status in ("L", "D", "P"):
+            rows.extend(
+                self._frame_call(
+                    "stock_basic",
+                    lambda client, status=list_status: client.stock_basic(
+                        exchange="",
+                        list_status=status,
+                        fields=(
+                            "ts_code,symbol,name,industry,market,"
+                            "list_date,delist_date"
+                        ),
+                    ),
+                )
+            )
         wanted = set(codes)
         if not wanted:
             return [normalize_tushare_stock_basic(row) for row in rows]

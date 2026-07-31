@@ -233,8 +233,9 @@ def test_pool_provisional_gate_formal_vs_debug(tmp_path):
         row for row in formal_rows.values() if row["setup_stage"] == "LIMIT_ANCHOR"
     ]
     assert anchor_rows
-    assert all("LIMIT_POOL_PROVISIONAL" in row["quality_flags"] for row in anchor_rows)
-    assert all(row["data_quality"] == "UNUSABLE" for row in anchor_rows)
+    # Pool rows are published as CONFIRMED_SINGLE_SOURCE under the frozen
+    # single-source policy, so formal mode may use them without suppression.
+    assert all("LIMIT_POOL_PROVISIONAL" not in row["quality_flags"] for row in anchor_rows)
     late_anchor = next(
         row
         for row in formal_rows.values()
@@ -243,9 +244,14 @@ def test_pool_provisional_gate_formal_vs_debug(tmp_path):
             and row["trade_date"] == dates[120].isoformat()
         )
     )
-    assert late_anchor["data_quality"] == "UNUSABLE"
-    assert formal.entry_candidate_count == 0
-    assert any("LIMIT_POOL_PROVISIONAL_BLOCKED_FORMAL" in note for note in formal.notes)
+    assert late_anchor["data_quality"] in {"OK", "PARTIAL"}
+    # CONFIRMED_SINGLE_SOURCE pool rows are formally usable under the frozen
+    # single-source publication policy.
+    assert formal.entry_candidate_count > 0
+    assert all(
+        "LIMIT_POOL_PROVISIONAL_BLOCKED_FORMAL" not in note
+        for note in formal.notes
+    )
 
     debug = run_screen(
         layout=layout,
@@ -262,10 +268,9 @@ def test_pool_provisional_gate_formal_vs_debug(tmp_path):
         if row["setup_stage"] == "LIMIT_ANCHOR"
     ]
     assert all(
-        "LIMIT_POOL_PROVISIONAL_WARNING" in row["quality_flags"]
+        "LIMIT_POOL_PROVISIONAL_WARNING" not in row["quality_flags"]
         for row in debug_anchors
     )
-    assert all(row["data_quality"] != "OK" for row in debug_anchors)
     late_debug = next(
         row
         for row in debug_rows.values()
@@ -274,7 +279,21 @@ def test_pool_provisional_gate_formal_vs_debug(tmp_path):
             and row["trade_date"] == dates[120].isoformat()
         )
     )
-    assert late_debug["data_quality"] == "DEGRADED"
+    assert late_debug["data_quality"] in {"OK", "PARTIAL"}
+    assert any("LIMIT_POOL_DEBUG_MODE" in note for note in debug.notes)
+
+    from limit_pullback.screen.engine import pool_quality
+    from limit_pullback.models.enums import DataQuality
+
+    quality, flag = pool_quality("PROVISIONAL", pool_mode="formal")
+    assert quality is DataQuality.UNUSABLE
+    assert flag == "LIMIT_POOL_PROVISIONAL"
+    quality, flag = pool_quality("PROVISIONAL", pool_mode="debug")
+    assert quality is DataQuality.DEGRADED
+    assert flag == "LIMIT_POOL_PROVISIONAL_WARNING"
+    quality, flag = pool_quality("CONFIRMED_SINGLE_SOURCE", pool_mode="formal")
+    assert quality is DataQuality.OK
+    assert flag is None
     assert any("LIMIT_POOL_DEBUG_MODE" in note for note in debug.notes)
 
 

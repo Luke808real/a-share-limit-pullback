@@ -22,6 +22,7 @@ INCOMPLETE = "INCOMPLETE"
 CONFLICTED = "CONFLICTED"
 QUARANTINED = "QUARANTINED"
 CORPORATE_ACTION_PRECLOSE_DIVERGENCE = "CORPORATE_ACTION_PRECLOSE_DIVERGENCE"
+CONFIRMED_SINGLE_SOURCE = "CONFIRMED_SINGLE_SOURCE"
 
 
 class ReconciliationPolicy(DomainModel):
@@ -320,7 +321,9 @@ def reconcile_limit_up_pool(
     snapshot_id: str | None = None,
     clock=None,
 ) -> tuple[list[dict[str, Any]], list[ReconciliationRecord], list[QuarantineRecord]]:
-    """The limit-up pool is AKShare-owned; rows stay whole and PROVISIONAL.
+    """The limit-up pool is AKShare-owned; rows stay whole and are formally
+    published as ``CONFIRMED_SINGLE_SOURCE`` under the frozen single-source
+    publication policy.
 
     Distinct rows for the same (code, date) are a same-source conflict and go
     to quarantine instead of being silently resolved.
@@ -367,20 +370,20 @@ def reconcile_limit_up_pool(
         row = next(iter(unique.values()))
         canonical_row = dict(row)
         canonical_row["selected_provider"] = "AKSHARE"
-        canonical_row["reconciliation_status"] = PROVISIONAL
+        canonical_row["reconciliation_status"] = CONFIRMED_SINGLE_SOURCE
         canonical_row["source_row_hash"] = row["row_hash"]
         canonical.append(canonical_row)
         records.append(
             ReconciliationRecord(
                 reconciliation_id=_identifier(
-                    code, trade_date, "AKSHARE", PROVISIONAL, snapshot_id or ""
+                    code, trade_date, "AKSHARE", CONFIRMED_SINGLE_SOURCE, snapshot_id or ""
                 ),
                 code=code,
                 trade_date=trade_date,
                 providers=("AKSHARE",),
-                status=PROVISIONAL,
+                status=CONFIRMED_SINGLE_SOURCE,
                 selected_provider="AKSHARE",
-                notes="SINGLE_SOURCE_LIMIT_POOL",
+                notes="SINGLE_SOURCE_CONFIRMED_POLICY",
                 created_at=now,
                 snapshot_id=snapshot_id,
             )

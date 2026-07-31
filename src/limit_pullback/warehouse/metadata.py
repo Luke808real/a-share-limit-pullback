@@ -179,9 +179,15 @@ class WarehouseMetadata:
                 error VARCHAR,
                 retry_count BIGINT NOT NULL DEFAULT 0,
                 status VARCHAR NOT NULL,
+                retry_at TIMESTAMPTZ,
                 created_at TIMESTAMPTZ NOT NULL,
                 updated_at TIMESTAMPTZ NOT NULL
             )
+            """
+        )
+        self._connection.execute(
+            """
+            ALTER TABLE ingest_failures ADD COLUMN IF NOT EXISTS retry_at TIMESTAMPTZ
             """
         )
 
@@ -580,19 +586,23 @@ class WarehouseMetadata:
         error: str,
         retry_count: int = 0,
         status: str = "PENDING",
+        retry_at=None,
         created_at: datetime,
         updated_at: datetime | None = None,
     ) -> None:
+        if isinstance(retry_at, (int, float)):
+            retry_at = datetime.fromtimestamp(retry_at, tz=timezone.utc)
         self._connection.execute(
             """
             INSERT INTO ingest_failures (
                 failure_id, run_id, provider, dataset, code, trade_date,
-                error, retry_count, status, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                error, retry_count, status, retry_at, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (failure_id) DO UPDATE SET
                 error = excluded.error,
                 retry_count = excluded.retry_count,
                 status = excluded.status,
+                retry_at = excluded.retry_at,
                 updated_at = excluded.updated_at
             """,
             [
@@ -605,6 +615,7 @@ class WarehouseMetadata:
                 error,
                 retry_count,
                 status,
+                retry_at,
                 _utc(created_at),
                 _utc(updated_at or created_at),
             ],
@@ -631,6 +642,36 @@ class WarehouseMetadata:
             }
             for row in rows
         ]
+
+    def deferred_failures(self, run_id: str) -> list[dict]:
+        rows = self._connection.execute(
+            """
+            SELECT provider, dataset, code, trade_date, error, retry_count, retry_at
+            FROM ingest_failures
+            WHERE run_id = ? AND status = 'DEFERRED_RATE_LIMIT'
+            ORDER BY provider, dataset, code, trade_date
+            """,
+            [run_id],
+        ).fetchall()
+        return [
+            {
+                "provider": row[0],
+                "dataset": row[1],
+                "code": row[2],
+                "trade_date": row[3],
+                "error": row[4],
+                "retry_count": row[5],
+                "retry_at": row[6],
+            }
+            for row in rows
+        ]
+
+    def failure_status_counts(self, run_id: str) -> dict[str, int]:
+        rows = self._connection.execute(
+            "SELECT status, count(*) FROM ingest_failures WHERE run_id = ? GROUP BY status",
+            [run_id],
+        ).fetchall()
+        return {str(status): int(count) for status, count in rows}
 
     def failure_count(self, run_id: str) -> int:
         rows = self._connection.execute(

@@ -84,8 +84,11 @@ class RealWarehouseProviderSet:
         tushare: TushareProProvider | None = None,
         akshare: AkshareWarehouseProvider | None = None,
         baostock: BaostockWarehouseProvider | None = None,
+        rate_limit_sink=None,
     ) -> None:
-        self._tushare = tushare or TushareProProvider()
+        self._tushare = tushare or TushareProProvider(
+            rate_limit_sink=rate_limit_sink
+        )
         self._akshare = akshare or AkshareWarehouseProvider()
         self._baostock = baostock or BaostockWarehouseProvider()
 

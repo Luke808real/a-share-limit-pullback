@@ -29,6 +29,7 @@ from limit_pullback.warehouse.parquet import (
     sha256_file,
     write_rows_atomic,
 )
+from limit_pullback.warehouse.tushare_provider import CapabilityUnavailable
 
 SOURCE_UNITS: dict[tuple[str, str], tuple[str, str]] = {
     ("TUSHARE", "daily_bars"): ("yuan;lots(shou);thousand_yuan", "yuan;shares;yuan"),
@@ -104,15 +105,73 @@ def fetch_with_retry(
             time.sleep(backoff_seconds * (2 ** (attempts - 1)))
 
 
-def main_board_universe(stock_basic_rows: Sequence[dict[str, Any]]) -> tuple[str, ...]:
-    """All legal SH/SZ main-board codes from Tushare stock_basic."""
+def main_board_universe(
+    stock_basic_rows: Sequence[dict[str, Any]],
+    start: date | None = None,
+    end: date | None = None,
+) -> tuple[str, ...]:
+    """All legal SH/SZ main-board codes from Tushare stock_basic.
+
+    Includes delisted/paused stocks whose listed window overlaps the requested
+    range, so historical coverage is complete.
+    """
 
     codes: set[str] = set()
     for row in stock_basic_rows:
         code = str(row.get("code") or "").zfill(6)
-        if code.startswith(("000", "001", "002", "003", "600", "601", "603", "605")):
-            codes.add(code)
+        if not code.startswith(
+            ("000", "001", "002", "003", "600", "601", "603", "605")
+        ):
+            continue
+        list_date = row.get("list_date")
+        delist_date = row.get("delist_date")
+        if list_date is None:
+            list_date = date(1970, 1, 1)
+        if end is not None and list_date > end:
+            continue
+        if delist_date is not None and start is not None and delist_date < start:
+            continue
+        codes.add(code)
     return tuple(sorted(codes))
+
+
+def stock_coverage(
+    stock_basic_rows: Sequence[dict[str, Any]],
+    start: date,
+    end: date,
+) -> dict[str, int]:
+    """Coverage statistics for the bootstrap universe."""
+
+    rows = [
+        row
+        for row in stock_basic_rows
+        if str(row.get("code") or "").zfill(6).startswith(
+            ("000", "001", "002", "003", "600", "601", "603", "605")
+        )
+    ]
+    delisted = [row for row in rows if row.get("delist_date") is not None]
+    delisted_in_window = [
+        row
+        for row in delisted
+        if row["delist_date"] >= start and (row.get("list_date") or date.min) <= end
+    ]
+    listed_now = [row for row in rows if row.get("delist_date") is None]
+    covered = [
+        row
+        for row in rows
+        if (row.get("list_date") or date(1970, 1, 1)) <= end
+        and (
+            row.get("delist_date") is None
+            or row["delist_date"] >= start
+        )
+    ]
+    return {
+        "total_rows": len(rows),
+        "listed_now": len(listed_now),
+        "delisted_total": len(delisted),
+        "delisted_in_window": len(delisted_in_window),
+        "covered_in_window": len(covered),
+    }
 
 
 def _decode_worker_value(value: Any) -> Any:
@@ -209,6 +268,7 @@ class FetchContext:
         self.retries = retries
         self.backoff_seconds = backoff_seconds
         self.worker_runner = None
+        self.phase = ""
         self.failures: list[dict[str, Any]] = []
 
     def completed(self, provider: str, dataset: str) -> set[str]:
@@ -242,6 +302,8 @@ class FetchContext:
         code: str | None,
         trade_date: date | None,
         error: str,
+        status: str = "PENDING",
+        retry_at=None,
     ) -> None:
         failure_id = _failure_id(
             self.run_id, provider, dataset, code or "", trade_date or ""
@@ -255,7 +317,8 @@ class FetchContext:
             trade_date=trade_date,
             error=error,
             retry_count=1,
-            status="PENDING",
+            status=status,
+            retry_at=retry_at,
             created_at=self.clock(),
         )
         self.failures.append(
@@ -265,6 +328,7 @@ class FetchContext:
                 "code": code,
                 "trade_date": trade_date.isoformat() if trade_date else None,
                 "error": error,
+                "status": status,
             }
         )
 
@@ -384,12 +448,13 @@ def fetch_rows(
                 pending_keys.extend(key(item) for item in todo)
             except Exception as exc:
                 for item in todo:
-                    ctx._fail(
-                        provider,
-                        dataset,
-                        None,
-                        item,
-                        redact(f"{type(exc).__name__}: {exc}"),
+                    _record_fetch_failure(
+                        ctx,
+                        provider=provider,
+                        dataset=dataset,
+                        code=None,
+                        trade_date=item,
+                        exc=exc,
                     )
             flush()
         return ctx.read_all(provider, dataset)
@@ -403,12 +468,13 @@ def fetch_rows(
 
     def handle_outcome(item: Any, outcome: Any) -> None:
         if isinstance(outcome, BaseException):
-            ctx._fail(
-                provider,
-                dataset,
-                None if item_is_date else str(item).zfill(6),
-                item if item_is_date else None,
-                redact(f"{type(outcome).__name__}: {outcome}"),
+            _record_fetch_failure(
+                ctx,
+                provider=provider,
+                dataset=dataset,
+                code=None if item_is_date else str(item).zfill(6),
+                trade_date=item if item_is_date else None,
+                exc=outcome,
             )
             return
         pending_rows.extend(outcome)
@@ -477,3 +543,32 @@ def fetch_rows(
                 flush()
     flush()
     return ctx.read_all(provider, dataset)
+
+
+def _record_fetch_failure(
+    ctx: FetchContext,
+    *,
+    provider: str,
+    dataset: str,
+    code: str | None,
+    trade_date: date | None,
+    exc: BaseException,
+) -> None:
+    if isinstance(exc, CapabilityUnavailable) and exc.error_code == "RATE_LIMITED":
+        ctx._fail(
+            provider,
+            dataset,
+            code,
+            trade_date,
+            redact(f"{type(exc).__name__}: {exc}"),
+            status="DEFERRED_RATE_LIMIT",
+            retry_at=ctx.clock().timestamp() + 70.0,
+        )
+    else:
+        ctx._fail(
+            provider,
+            dataset,
+            code,
+            trade_date,
+            redact(f"{type(exc).__name__}: {exc}"),
+        )

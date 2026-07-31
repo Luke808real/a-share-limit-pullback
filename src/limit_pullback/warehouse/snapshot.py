@@ -34,6 +34,7 @@ def create_snapshot(
     source_file_hashes: Mapping[str, str],
     reconciliation_policy_version: str,
     clock: Callable[[], datetime] = _now_utc,
+    status: str = "CURRENT",
 ) -> SnapshotRecord:
     """Publish a new immutable canonical snapshot."""
 
@@ -68,7 +69,7 @@ def create_snapshot(
             "source_file_hashes": dict(source_file_hashes),
             "canonical_file_hashes": canonical_file_hashes,
             "reconciliation_policy_version": reconciliation_policy_version,
-            "status": "CURRENT",
+            "status": status,
         },
         manifest_path,
     )
@@ -80,7 +81,7 @@ def create_snapshot(
         source_file_hashes=dict(source_file_hashes),
         canonical_file_hashes=canonical_file_hashes,
         reconciliation_policy_version=reconciliation_policy_version,
-        status="CURRENT",
+        status=status,
         manifest_path=str(manifest_path),
     )
     metadata.insert_snapshot(record)

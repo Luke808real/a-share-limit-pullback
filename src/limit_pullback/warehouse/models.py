@@ -26,6 +26,7 @@ ProbeStatus = Literal[
 ReconciliationStatus = Literal[
     "PROVISIONAL",
     "CONFIRMED",
+    "CONFIRMED_SINGLE_SOURCE",
     "INCOMPLETE",
     "CONFLICTED",
     "QUARANTINED",

@@ -162,6 +162,16 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="在独立子进程中抓取 AKShare（隔离 V8/mini_racer 原生崩溃）",
     )
+    bootstrap_parser.add_argument(
+        "--aux-backfill",
+        action="store_true",
+        help="使用独立 run_id 补抓 Tushare 辅助数据集并发布 RESEARCH_READY 快照",
+    )
+    bootstrap_parser.add_argument(
+        "--snapshot-status",
+        choices=("CURRENT", "SCREEN_READY", "RESEARCH_READY"),
+        default="CURRENT",
+    )
 
     update_parser = subparsers.add_parser(
         "update",
@@ -341,6 +351,8 @@ def _run_bootstrap(args: argparse.Namespace) -> int:
             workers=args.workers,
             skip_tushare_aux=args.skip_tushare_aux,
             isolate_akshare=args.isolate_akshare,
+            snapshot_status=args.snapshot_status,
+            aux_backfill=args.aux_backfill,
         )
     except Exception as exc:
         _print_error(exc)

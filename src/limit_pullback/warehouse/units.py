@@ -201,6 +201,7 @@ def normalize_tushare_stock_basic(row: Mapping[str, Any]) -> dict[str, Any]:
         "industry": as_text(row.get("industry")),
         "market": as_text(row.get("market")),
         "list_date": parse_date_yyyymmdd(row.get("list_date")),
+        "delist_date": parse_date_yyyymmdd(row.get("delist_date")),
         "is_st": _st_from_name(as_text(row.get("name"))),
     }
 
