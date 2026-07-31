@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import time
 from collections.abc import Callable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
 from typing import Any
 
@@ -261,6 +262,7 @@ def fetch_rows(
     use_bulk: bool = False,
     item_is_date: bool = False,
     batch_size: int = 20,
+    workers: int = 1,
 ) -> list[dict[str, Any]]:
     """Fetch dataset rows with per-item failure isolation and resume.
 
@@ -316,27 +318,52 @@ def fetch_rows(
             flush()
         return ctx.read_all(provider, dataset)
 
-    for item in items:
-        item_key = key(item)
-        if item_key in completed:
-            continue
-        try:
-            rows = fetch_with_retry(
-                lambda item=item: per_item_fn(item),
-                retries=ctx.retries,
-                backoff_seconds=ctx.backoff_seconds,
-            )
-            pending_rows.extend(rows)
-            pending_keys.append(item_key)
-        except Exception as exc:
+    def fetch_one(item: Any) -> list[dict[str, Any]]:
+        return fetch_with_retry(
+            lambda item=item: per_item_fn(item),
+            retries=ctx.retries,
+            backoff_seconds=ctx.backoff_seconds,
+        )
+
+    def handle_outcome(item: Any, outcome: Any) -> None:
+        if isinstance(outcome, BaseException):
             ctx._fail(
                 provider,
                 dataset,
                 None if item_is_date else str(item).zfill(6),
                 item if item_is_date else None,
-                redact(f"{type(exc).__name__}: {exc}"),
+                redact(f"{type(outcome).__name__}: {outcome}"),
             )
-        if len(pending_rows) >= ctx.batch_rows:
+            return
+        pending_rows.extend(outcome)
+        pending_keys.append(key(item))
+
+    todo_items = [item for item in items if key(item) not in completed]
+    if workers > 1:
+        chunk = max(workers * 8, 32)
+        for offset in range(0, len(todo_items), chunk):
+            slice_items = todo_items[offset : offset + chunk]
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                futures = {
+                    pool.submit(fetch_one, item): item for item in slice_items
+                }
+                for future, item in futures.items():
+                    try:
+                        outcome: Any = future.result()
+                    except Exception as exc:
+                        outcome = exc
+                    handle_outcome(item, outcome)
+                    if len(pending_rows) >= ctx.batch_rows:
+                        flush()
             flush()
+    else:
+        for item in todo_items:
+            try:
+                outcome = fetch_one(item)
+            except Exception as exc:
+                outcome = exc
+            handle_outcome(item, outcome)
+            if len(pending_rows) >= ctx.batch_rows:
+                flush()
     flush()
     return ctx.read_all(provider, dataset)

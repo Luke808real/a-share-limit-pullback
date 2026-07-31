@@ -361,6 +361,7 @@ def bootstrap(
     batch_size: int = 50,
     active_providers: tuple[str, ...] = ("TUSHARE", "AKSHARE", "BAOSTOCK"),
     bulk_threshold: int = 200,
+    workers: int = 1,
 ) -> BootstrapResult:
     """Full historical bootstrap with an exclusive write lock."""
 
@@ -379,6 +380,7 @@ def bootstrap(
             batch_size=batch_size,
             active_providers=active_providers,
             bulk_threshold=bulk_threshold,
+            workers=workers,
         )
 
 
@@ -396,6 +398,7 @@ def _bootstrap_impl(
     batch_size: int = 50,
     active_providers: tuple[str, ...] = ("TUSHARE", "AKSHARE", "BAOSTOCK"),
     bulk_threshold: int = 200,
+    workers: int = 1,
 ) -> BootstrapResult:
     """Full historical bootstrap with atomic snapshot publication."""
 
@@ -421,16 +424,26 @@ def _bootstrap_impl(
             trading_dates = _trading_dates(calendar, start, end)
             if not trading_dates:
                 raise PipelineError("NO_TRADING_DAYS", "no trading days in range")
+            from limit_pullback.warehouse.fetch import fetch_with_retry
+
             try:
-                stock_basic = providers.fetch_stock_basic(provided_codes)
+                stock_basic = fetch_with_retry(
+                    lambda: providers.fetch_stock_basic(provided_codes),
+                    retries=6,
+                    backoff_seconds=2.0,
+                )
             except CapabilityUnavailable as exc:
                 stock_basic = []
                 notes.append(f"SKIPPED_DATASET:stock_basic:{exc.status}")
+                notes.append(f"STOCK_BASIC_DETAIL:{exc.error_code}:{exc.detail}")
             if all_main_board:
                 if not stock_basic:
                     raise PipelineError(
                         "STOCK_BASIC_UNAVAILABLE",
-                        "all-main-board bootstrap requires stock_basic",
+                        (
+                            "all-main-board bootstrap requires stock_basic: "
+                            f"{notes[-2:] if notes else ''}"
+                        ),
                     )
                 from limit_pullback.warehouse.fetch import main_board_universe
 
@@ -547,6 +560,7 @@ def _bootstrap_impl(
                             dataset=dataset,
                             items=codes_tuple,
                             per_item_fn=lambda c, d=dataset: _tushare_per_code(d, c),
+                            workers=workers,
                         )
 
             daily_basic_rows = tushare_aux.get("daily_basic", [])
@@ -580,6 +594,7 @@ def _bootstrap_impl(
                             daily_basic=daily_basic_rows,
                             stock_basic=stock_basic,
                         ),
+                        workers=workers,
                     )
             else:
                 tushare_daily = []
@@ -596,6 +611,7 @@ def _bootstrap_impl(
                         daily_basic=[],
                         stock_basic=stock_basic,
                     ),
+                    workers=workers,
                 )
                 akshare_pool = fetch_rows(
                     ctx,
@@ -606,6 +622,7 @@ def _bootstrap_impl(
                         [d], codes_tuple
                     ),
                     item_is_date=True,
+                    workers=workers,
                 )
             else:
                 akshare_daily = []
@@ -621,6 +638,7 @@ def _bootstrap_impl(
                     per_item_fn=lambda c: providers.fetch_baostock_daily(
                         (c,), start, end
                     ),
+                    workers=workers,
                 )
             else:
                 baostock_daily = []
