@@ -5,9 +5,11 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from datetime import date, datetime, timedelta, timezone
 
+from limit_pullback.instruments import parse_instrument_code
 from limit_pullback.models.config import StrategyConfig
 from limit_pullback.models.enums import (
     DataQuality,
+    EvaluationMode,
     EventFlag,
     SetupStage,
     SetupTerminationReason,
@@ -54,6 +56,20 @@ def _missing_fields(flags: Sequence[str]) -> tuple[str, ...]:
     for flag in flags:
         if flag.startswith(("MISSING_DAILY_FIELD:", "MISSING_LIMIT_FIELD:")):
             fields.add(flag.rsplit(":", 1)[-1])
+        elif flag.startswith("MALFORMED_DAILY_ROW:"):
+            parts = flag.split(":", 3)
+            if len(parts) != 4:
+                continue
+            fields.update(
+                field
+                for field in parts[3].split(",")
+                if (
+                    field
+                    and field not in {"invalid_date", "missing_date"}
+                    and field.replace("_", "").isalnum()
+                    and not field[0].isdigit()
+                )
+            )
     return tuple(sorted(fields))
 
 
@@ -64,14 +80,56 @@ def _worst_quality(values: Sequence[DataQuality]) -> DataQuality:
 def _merge_signal_quality(
     signal: StrategySignal,
     source_qualities: Sequence[DataQuality],
+    *,
+    source_flags: Sequence[str] = (),
+    insufficient_history: bool = False,
 ) -> StrategySignal:
     merged = _worst_quality((signal.data_quality, *source_qualities))
-    if merged is signal.data_quality:
-        return signal
-    updates: dict[str, object] = {"data_quality": merged}
+    flags = {*signal.quality_flags, *source_flags}
+    if insufficient_history:
+        merged = DataQuality.UNUSABLE
+        flags.add("INSUFFICIENT_TRADING_HISTORY")
+    updates: dict[str, object] = {}
+    if merged is not signal.data_quality:
+        updates["data_quality"] = merged
+    frozen_flags = tuple(sorted(flags))
+    if frozen_flags != signal.quality_flags:
+        updates["quality_flags"] = frozen_flags
     if merged is DataQuality.UNUSABLE and signal.entry_quality_score is not None:
         updates["entry_quality_score"] = signal.entry_quality_score * 0
+    if not updates:
+        return signal
     return signal.model_copy(update=updates)
+
+
+def _quality_flag_date(flag: str) -> date | None:
+    if not flag.startswith((
+        "DUPLICATE_DAILY_ROW_DEDUPED:",
+        "MALFORMED_DAILY_ROW:",
+        "MISSING_DAILY_FIELD:",
+        "NON_TRADING_BAR_SKIPPED:",
+    )):
+        return None
+    parts = flag.split(":")
+    if len(parts) < 3:
+        return None
+    try:
+        return date.fromisoformat(parts[2])
+    except ValueError:
+        return None
+
+
+def _daily_prefix_quality(
+    overall: DataQuality,
+    flags: Sequence[str],
+) -> DataQuality:
+    if overall is DataQuality.UNUSABLE:
+        return DataQuality.UNUSABLE
+    if any(flag.startswith("MALFORMED_DAILY_ROW:") for flag in flags):
+        return DataQuality.DEGRADED
+    if flags:
+        return DataQuality.PARTIAL
+    return DataQuality.OK
 
 
 def _timeline_item(signal: StrategySignal) -> ReplayTimelineItem:
@@ -252,6 +310,7 @@ def replay_stock(
 ) -> ReplayOutput:
     """Replay one stock from oldest to newest without exposing future rows."""
 
+    code = parse_instrument_code(code).normalized_code
     if lookback_calendar_days < 1:
         raise ValueError("lookback_calendar_days must be at least 1")
     if start is not None and start > as_of:
@@ -296,6 +355,7 @@ def replay_stock(
     pool_records: list[LimitUpRecord] = []
     pool_reports: list[DataSourceReport] = []
     pool_quality_by_date: dict[date, DataQuality] = {}
+    pool_flags_by_date: dict[date, tuple[str, ...]] = {}
     for pool_date in candidate_pool_dates:
         result = limit_pool_provider.fetch_limit_up_pool(
             LimitUpPoolRequest(
@@ -304,6 +364,7 @@ def replay_stock(
             )
         )
         pool_quality_by_date[pool_date] = result.quality
+        pool_flags_by_date[pool_date] = result.quality_flags
         pool_records.extend(
             record
             for record in result.records
@@ -341,14 +402,36 @@ def replay_stock(
             limit_pool=pool_up_to_trade_date,
             previous_signal=previous_signal,
         )
-        relevant_source_qualities = [daily_result.quality]
+        daily_prefix_flags = tuple(
+            flag
+            for flag in daily_result.quality_flags
+            if (
+                (flag_date := _quality_flag_date(flag)) is None
+                or flag_date <= current.trade_date
+            )
+        )
+        relevant_source_qualities = [
+            _daily_prefix_quality(daily_result.quality, daily_prefix_flags)
+        ]
+        relevant_source_flags = list(daily_prefix_flags)
         if signal.anchor is not None:
             anchor_pool_quality = pool_quality_by_date.get(
                 signal.anchor.anchor_date
             )
             if anchor_pool_quality is not None:
                 relevant_source_qualities.append(anchor_pool_quality)
-        signal = _merge_signal_quality(signal, relevant_source_qualities)
+                relevant_source_flags.extend(
+                    pool_flags_by_date.get(signal.anchor.anchor_date, ())
+                )
+        signal = _merge_signal_quality(
+            signal,
+            relevant_source_qualities,
+            source_flags=relevant_source_flags,
+            insufficient_history=(
+                len(bars_up_to_trade_date)
+                < config.universe.minimum_listing_trade_days
+            ),
+        )
         timeline_item = _timeline_item(signal)
         all_timeline.append(timeline_item)
         if start is None or current.trade_date >= start:
@@ -371,6 +454,9 @@ def replay_stock(
         *(report.quality for report in pool_reports),
     ]
     replay_data_quality = _worst_quality(source_qualities)
+    if len(bars) < config.universe.minimum_listing_trade_days:
+        aggregate_flags.add("INSUFFICIENT_TRADING_HISTORY")
+        replay_data_quality = DataQuality.UNUSABLE
     if is_stale:
         aggregate_flags.add("STALE_DATA")
         if (
@@ -412,6 +498,7 @@ def replay_stock(
         else None
     )
     return ReplayOutput(
+        evaluation_mode=EvaluationMode.POINT_IN_TIME_REPLAY,
         code=code,
         requested_start=start,
         requested_as_of=as_of,

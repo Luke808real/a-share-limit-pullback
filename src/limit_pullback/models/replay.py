@@ -14,6 +14,7 @@ from limit_pullback.models.base import (
 from limit_pullback.models.enums import (
     DataQuality,
     EntryRoomState,
+    EvaluationMode,
     EventFlag,
     PatternType,
     ReviewGroup,
@@ -130,6 +131,7 @@ class SetupSummary(DomainModel):
 
 
 class ReplayOutput(DomainModel):
+    evaluation_mode: EvaluationMode
     code: str = Field(pattern=r"^\d{6}$")
     requested_start: date | None = None
     requested_as_of: date

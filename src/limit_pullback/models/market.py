@@ -7,6 +7,7 @@ from typing import Literal
 
 from pydantic import Field, field_validator, model_validator
 
+from limit_pullback.instruments import parse_instrument_code
 from limit_pullback.models.base import (
     DecimalValue,
     DomainModel,
@@ -81,11 +82,12 @@ class DailyBarsRequest(DomainModel):
     def validate_codes(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         if not value:
             raise ValueError("at least one code is required")
-        if any(len(code) != 6 or not code.isdigit() for code in value):
-            raise ValueError("codes must contain six digits")
-        if len(set(value)) != len(value):
+        normalized = tuple(
+            parse_instrument_code(code).normalized_code for code in value
+        )
+        if len(set(normalized)) != len(normalized):
             raise ValueError("codes must be unique")
-        return value
+        return normalized
 
     @model_validator(mode="after")
     def validate_dates(self) -> "DailyBarsRequest":
@@ -101,11 +103,12 @@ class LimitUpPoolRequest(DomainModel):
     @field_validator("codes")
     @classmethod
     def validate_codes(cls, value: tuple[str, ...]) -> tuple[str, ...]:
-        if any(len(code) != 6 or not code.isdigit() for code in value):
-            raise ValueError("codes must contain six digits")
-        if len(set(value)) != len(value):
+        normalized = tuple(
+            parse_instrument_code(code).normalized_code for code in value
+        )
+        if len(set(normalized)) != len(normalized):
             raise ValueError("codes must be unique")
-        return value
+        return normalized
 
 
 class DailyBarsResult(DomainModel):

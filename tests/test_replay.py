@@ -3,10 +3,13 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
+import pytest
+
 from limit_pullback.config import load_strategy_config
 from limit_pullback.models.enums import (
     DataQuality,
     EventFlag,
+    EvaluationMode,
     PatternType,
     SetupStage,
     SetupTerminationReason,
@@ -37,9 +40,10 @@ class SyntheticDailyProvider:
     provider_name = "SYNTHETIC_DAILY"
     provider_version = "1"
 
-    def __init__(self, bars, quality=DataQuality.OK):
+    def __init__(self, bars, quality=DataQuality.OK, flags=()):
         self.bars = tuple(bars)
         self.quality = quality
+        self.flags = tuple(flags)
         self.request = None
 
     def fetch_daily_bars(self, request):
@@ -47,6 +51,7 @@ class SyntheticDailyProvider:
         return DailyBarsResult(
             bars=self.bars,
             quality=self.quality,
+            quality_flags=self.flags,
             fetched_at=GENERATED_AT,
         )
 
@@ -436,6 +441,100 @@ def test_replay_metadata_lists_every_requested_pool_date(project_root):
     assert output.daily_provider_version == "1"
     assert output.limit_pool_provider == "SYNTHETIC_POOL"
     assert output.limit_pool_provider_version == "1"
+    assert (
+        output.evaluation_mode
+        is EvaluationMode.POINT_IN_TIME_REPLAY
+    )
+
+
+def test_replay_accepts_arbitrary_supported_main_board_code(project_root):
+    code = "603318"
+    bars = tuple(
+        bar.model_copy(update={"code": code})
+        for bar in append_pullback_bars(base_setup_bars())
+    )
+    records = tuple(
+        record.model_copy(update={"code": code})
+        for record in full_limit_pool(list(bars))[:1]
+    )
+
+    output = replay_stock(
+        code=code,
+        start=None,
+        as_of=bars[-1].trade_date,
+        lookback_calendar_days=1000,
+        config=_config(project_root),
+        daily_provider=SyntheticDailyProvider(bars),
+        limit_pool_provider=SyntheticPoolProvider(records),
+        clock=lambda: GENERATED_AT,
+    )
+
+    assert output.code == code
+    assert output.evaluation_mode is EvaluationMode.POINT_IN_TIME_REPLAY
+
+
+def test_replay_rejects_unsupported_board_before_provider(project_root):
+    class ProviderMustNotRun:
+        def fetch_daily_bars(self, request):
+            raise AssertionError("provider must not be called")
+
+    with pytest.raises(ValueError, match="UNSUPPORTED_MARKET_BOARD:688001"):
+        replay_stock(
+            code="688001",
+            start=None,
+            as_of=date(2026, 7, 30),
+            lookback_calendar_days=400,
+            config=_config(project_root),
+            daily_provider=ProviderMustNotRun(),
+            limit_pool_provider=SyntheticPoolProvider(()),
+            clock=lambda: GENERATED_AT,
+        )
+
+
+def test_replay_short_history_is_unusable_by_actual_bar_count(project_root):
+    bars = base_setup_bars()[:119]
+    output = _replay(project_root, bars, records=())
+
+    assert len(output.timeline) == 119
+    assert output.replay_data_quality is DataQuality.UNUSABLE
+    assert "INSUFFICIENT_TRADING_HISTORY" in output.quality_flags
+    assert all(
+        item.data_quality is DataQuality.UNUSABLE
+        and "INSUFFICIENT_TRADING_HISTORY" in item.quality_flags
+        and item.is_entry_candidate is False
+        for item in output.timeline
+    )
+
+
+def test_replay_uses_120_actual_bars_not_calendar_span(project_root):
+    bars = base_setup_bars()[:120]
+    output = _replay(project_root, bars, records=())
+
+    assert "INSUFFICIENT_TRADING_HISTORY" not in output.timeline[-1].quality_flags
+
+
+def test_future_daily_quality_flag_does_not_rewrite_earlier_timeline(project_root):
+    bars = append_pullback_bars(base_setup_bars())
+    future_flag = (
+        f"MALFORMED_DAILY_ROW:600000:{bars[-1].trade_date}:open,amount"
+    )
+    output = replay_stock(
+        code="600000",
+        start=None,
+        as_of=bars[-1].trade_date,
+        lookback_calendar_days=1000,
+        config=_config(project_root),
+        daily_provider=SyntheticDailyProvider(
+            bars,
+            quality=DataQuality.DEGRADED,
+            flags=(future_flag,),
+        ),
+        limit_pool_provider=SyntheticPoolProvider(full_limit_pool(bars)),
+        clock=lambda: GENERATED_AT,
+    )
+
+    assert future_flag not in output.timeline[-2].quality_flags
+    assert future_flag in output.timeline[-1].quality_flags
 
 
 def test_setup_summaries_do_not_mix_lifecycle_dates(project_root):

@@ -30,6 +30,11 @@ class DataQuality(StrEnum):
     UNUSABLE = "UNUSABLE"
 
 
+class EvaluationMode(StrEnum):
+    STATELESS_INSPECT = "STATELESS_INSPECT"
+    POINT_IN_TIME_REPLAY = "POINT_IN_TIME_REPLAY"
+
+
 class ScoreProfile(StrEnum):
     FULL = "FULL"
     PRICE_ONLY = "PRICE_ONLY"

@@ -119,6 +119,23 @@ def test_price_clustering_is_input_order_independent(project_root):
     assert forward[0].sources == ("ANCHOR", "MA10", "MA20")
 
 
+def test_cluster_center_clamps_decimal_context_rounding():
+    value = Decimal("7.907800000000000000000000012")
+    candidates = (
+        PriceLevelCandidate(source="SUPPORT_LOW_REFERENCE", value=value),
+        PriceLevelCandidate(source="SUPPORT_HIGH_REFERENCE", value=value),
+    )
+
+    cluster = cluster_price_candidates(
+        candidates,
+        Decimal("0.02"),
+    )[0]
+
+    assert cluster.low == value
+    assert cluster.center == value
+    assert cluster.high == value
+
+
 def test_support_selection_rejects_level_materially_above_close(project_root):
     config = load_strategy_config(project_root / "config" / "strategy.yaml")
     clusters = (

@@ -8,12 +8,13 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from contextlib import redirect_stderr, redirect_stdout
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from io import StringIO
 from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 
+from limit_pullback.instruments import parse_instrument_code
 from limit_pullback.models.enums import DataQuality
 from limit_pullback.models.market import DailyBar, DailyBarsRequest, DailyBarsResult
 from limit_pullback.providers.base import ProviderError
@@ -66,14 +67,6 @@ def _bool01(value: Any) -> bool | None:
     return None
 
 
-def _baostock_code(code: str) -> str:
-    if code.startswith("6"):
-        return f"sh.{code}"
-    if code.startswith(("0", "1", "2", "3")):
-        return f"sz.{code}"
-    raise ProviderError(f"unsupported A-share code for BaoStock: {code}")
-
-
 class BaoStockDailyBarProvider:
     """Fixed daily source: raw OHLCV/preclose/trading status/historical ST."""
 
@@ -114,20 +107,34 @@ class BaoStockDailyBarProvider:
         with redirect_stdout(sink), redirect_stderr(sink):
             return callable_(*args, **kwargs)
 
+    def _logout(self, client: Any) -> None:
+        try:
+            result = self._quiet_call(client.logout)
+        except ProviderError:
+            raise
+        except Exception as exc:
+            raise ProviderError(
+                f"BaoStock logout failed: {type(exc).__name__}: {exc}"
+            ) from exc
+        if result is not None:
+            self._check_result(result, "logout")
+
     def fetch_daily_bars(self, request: DailyBarsRequest) -> DailyBarsResult:
         client = self._load_client()
         fetched_at = self._clock()
         flags: set[str] = set()
-        bars: list[DailyBar] = []
+        bars_by_key: dict[tuple[str, date], DailyBar] = {}
         degraded = False
 
         login_result = self._quiet_call(client.login)
         self._check_result(login_result, "login")
+        query_error: BaseException | None = None
         try:
             for code in request.codes:
+                instrument = parse_instrument_code(code)
                 result = self._quiet_call(
                     client.query_history_k_data_plus,
-                    _baostock_code(code),
+                    instrument.baostock_code,
                     FIELDS,
                     start_date=request.start_date.isoformat(),
                     end_date=request.end_date.isoformat(),
@@ -142,9 +149,25 @@ class BaoStockDailyBarProvider:
                     trade_status = _bool01(row.get("tradestatus"))
                     if trade_date is None:
                         degraded = True
-                        flags.add(f"MALFORMED_DAILY_ROW:{code}:missing_date")
+                        flags.add(
+                            f"MALFORMED_DAILY_ROW:{code}:UNKNOWN:date"
+                        )
                         continue
-                    if trade_status is not True:
+                    try:
+                        parsed_trade_date = date.fromisoformat(trade_date)
+                    except ValueError:
+                        degraded = True
+                        flags.add(
+                            f"MALFORMED_DAILY_ROW:{code}:{trade_date}:date"
+                        )
+                        continue
+                    if trade_status is None:
+                        degraded = True
+                        flags.add(
+                            f"MALFORMED_DAILY_ROW:{code}:{trade_date}:trade_status"
+                        )
+                        continue
+                    if trade_status is False:
                         flags.add(f"NON_TRADING_BAR_SKIPPED:{code}:{trade_date}")
                         continue
 
@@ -183,29 +206,55 @@ class BaoStockDailyBarProvider:
                                 f"MISSING_DAILY_FIELD:{code}:{trade_date}:{field_name}"
                             )
 
-                    bars.append(
-                        DailyBar(
-                            trade_date=trade_date,
-                            code=code,
-                            open=required["open"],
-                            high=required["high"],
-                            low=required["low"],
-                            close=required["close"],
-                            preclose=required["preclose"],
-                            volume=required["volume"],
-                            amount=required["amount"],
-                            turnover_rate=turnover,
-                            pct_change=pct_change,
-                            trade_status=True,
-                            is_st=is_st,
-                            source=SOURCE_NAME,
-                            fetched_at=fetched_at,
-                        )
+                    bar = DailyBar(
+                        trade_date=parsed_trade_date,
+                        code=instrument.normalized_code,
+                        open=required["open"],
+                        high=required["high"],
+                        low=required["low"],
+                        close=required["close"],
+                        preclose=required["preclose"],
+                        volume=required["volume"],
+                        amount=required["amount"],
+                        turnover_rate=turnover,
+                        pct_change=pct_change,
+                        trade_status=True,
+                        is_st=is_st,
+                        source=SOURCE_NAME,
+                        fetched_at=fetched_at,
                     )
+                    key = (bar.code, bar.trade_date)
+                    existing = bars_by_key.get(key)
+                    if existing is None:
+                        bars_by_key[key] = bar
+                    elif existing == bar:
+                        flags.add(
+                            "DUPLICATE_DAILY_ROW_DEDUPED:"
+                            f"{bar.code}:{bar.trade_date.isoformat()}"
+                        )
+                    else:
+                        raise ProviderError(
+                            "CONFLICTING_DUPLICATE_DAILY_ROW:"
+                            f"{bar.code}:{bar.trade_date.isoformat()}"
+                        )
+        except BaseException as exc:
+            query_error = exc
+            raise
         finally:
-            self._quiet_call(client.logout)
+            try:
+                self._logout(client)
+            except Exception as logout_error:
+                if query_error is None:
+                    raise
+                query_error.add_note(
+                    "BaoStock logout also failed: "
+                    f"{type(logout_error).__name__}: {logout_error}"
+                )
 
-        bars.sort(key=lambda item: (item.code, item.trade_date))
+        bars = tuple(sorted(
+            bars_by_key.values(),
+            key=lambda item: (item.code, item.trade_date),
+        ))
         if not bars:
             quality = DataQuality.UNUSABLE
             flags.add("NO_DAILY_BARS")
@@ -216,7 +265,7 @@ class BaoStockDailyBarProvider:
         else:
             quality = DataQuality.OK
         return DailyBarsResult(
-            bars=tuple(bars),
+            bars=bars,
             quality=quality,
             quality_flags=tuple(sorted(flags)),
             fetched_at=fetched_at,

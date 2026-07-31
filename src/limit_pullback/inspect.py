@@ -1,12 +1,13 @@
-"""Single-stock, in-memory real-data orchestration for stage 2A."""
+"""Stateless, single-stock, in-memory real-data orchestration."""
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import date, datetime, timedelta, timezone
 
+from limit_pullback.instruments import parse_instrument_code
 from limit_pullback.models.config import StrategyConfig
-from limit_pullback.models.enums import DataQuality
+from limit_pullback.models.enums import DataQuality, EvaluationMode
 from limit_pullback.models.inspect import DataSourceReport, InspectOutput
 from limit_pullback.models.market import (
     DailyBarsRequest,
@@ -19,7 +20,6 @@ from limit_pullback.strategy.engine import evaluate_strategy
 
 DAILY_PROVIDER_NAME = "BAOSTOCK"
 LIMIT_POOL_PROVIDER_NAME = "AKSHARE_STOCK_ZT_POOL_EM"
-SUPPORTED_INSPECT_CODES = frozenset({"002606", "603123", "001382"})
 QUALITY_ORDER = {
     DataQuality.OK: 0,
     DataQuality.PARTIAL: 1,
@@ -32,11 +32,25 @@ def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _missing_fields(flags: tuple[str, ...]) -> tuple[str, ...]:
+def _missing_fields(flags: Sequence[str]) -> tuple[str, ...]:
     fields: set[str] = set()
     for flag in flags:
         if flag.startswith(("MISSING_DAILY_FIELD:", "MISSING_LIMIT_FIELD:")):
             fields.add(flag.rsplit(":", 1)[-1])
+        elif flag.startswith("MALFORMED_DAILY_ROW:"):
+            parts = flag.split(":", 3)
+            if len(parts) != 4:
+                continue
+            fields.update(
+                field
+                for field in parts[3].split(",")
+                if (
+                    field
+                    and field not in {"invalid_date", "missing_date"}
+                    and field.replace("_", "").isalnum()
+                    and not field[0].isdigit()
+                )
+            )
     return tuple(sorted(fields))
 
 
@@ -68,12 +82,27 @@ def _source_report(
 
 def _merge_signal_quality(
     signal: StrategySignal,
-    *source_qualities: DataQuality,
+    source_qualities: Sequence[DataQuality],
+    *,
+    source_flags: Sequence[str] = (),
+    insufficient_history: bool = False,
 ) -> StrategySignal:
     merged = _worst_quality(signal.data_quality, *source_qualities)
-    if merged is signal.data_quality:
+    flags = {*signal.quality_flags, *source_flags}
+    if insufficient_history:
+        merged = DataQuality.UNUSABLE
+        flags.add("INSUFFICIENT_TRADING_HISTORY")
+    updates: dict[str, object] = {}
+    if merged is not signal.data_quality:
+        updates["data_quality"] = merged
+    frozen_flags = tuple(sorted(flags))
+    if frozen_flags != signal.quality_flags:
+        updates["quality_flags"] = frozen_flags
+    if merged is DataQuality.UNUSABLE and signal.entry_quality_score is not None:
+        updates["entry_quality_score"] = signal.entry_quality_score * 0
+    if not updates:
         return signal
-    return signal.model_copy(update={"data_quality": merged})
+    return signal.model_copy(update=updates)
 
 
 def inspect_stock(
@@ -86,12 +115,9 @@ def inspect_stock(
     limit_pool_provider: LimitUpPoolProvider,
     clock: Callable[[], datetime] = _now_utc,
 ) -> InspectOutput:
-    """Fetch one code, evaluate at one close and return JSON-ready models only."""
+    """Fetch one code and evaluate one close without previous setup state."""
 
-    if code not in SUPPORTED_INSPECT_CODES:
-        raise ValueError(
-            f"stage 2A inspect only supports {sorted(SUPPORTED_INSPECT_CODES)}"
-        )
+    code = parse_instrument_code(code).normalized_code
     if days < 1:
         raise ValueError("days must be at least 1")
     generated_at = clock()
@@ -103,15 +129,21 @@ def inspect_stock(
             end_date=as_of,
         )
     )
-    bars = tuple(
-        bar
-        for bar in daily_result.bars
-        if bar.code == code and start_date <= bar.trade_date <= as_of
-    )
+    bars = tuple(sorted(
+        (
+            bar
+            for bar in daily_result.bars
+            if bar.code == code and start_date <= bar.trade_date <= as_of
+        ),
+        key=lambda item: item.trade_date,
+    ))
     if not bars or bars[-1].trade_date != as_of:
         raise ValueError(
             f"daily source has no trading observation for {code} on {as_of}"
         )
+    insufficient_history = (
+        len(bars) < config.universe.minimum_listing_trade_days
+    )
 
     preliminary = evaluate_strategy(
         bars=bars,
@@ -129,7 +161,12 @@ def inspect_stock(
             record_count=0,
             quality_flags=("LIMIT_POOL_NOT_REQUESTED:NO_VALID_ANCHOR",),
         )
-        signal = _merge_signal_quality(preliminary, daily_result.quality)
+        signal = _merge_signal_quality(
+            preliminary,
+            (daily_result.quality,),
+            source_flags=daily_result.quality_flags,
+            insufficient_history=insufficient_history,
+        )
     else:
         anchor_date = preliminary.anchor.anchor_date
         pool_result = limit_pool_provider.fetch_limit_up_pool(
@@ -147,8 +184,12 @@ def inspect_stock(
         )
         signal = _merge_signal_quality(
             signal,
-            daily_result.quality,
-            pool_result.quality,
+            (daily_result.quality, pool_result.quality),
+            source_flags=(
+                *daily_result.quality_flags,
+                *pool_result.quality_flags,
+            ),
+            insufficient_history=insufficient_history,
         )
         pool_report = _source_report(
             provider=LIMIT_POOL_PROVIDER_NAME,
@@ -170,6 +211,7 @@ def inspect_stock(
         quality_flags=daily_result.quality_flags,
     )
     return InspectOutput(
+        evaluation_mode=EvaluationMode.STATELESS_INSPECT,
         code=code,
         as_of=as_of,
         days=days,

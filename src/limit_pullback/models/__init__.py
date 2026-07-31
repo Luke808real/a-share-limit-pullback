@@ -2,6 +2,7 @@ from limit_pullback.models.config import StrategyConfig
 from limit_pullback.models.enums import (
     DataQuality,
     EntryRoomState,
+    EvaluationMode,
     EventFlag,
     PatternType,
     ReviewGroup,
@@ -58,6 +59,7 @@ __all__ = [
     "DataSourceReport",
     "DataQuality",
     "EntryRoomState",
+    "EvaluationMode",
     "EventFlag",
     "ConditionScore",
     "ContinuousPricePoint",

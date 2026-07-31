@@ -2,12 +2,12 @@
 
 ## 1. 当前交付范围
 
-当前版本交付至“阶段2B.2：S1压力语义与入场剩余空间修复”：
+当前版本交付至“阶段2C.1：任意沪深主板单股票真实检查与Provider边界加固”：
 
 - 冻结策略语义和状态不变量；
 - 提供严格配置、枚举、Pydantic 输入输出模型和纯函数策略引擎；
 - 提供固定职责的 BaoStock 日线与 AKShare 涨停池适配器；
-- 提供三只指定股票的单日 `inspect` 和逐日内存 `replay`；
+- 提供任意合法沪深主板单股票的单日 `inspect` 和逐日内存 `replay`；
 - 默认测试完全封锁网络，真实 Provider 测试必须显式选择 `integration`。
 
 当前版本不建立 DuckDB，不读写 Parquet，不生成 HTML 或报告，不实现回测，不扫描
@@ -213,11 +213,20 @@ Provider 只冻结两个同步方法：
 当前固定实现为 BaoStock 原始历史日线和 AKShare 涨停池；不实现静默切换、工厂、
 注册、缓存、重试或回退。
 
+BaoStock在返回`DailyBarsResult`前按`(code, trade_date)`检查重复。完全相同的
+重复行确定性保留一条，质量至少为PARTIAL并记录
+`DUPLICATE_DAILY_ROW_DEDUPED:<code>:<date>`；字段冲突则抛出
+`CONFLICTING_DUPLICATE_DAILY_ROW:<code>:<date>`。最终日线按代码和日期排序。
+query失败时仍尝试logout，logout失败不能覆盖原始query异常；query成功后logout
+失败则明确报错。
+
 ## 10. CLI
 
 `python -m limit_pullback --help` 展示当前阶段说明；`inspect` 与 `replay` 是唯一
-已实现子命令，均仅支持指定单股票、以内存 JSON 输出且不自动写文件。任何未实现
-子命令都以非零状态退出且不产生副作用。
+已实现子命令，均仅支持指定单股票、以内存 JSON 输出且不自动写文件。`--code`
+使用第21节的共享主板代码解析器。成功退出码为0，参数错误为2，Provider或业务
+错误为1；参数与业务错误均只向stderr输出结构化JSON。任何未实现子命令都以非零
+状态退出且不产生副作用。
 
 ## 11. 阶段1.5纯函数入口
 
@@ -407,8 +416,8 @@ is_entry_candidate =
 `NON_TRADING_BAR_SKIPPED`。缺失可选字段保持 null，并生成
 `MISSING_DAILY_FIELD` 或 `MISSING_LIMIT_FIELD`；不得伪造。
 
-`inspect --code ... --as-of ... --days ...` 只允许阶段2A的三只股票，一次只评价
-一个代码。`days` 是含评价日在内的日历日回看长度。命令在内存中先用日线定位
+`inspect --code ... --as-of ... --days ...` 一次只评价一个合法沪深主板代码。
+`days` 是含评价日在内的日历日回看长度。命令在内存中先用日线定位
 锚点，再只为该代码和锚点日读取涨停池，最后调用纯函数引擎；stdout 输出 JSON，
 不写文件。涨停池不可用时返回 PRICE_ONLY，相关 FULL 规则从可用分母移除。
 
@@ -584,3 +593,48 @@ OPEN_SPACE没有target、headroom和risk/reward，因此这些缺失因子不参
 按零分处理。`entry_quality_score`、target、risk/reward、entry room、review group、
 S1事件及对应风险解释允许随合法S1变化；同一价格序列的setup_id、setup_stage
 时间线、B1/B2结构条件和`setup_quality_score`必须保持不变。
+
+## 21. 阶段2C.1任意主板单股票评价
+
+### 21.1 代码边界
+
+共享解析器只接受原始六位ASCII数字字符串，禁止整数化或自动补零。允许前缀为：
+
+- 深圳主板：000、001、002、003；
+- 上海主板：600、601、603、605。
+
+解析结果固定包含`normalized_code`、`exchange`、`baostock_code`和
+`board=MAIN`。300/301、688、200、900、北交所及未知前缀在任何Provider调用前
+拒绝。代码合法不等于Provider一定能在请求日期返回日线；后者是退出码1的业务或
+Provider错误，不得伪装成参数错误。
+
+该范围只解除单股票白名单。系统仍不提供证券主表、股票池、全市场扫描、排名、
+报告、数据库、缓存、回测或自动交易。
+
+### 21.2 评价模式
+
+- `STATELESS_INSPECT`：只评价请求日，不接收`previous_signal`；不能还原B2冻结和
+  确认生命周期。
+- `POINT_IN_TIME_REPLAY`：从早到晚逐交易日评价，并显式传入上一交易日完整信号；
+  是历史状态、冻结快照和前缀一致性验证的正式入口。
+
+不得为了使inspect看起来与replay相同而构造虚假上一信号。
+
+### 21.3 数据质量与上市历史
+
+`MISSING_DAILY_FIELD`、`MISSING_LIMIT_FIELD`和`MALFORMED_DAILY_ROW`中的字段名
+汇总到`missing_fields`；代码和日期不得被误识别为字段。Provider质量等级和flags
+进入来源报告及相关信号，回放中的带日期日线flags只从其发生日开始生效，不得向
+更早时间线回写。
+
+资格门槛使用实际取得的有效交易日数量，不根据股票名称、当前上市日期或日历跨度
+猜测。少于`universe.minimum_listing_trade_days`（当前为120）时：
+
+```text
+quality_flags includes INSUFFICIENT_TRADING_HISTORY
+signal.data_quality = UNUSABLE
+is_entry_candidate = false
+```
+
+该资格层只影响数据可用性及新建仓价值，不改变原有setup结构计算、B1/B2门槛、
+S1、INVALID或Entry Room阈值。

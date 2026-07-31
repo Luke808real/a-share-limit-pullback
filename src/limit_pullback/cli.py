@@ -1,4 +1,4 @@
-"""Stage-2B.3 CLI: explicit single-stock inspect and replay commands."""
+"""Phase-2C.1 CLI: arbitrary supported main-board inspect and replay."""
 
 from __future__ import annotations
 
@@ -9,6 +9,11 @@ import json
 from pathlib import Path
 import sys
 
+from limit_pullback.instruments import (
+    InstrumentCodeError,
+    parse_instrument_code,
+)
+
 
 PLANNED_COMMANDS = (
     "bootstrap",
@@ -18,7 +23,19 @@ PLANNED_COMMANDS = (
     "run",
     "backtest",
 )
-SUPPORTED_CODES = ("001382", "002606", "603123")
+
+
+class StructuredArgumentParser(argparse.ArgumentParser):
+    """Keep command-line argument failures machine-readable on stderr."""
+
+    def error(self, message: str) -> None:
+        payload = {
+            "error": {
+                "type": "ArgumentError",
+                "message": message,
+            }
+        }
+        self.exit(2, json.dumps(payload, ensure_ascii=False) + "\n")
 
 
 def _positive_integer(value: str) -> int:
@@ -35,15 +52,22 @@ def _iso_date(value: str) -> date:
         raise argparse.ArgumentTypeError("must use YYYY-MM-DD") from exc
 
 
+def _main_board_code(value: str) -> str:
+    try:
+        return parse_instrument_code(value).normalized_code
+    except InstrumentCodeError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
+
+
 def _default_config_path() -> Path:
     return Path(__file__).resolve().parents[2] / "config" / "strategy.yaml"
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = StructuredArgumentParser(
         prog="limit_pullback",
         description=(
-            "A股涨停回调盘后筛选器（阶段2B.3：指定股票日线回放）"
+            "A股涨停回调盘后筛选器（Phase 2C.1：沪深主板单股票评价）"
         ),
         epilog=(
             "仅 inspect/replay 会访问固定免费数据源；不建立数据库，不写文件，"
@@ -59,9 +83,9 @@ def build_parser() -> argparse.ArgumentParser:
         command_parser.set_defaults(_not_implemented=True)
     inspect_parser = subparsers.add_parser(
         "inspect",
-        help="在内存中下载并检查阶段2A允许的一只股票",
+        help="无状态检查一只合法沪深主板股票",
     )
-    inspect_parser.add_argument("--code", required=True, choices=SUPPORTED_CODES)
+    inspect_parser.add_argument("--code", required=True, type=_main_board_code)
     inspect_parser.add_argument("--as-of", required=True, type=_iso_date)
     inspect_parser.add_argument("--days", type=_positive_integer, default=400)
     inspect_parser.add_argument(
@@ -72,9 +96,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     replay_parser = subparsers.add_parser(
         "replay",
-        help="按交易日回放阶段2B允许的一只股票",
+        help="严格逐交易日回放一只合法沪深主板股票",
     )
-    replay_parser.add_argument("--code", required=True, choices=SUPPORTED_CODES)
+    replay_parser.add_argument("--code", required=True, type=_main_board_code)
     replay_parser.add_argument("--start", type=_iso_date)
     replay_parser.add_argument("--as-of", required=True, type=_iso_date)
     replay_parser.add_argument(
@@ -156,7 +180,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if getattr(args, "_not_implemented", False):
-        parser.error(f"命令 {args.command!r} 尚未在阶段2B.3实现")
+        parser.error(f"命令 {args.command!r} 尚未在Phase 2C.1实现")
     if args.command == "inspect":
         return _run_inspect(args)
     if args.command == "replay":

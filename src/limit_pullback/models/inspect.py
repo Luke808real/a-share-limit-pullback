@@ -7,7 +7,7 @@ from datetime import date, datetime
 from pydantic import Field, field_validator
 
 from limit_pullback.models.base import DomainModel, require_aware_datetime
-from limit_pullback.models.enums import DataQuality
+from limit_pullback.models.enums import DataQuality, EvaluationMode
 from limit_pullback.models.signal import StrategySignal
 
 
@@ -30,6 +30,7 @@ class DataSourceReport(DomainModel):
 
 
 class InspectOutput(DomainModel):
+    evaluation_mode: EvaluationMode
     code: str = Field(pattern=r"^\d{6}$")
     as_of: date
     days: int = Field(ge=1)
