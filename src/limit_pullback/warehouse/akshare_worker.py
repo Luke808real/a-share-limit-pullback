@@ -27,7 +27,9 @@ def _encode(value: Any) -> Any:
 
 def _main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", choices=("daily", "pool"), required=True)
+    parser.add_argument(
+        "--mode", choices=("daily", "pool", "baostock"), required=True
+    )
     parser.add_argument("--codes", default="")
     parser.add_argument("--dates", default="")
     parser.add_argument("--start", default="")
@@ -39,7 +41,18 @@ def _main() -> int:
 
     provider = AkshareWarehouseProvider()
     codes = tuple(code for code in args.codes.split(",") if code)
-    if args.mode == "daily":
+    if args.mode == "baostock":
+        from limit_pullback.warehouse.baostock_provider import (
+            BaostockWarehouseProvider,
+        )
+
+        provider = BaostockWarehouseProvider()
+        rows = provider.fetch_daily(
+            codes,
+            date.fromisoformat(args.start),
+            date.fromisoformat(args.end),
+        )
+    elif args.mode == "daily":
         if not args.start or not args.end:
             raise ValueError("daily mode requires --start and --end")
         rows = provider.fetch_daily(

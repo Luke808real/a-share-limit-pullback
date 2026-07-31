@@ -775,6 +775,11 @@ def _bootstrap_impl(
                         (c,), start, end
                     ),
                     workers=workers,
+                    isolate_process=use_akshare_isolation,
+                    start_date=start,
+                    end_date=end,
+                    worker_codes=codes_tuple,
+                    worker_mode="baostock",
                 )
             else:
                 baostock_daily = []

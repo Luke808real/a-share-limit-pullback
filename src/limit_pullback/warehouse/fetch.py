@@ -403,6 +403,7 @@ def fetch_rows(
     start_date: date | None = None,
     end_date: date | None = None,
     worker_codes: tuple[str, ...] = (),
+    worker_mode: str = "daily",
 ) -> list[dict[str, Any]]:
     """Fetch dataset rows with per-item failure isolation and resume.
 
@@ -493,7 +494,7 @@ def fetch_rows(
                 )
             else:
                 rows = runner(
-                    mode="daily",
+                    mode=worker_mode,
                     codes=tuple(str(item).zfill(6) for item in chunk),
                     start=start_date,
                     end=end_date,
