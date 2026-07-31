@@ -647,12 +647,12 @@ def _bootstrap_impl(
             )
             all_records = [*daily_records, *pool_records, *missing]
             source_rows = metadata._connection.execute(
-                "SELECT path, sha256 FROM source_files WHERE ingest_run_id = ?",
+                "SELECT path, sha256, row_count FROM source_files WHERE ingest_run_id = ?",
                 [run_id],
             ).fetchall()
             source_file_hashes = {
                 str(Path(path_value).relative_to(layout.root)): sha
-                for path_value, sha in source_rows
+                for path_value, sha, _row_count in source_rows
             }
             snapshot = create_snapshot(
                 layout=layout,
@@ -691,10 +691,10 @@ def _bootstrap_impl(
                         else "UNKNOWN",
                         ingest_run_id=run_id,
                         sha256=sha,
-                        row_count=0,
+                        row_count=row_count,
                         recorded_at=fetched_at,
                     )
-                    for path_value, sha in source_rows
+                    for path_value, sha, row_count in source_rows
                 ),
                 canonical_daily_rows=len(canonical_daily),
                 canonical_pool_rows=len(canonical_pool),

@@ -221,8 +221,8 @@ class FetchContext:
             record["ingest_run_id"] = self.run_id
             record["source_unit"] = source_unit
             record["normalized_unit"] = normalized_unit
-            record["row_hash"] = row_hash(HASH_FIELDS[dataset], record)
             quantized = quantize_row(record, schema)
+            quantized["row_hash"] = row_hash(HASH_FIELDS[dataset], quantized)
             digest = quantized.get("row_hash")
             if digest is not None:
                 if digest in seen:
