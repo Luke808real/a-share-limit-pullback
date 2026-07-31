@@ -241,7 +241,7 @@ def _probe_and_record(
     for capability, status in by_name.items():
         if status != "AVAILABLE" and capability not in ("trade_calendar", "daily_bars"):
             notes.append(f"SKIPPED_DATASET:{capability}:{status}")
-    return notes, provider_set.provider_versions()
+    return notes, provider_set.provider_versions(), dict(by_name)
 
 
 def _trading_dates(calendar: Sequence[date], start: date, end: date) -> list[date]:
@@ -357,6 +357,10 @@ def bootstrap(
     policy: ReconciliationPolicy | None = None,
     clock: Callable[[], datetime] = _now_utc,
     today: date | None = None,
+    all_main_board: bool = False,
+    batch_size: int = 50,
+    active_providers: tuple[str, ...] = ("TUSHARE", "AKSHARE", "BAOSTOCK"),
+    bulk_threshold: int = 200,
 ) -> BootstrapResult:
     """Full historical bootstrap with an exclusive write lock."""
 
@@ -371,6 +375,10 @@ def bootstrap(
             policy=policy,
             clock=clock,
             today=today,
+            all_main_board=all_main_board,
+            batch_size=batch_size,
+            active_providers=active_providers,
+            bulk_threshold=bulk_threshold,
         )
 
 
@@ -384,6 +392,10 @@ def _bootstrap_impl(
     policy: ReconciliationPolicy | None = None,
     clock: Callable[[], datetime] = _now_utc,
     today: date | None = None,
+    all_main_board: bool = False,
+    batch_size: int = 50,
+    active_providers: tuple[str, ...] = ("TUSHARE", "AKSHARE", "BAOSTOCK"),
+    bulk_threshold: int = 200,
 ) -> BootstrapResult:
     """Full historical bootstrap with atomic snapshot publication."""
 
@@ -392,47 +404,17 @@ def _bootstrap_impl(
         raise PipelineError("INVALID_DATE_RANGE", "start must not be after end")
     if end > today_value:
         raise PipelineError("END_DATE_IN_FUTURE", "end must not be in the future")
-    codes_tuple = tuple(sorted({code.zfill(6) for code in codes}))
-    if not codes_tuple:
-        raise PipelineError("NO_CODES", "at least one code is required")
+    provided_codes = tuple(sorted({code.zfill(6) for code in codes}))
 
     policy = policy or ReconciliationPolicy()
     providers = provider_set or RealWarehouseProviderSet()
     fetched_at = clock()
     layout.ensure_dirs()
+    run_id: str | None = None
 
-    run_id = _run_id("bootstrap", start, end, codes_tuple, policy.policy_version)
     with WarehouseMetadata(layout.duckdb_path) as metadata:
-        existing = metadata.get_ingest_run(run_id)
-        if existing is not None and existing.status == "COMPLETED":
-            snapshot = metadata.latest_snapshot_for(end)
-            return BootstrapResult(
-                run_id=run_id,
-                snapshot_id=snapshot.snapshot_id if snapshot else None,
-                start_date=start,
-                end_date=end,
-                codes=codes_tuple,
-                reused=True,
-            )
-        metadata.begin_ingest_run(
-            run_id=run_id,
-            kind="bootstrap",
-            started_at=fetched_at,
-            start_date=start,
-            end_date=end,
-            codes=codes_tuple,
-            config_json=json.dumps(
-                {
-                    "policy_version": policy.policy_version,
-                    "start": start.isoformat(),
-                    "end": end.isoformat(),
-                },
-                sort_keys=True,
-            ),
-        )
-        _cleanup_run_files(layout, metadata, run_id)
         try:
-            notes, provider_versions = _probe_and_record(
+            notes, provider_versions, capability_status = _probe_and_record(
                 provider_set=providers, layout=layout, metadata=metadata, clock=clock
             )
             calendar = providers.fetch_trade_calendar(start, end)
@@ -440,113 +422,214 @@ def _bootstrap_impl(
             if not trading_dates:
                 raise PipelineError("NO_TRADING_DAYS", "no trading days in range")
             try:
-                stock_basic = providers.fetch_stock_basic(codes_tuple)
+                stock_basic = providers.fetch_stock_basic(provided_codes)
             except CapabilityUnavailable as exc:
                 stock_basic = []
                 notes.append(f"SKIPPED_DATASET:stock_basic:{exc.status}")
+            if all_main_board:
+                if not stock_basic:
+                    raise PipelineError(
+                        "STOCK_BASIC_UNAVAILABLE",
+                        "all-main-board bootstrap requires stock_basic",
+                    )
+                from limit_pullback.warehouse.fetch import main_board_universe
 
-            tushare_daily = providers.fetch_tushare_daily(codes_tuple, start, end)
-            tushare_adj_factor: list[dict[str, Any]] = []
-            tushare_daily_basic: list[dict[str, Any]] = []
-            tushare_suspension: list[dict[str, Any]] = []
-            tushare_price_limits: list[dict[str, Any]] = []
-            for capability in (
-                "adjustment_factor",
-                "daily_basic",
-                "suspension",
-                "price_limits",
-            ):
-                try:
-                    if capability == "adjustment_factor":
-                        tushare_adj_factor = providers.fetch_tushare_adj_factor(codes_tuple, start, end)
-                    elif capability == "daily_basic":
-                        tushare_daily_basic = providers.fetch_tushare_daily_basic(codes_tuple, start, end)
-                    elif capability == "suspension":
-                        tushare_suspension = providers.fetch_tushare_suspension(codes_tuple, start, end)
-                    else:
-                        tushare_price_limits = providers.fetch_tushare_price_limits(codes_tuple, start, end)
-                except CapabilityUnavailable as exc:
-                    notes.append(f"SKIPPED_DATASET:{capability}:{exc.status}")
-
-            try:
-                akshare_daily = providers.fetch_akshare_daily(codes_tuple, start, end)
-            except Exception as exc:
-                akshare_daily = []
-                notes.append(f"SKIPPED_DATASET:akshare_daily:{type(exc).__name__}")
-            try:
-                pool_rows = providers.fetch_akshare_limit_up_pool(trading_dates, codes_tuple)
-            except Exception as exc:
-                pool_rows = []
-                notes.append(f"SKIPPED_DATASET:limit_up_pool:{type(exc).__name__}")
-            try:
-                baostock_daily = providers.fetch_baostock_daily(codes_tuple, start, end)
-            except Exception as exc:
-                baostock_daily = []
-                notes.append(f"SKIPPED_DATASET:baostock_daily:{type(exc).__name__}")
-
-            tushare_daily = _fill_auxiliary(
-                tushare_daily,
-                daily_basic=tushare_daily_basic,
-                stock_basic=stock_basic,
-            )
-            akshare_daily = _fill_auxiliary(
-                akshare_daily,
-                daily_basic=[],
-                stock_basic=stock_basic,
-            )
-
-            source_files: list[SourceFileRecord] = []
-            tushare_version = provider_versions.get("TUSHARE", "unknown")
-            akshare_version = provider_versions.get("AKSHARE", "unknown")
-            baostock_version = provider_versions.get("BAOSTOCK", "unknown")
-            dataset_rows: dict[tuple[str, str], list[dict[str, Any]]] = {
-                ("TUSHARE", "daily_bars"): tushare_daily,
-                ("TUSHARE", "adjustment_factor"): tushare_adj_factor,
-                ("TUSHARE", "daily_basic"): tushare_daily_basic,
-                ("TUSHARE", "suspension"): tushare_suspension,
-                ("TUSHARE", "price_limits"): tushare_price_limits,
-                ("AKSHARE", "daily_bars"): akshare_daily,
-                ("AKSHARE", "limit_up_pool"): pool_rows,
-                ("BAOSTOCK", "daily_bars"): baostock_daily,
-            }
-            versions = {
-                "TUSHARE": tushare_version,
-                "AKSHARE": akshare_version,
-                "BAOSTOCK": baostock_version,
-            }
-            raw_daily_by_provider: dict[str, list[dict[str, Any]]] = {}
-            raw_pool_rows: list[dict[str, Any]] = []
-            for (provider, dataset), (_, source_unit, normalized_unit) in (
-                (key, DATASETS_BY_PROVIDER[key[0]][
-                    [item[0] for item in DATASETS_BY_PROVIDER[key[0]]].index(key[1])
-                ])
-                for key in dataset_rows
-            ):
-                if not dataset_rows[(provider, dataset)]:
-                    continue
-                record, raw_rows = _write_dataset(
-                    layout=layout,
-                    metadata=metadata,
-                    run_id=run_id,
-                    provider=provider,
-                    provider_version=versions[provider],
-                    dataset=dataset,
-                    source_unit=source_unit,
-                    normalized_unit=normalized_unit,
-                    rows=dataset_rows[(provider, dataset)],
-                    fetched_at=fetched_at,
+                codes_tuple = main_board_universe(stock_basic)
+                if not codes_tuple:
+                    raise PipelineError(
+                        "NO_MAIN_BOARD_CODES",
+                        "stock_basic returned no legal main-board codes",
+                    )
+            else:
+                codes_tuple = provided_codes or tuple(
+                    sorted({str(row["code"]) for row in stock_basic})
                 )
-                if record is not None:
-                    source_files.append(record)
-                if dataset == "daily_bars":
-                    raw_daily_by_provider[provider] = raw_rows
-                if dataset == "limit_up_pool":
-                    raw_pool_rows = raw_rows
+            if not codes_tuple:
+                raise PipelineError("NO_CODES", "at least one code is required")
+
+            run_id = _run_id(
+                "bootstrap", start, end, codes_tuple, policy.policy_version
+            )
+            existing = metadata.get_ingest_run(run_id)
+            pending = metadata.pending_failures(run_id)
+            if existing is not None and existing.status == "COMPLETED" and not pending:
+                snapshot = metadata.latest_snapshot_for(end)
+                return BootstrapResult(
+                    run_id=run_id,
+                    snapshot_id=snapshot.snapshot_id if snapshot else None,
+                    start_date=start,
+                    end_date=end,
+                    codes=codes_tuple,
+                    reused=True,
+                    failure_count=metadata.failure_count(run_id),
+                    pending_failures=len(pending),
+                )
+            metadata.begin_ingest_run(
+                run_id=run_id,
+                kind="bootstrap",
+                started_at=fetched_at,
+                start_date=start,
+                end_date=end,
+                codes=codes_tuple,
+                config_json=json.dumps(
+                    {
+                        "policy_version": policy.policy_version,
+                        "start": start.isoformat(),
+                        "end": end.isoformat(),
+                        "all_main_board": all_main_board,
+                        "active_providers": list(active_providers),
+                    },
+                    sort_keys=True,
+                ),
+            )
+
+            from limit_pullback.warehouse.fetch import FetchContext, fetch_rows
+
+            ctx = FetchContext(
+                layout=layout,
+                metadata=metadata,
+                run_id=run_id,
+                clock=clock,
+                versions=provider_versions,
+                batch_rows=max(20000, batch_size * 400),
+            )
+            use_bulk = len(codes_tuple) >= bulk_threshold
+
+            def _tushare_bulk(dataset: str, dates: list[date]) -> list[dict[str, Any]]:
+                fetchers = {
+                    "adjustment_factor": providers.fetch_tushare_adj_factor_by_trade_date,
+                    "daily_basic": providers.fetch_tushare_daily_basic_by_trade_date,
+                    "suspension": providers.fetch_tushare_suspension_by_trade_date,
+                    "price_limits": providers.fetch_tushare_price_limits_by_trade_date,
+                }
+                return fetchers[dataset](dates)
+
+            def _tushare_per_code(
+                dataset: str, code: str
+            ) -> list[dict[str, Any]]:
+                fetchers = {
+                    "adjustment_factor": providers.fetch_tushare_adj_factor,
+                    "daily_basic": providers.fetch_tushare_daily_basic,
+                    "suspension": providers.fetch_tushare_suspension,
+                    "price_limits": providers.fetch_tushare_price_limits,
+                }
+                return fetchers[dataset]((code,), start, end)
+
+            tushare_aux: dict[str, list[dict[str, Any]]] = {}
+            if "TUSHARE" in active_providers:
+                for dataset in (
+                    "adjustment_factor",
+                    "daily_basic",
+                    "suspension",
+                    "price_limits",
+                ):
+                    if capability_status.get(dataset) != "AVAILABLE":
+                        notes.append(
+                            f"SKIPPED_DATASET:{dataset}:"
+                            f"{capability_status.get(dataset, 'INACTIVE')}"
+                        )
+                        continue
+                    if use_bulk:
+                        tushare_aux[dataset] = fetch_rows(
+                            ctx,
+                            provider="TUSHARE",
+                            dataset=dataset,
+                            items=trading_dates,
+                            bulk_fn=lambda dates, d=dataset: _tushare_bulk(d, dates),
+                            use_bulk=True,
+                            item_is_date=True,
+                            batch_size=batch_size,
+                        )
+                    else:
+                        tushare_aux[dataset] = fetch_rows(
+                            ctx,
+                            provider="TUSHARE",
+                            dataset=dataset,
+                            items=codes_tuple,
+                            per_item_fn=lambda c, d=dataset: _tushare_per_code(d, c),
+                        )
+
+            daily_basic_rows = tushare_aux.get("daily_basic", [])
+            if (
+                "TUSHARE" in active_providers
+                and capability_status.get("daily_bars") == "AVAILABLE"
+            ):
+                if use_bulk:
+                    tushare_daily = fetch_rows(
+                        ctx,
+                        provider="TUSHARE",
+                        dataset="daily_bars",
+                        items=trading_dates,
+                        bulk_fn=lambda dates: _fill_auxiliary(
+                            providers.fetch_tushare_daily_by_trade_date(dates),
+                            daily_basic=daily_basic_rows,
+                            stock_basic=stock_basic,
+                        ),
+                        use_bulk=True,
+                        item_is_date=True,
+                        batch_size=batch_size,
+                    )
+                else:
+                    tushare_daily = fetch_rows(
+                        ctx,
+                        provider="TUSHARE",
+                        dataset="daily_bars",
+                        items=codes_tuple,
+                        per_item_fn=lambda c: _fill_auxiliary(
+                            providers.fetch_tushare_daily((c,), start, end),
+                            daily_basic=daily_basic_rows,
+                            stock_basic=stock_basic,
+                        ),
+                    )
+            else:
+                tushare_daily = []
+                notes.append("SKIPPED_DATASET:daily_bars:TUSHARE_INACTIVE")
+
+            if "AKSHARE" in active_providers:
+                akshare_daily = fetch_rows(
+                    ctx,
+                    provider="AKSHARE",
+                    dataset="daily_bars",
+                    items=codes_tuple,
+                    per_item_fn=lambda c: _fill_auxiliary(
+                        providers.fetch_akshare_daily((c,), start, end),
+                        daily_basic=[],
+                        stock_basic=stock_basic,
+                    ),
+                )
+                akshare_pool = fetch_rows(
+                    ctx,
+                    provider="AKSHARE",
+                    dataset="limit_up_pool",
+                    items=trading_dates,
+                    per_item_fn=lambda d: providers.fetch_akshare_limit_up_pool(
+                        [d], codes_tuple
+                    ),
+                    item_is_date=True,
+                )
+            else:
+                akshare_daily = []
+                akshare_pool = []
+                notes.append("SKIPPED_DATASET:akshare_daily:INACTIVE")
+
+            if "BAOSTOCK" in active_providers:
+                baostock_daily = fetch_rows(
+                    ctx,
+                    provider="BAOSTOCK",
+                    dataset="daily_bars",
+                    items=codes_tuple,
+                    per_item_fn=lambda c: providers.fetch_baostock_daily(
+                        (c,), start, end
+                    ),
+                )
+            else:
+                baostock_daily = []
+                notes.append("SKIPPED_DATASET:baostock_daily:INACTIVE")
 
             rows_by_provider = {
-                "TUSHARE": raw_daily_by_provider.get("TUSHARE", []),
-                "AKSHARE": raw_daily_by_provider.get("AKSHARE", []),
-                "BAOSTOCK": raw_daily_by_provider.get("BAOSTOCK", []),
+                "TUSHARE": tushare_daily,
+                "AKSHARE": akshare_daily,
+                "BAOSTOCK": baostock_daily,
             }
             canonical_daily, daily_records, quarantines = reconcile_daily_rows(
                 rows_by_provider,
@@ -554,7 +637,7 @@ def _bootstrap_impl(
                 clock=clock,
             )
             canonical_pool, pool_records, pool_quarantines = reconcile_limit_up_pool(
-                raw_pool_rows, clock=clock
+                akshare_pool, clock=clock
             )
             missing = _missing_records(
                 calendar=trading_dates,
@@ -563,15 +646,19 @@ def _bootstrap_impl(
                 clock=clock,
             )
             all_records = [*daily_records, *pool_records, *missing]
+            source_rows = metadata._connection.execute(
+                "SELECT path, sha256 FROM source_files WHERE ingest_run_id = ?",
+                [run_id],
+            ).fetchall()
             source_file_hashes = {
-                str(Path(record.path).relative_to(layout.root)): record.sha256
-                for record in source_files
+                str(Path(path_value).relative_to(layout.root)): sha
+                for path_value, sha in source_rows
             }
             snapshot = create_snapshot(
                 layout=layout,
                 metadata=metadata,
                 as_of=end,
-                provider_versions=versions,
+                provider_versions=dict(provider_versions),
                 daily_rows=canonical_daily,
                 pool_rows=canonical_pool,
                 source_file_hashes=source_file_hashes,
@@ -596,21 +683,36 @@ def _bootstrap_impl(
                 start_date=start,
                 end_date=end,
                 codes=codes_tuple,
-                raw_files=tuple(source_files),
+                raw_files=tuple(
+                    SourceFileRecord(
+                        path=str(path_value),
+                        provider=str(path_value).split("/")[-3].upper()
+                        if "/raw/" in str(path_value)
+                        else "UNKNOWN",
+                        ingest_run_id=run_id,
+                        sha256=sha,
+                        row_count=0,
+                        recorded_at=fetched_at,
+                    )
+                    for path_value, sha in source_rows
+                ),
                 canonical_daily_rows=len(canonical_daily),
                 canonical_pool_rows=len(canonical_pool),
                 reconciliation_rows=len(all_records),
                 quarantine_rows=len([*quarantines, *pool_quarantines]),
                 reused=False,
                 notes=tuple(notes),
+                failure_count=metadata.failure_count(run_id),
+                pending_failures=len(metadata.pending_failures(run_id)),
             )
         except BaseException as exc:
-            metadata.finish_ingest_run(
-                run_id=run_id,
-                status="FAILED",
-                finished_at=clock(),
-                error=redact(f"{type(exc).__name__}: {exc}"),
-            )
+            if run_id is not None:
+                metadata.finish_ingest_run(
+                    run_id=run_id,
+                    status="FAILED",
+                    finished_at=clock(),
+                    error=redact(f"{type(exc).__name__}: {exc}"),
+                )
             raise
 
 
@@ -717,7 +819,7 @@ def _update_impl(
         )
         _cleanup_run_files(layout, metadata, run_id)
         try:
-            notes, provider_versions = _probe_and_record(
+            notes, provider_versions, _ = _probe_and_record(
                 provider_set=providers, layout=layout, metadata=metadata, clock=clock
             )
             fetch_start = max(

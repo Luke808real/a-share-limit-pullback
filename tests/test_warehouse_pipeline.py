@@ -429,24 +429,28 @@ def test_warehouse_lock_is_exclusive(tmp_path):
 def test_failed_run_error_is_redacted(tmp_path, monkeypatch):
     monkeypatch.setenv("TUSHARE_TOKEN", "secret-token-value")
     layout = _layout(tmp_path)
+    day = date(2026, 7, 30)
 
-    import limit_pullback.warehouse.pipeline as pipeline_module
+    class FailingAkshare(FakeProviderSet):
+        def fetch_akshare_daily(self, codes, start, end):
+            raise RuntimeError("failure with secret-token-value inside")
 
-    def boom(**kwargs):
-        raise RuntimeError("failure with secret-token-value inside")
-
-    monkeypatch.setattr(pipeline_module, "_probe_and_record", boom)
-    with pytest.raises(RuntimeError):
-        bootstrap(
-            layout=layout,
-            start=date(2026, 7, 29),
-            end=date(2026, 7, 30),
-            codes=["603318"],
-            today=date(2026, 7, 30),
-        )
+    fake = FailingAkshare(
+        calendar=[day],
+        tushare_daily=[daily_row("603318", day.isoformat())],
+    )
+    result = bootstrap(
+        layout=layout,
+        start=day,
+        end=day,
+        codes=["603318"],
+        provider_set=fake,
+        today=day,
+    )
+    assert result.failure_count >= 1
     with WarehouseMetadata(layout.duckdb_path, read_only=True) as metadata:
         row = metadata._connection.execute(
-            "SELECT error FROM ingest_runs WHERE kind = 'bootstrap' ORDER BY started_at DESC LIMIT 1"
+            "SELECT error FROM ingest_failures LIMIT 1"
         ).fetchone()
         assert row is not None
         assert "secret-token-value" not in (row[0] or "")

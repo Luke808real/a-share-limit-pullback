@@ -210,6 +210,8 @@ class BootstrapResult(DomainModel):
     quarantine_rows: int = 0
     reused: bool = False
     notes: tuple[str, ...] = ()
+    failure_count: int = 0
+    pending_failures: int = 0
 
 
 class UpdateResult(DomainModel):
