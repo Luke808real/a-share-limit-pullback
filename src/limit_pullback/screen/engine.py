@@ -8,17 +8,39 @@ single-stock replay on the same canonical snapshot.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import date, datetime
 
 from limit_pullback.models.config import StrategyConfig
-from limit_pullback.models.enums import DataQuality
+from limit_pullback.models.enums import DataQuality, SetupStage
 from limit_pullback.models.market import DailyBar, LimitUpRecord
 from limit_pullback.models.replay import ReplayTimelineItem
 from limit_pullback.models.signal import StrategySignal
-from limit_pullback.replay import _merge_signal_quality, _timeline_item
+from limit_pullback.quality import merge_signal_quality, timeline_item
 from limit_pullback.strategy.engine import evaluate_strategy
-from limit_pullback.strategy.structure import is_limit_close
+
+POOL_STATUS_CONFIRMED = "CONFIRMED"
+POOL_STATUS_PROVISIONAL = "PROVISIONAL"
+
+
+def pool_quality(
+    status: str | None,
+    *,
+    pool_mode: str,
+) -> tuple[DataQuality, str | None]:
+    """Quality propagation for anchor pool records.
+
+    Formal mode refuses PROVISIONAL pool records as OK anchor data;
+    debug mode allows them with an explicit warning flag and lower quality.
+    """
+
+    if status == POOL_STATUS_CONFIRMED:
+        return DataQuality.OK, None
+    if status == POOL_STATUS_PROVISIONAL:
+        if pool_mode == "debug":
+            return DataQuality.DEGRADED, "LIMIT_POOL_PROVISIONAL_WARNING"
+        return DataQuality.UNUSABLE, "LIMIT_POOL_PROVISIONAL"
+    return DataQuality.OK, None
 
 
 def screen_code(
@@ -32,6 +54,8 @@ def screen_code(
     generated_at: datetime,
     previous_signal: StrategySignal | None = None,
     last_processed: date | None = None,
+    pool_status: Mapping[tuple[str, date], str] | None = None,
+    pool_mode: str = "formal",
 ) -> tuple[tuple[ReplayTimelineItem, ...], StrategySignal | None]:
     """Advance one code from the oldest bar (or last processed state) to as_of."""
 
@@ -45,19 +69,6 @@ def screen_code(
         sorted(
             (record for record in pool_records if record.code == code),
             key=lambda item: (item.trade_date, item.code),
-        )
-    )
-    candidate_pool_dates = tuple(
-        sorted(
-            {
-                bar.trade_date
-                for bar in ordered
-                if (
-                    bar.trade_status
-                    and bar.is_st is not True
-                    and is_limit_close(bar, config)
-                )
-            }
         )
     )
     previous = previous_signal
@@ -81,15 +92,26 @@ def screen_code(
             limit_pool=pool_up_to_date,
             previous_signal=previous,
         )
-        signal = _merge_signal_quality(
+        signal = merge_signal_quality(
             signal,
             (DataQuality.OK,),
             insufficient_history=(
                 len(bars_up_to_date) < config.universe.minimum_listing_trade_days
             ),
         )
+        if signal.anchor is not None:
+            status = (pool_status or {}).get(
+                (code, signal.anchor.anchor_date)
+            )
+            quality, flag = pool_quality(status, pool_mode=pool_mode)
+            if flag is not None:
+                signal = merge_signal_quality(
+                    signal,
+                    (quality,),
+                    source_flags=(flag,),
+                )
         if start_date is None or current.trade_date >= start_date:
-            rows.append(_timeline_item(signal))
+            rows.append(timeline_item(signal))
         previous = signal
     return tuple(rows), previous
 
@@ -99,21 +121,23 @@ def derive_status(
 ) -> tuple[tuple[str, ...], int]:
     """Map replay rows to the user-facing screen status per row.
 
-    Returns (statuses, new_anchor_count). ``NEW_ANCHOR`` is the first row of a
-    new setup id; other rows keep their frozen ``setup_stage``.
+    ``NEW_ANCHOR`` only marks the exact trading day on which a new setup is
+    created: the row is in ``LIMIT_ANCHOR`` stage and its anchor date equals
+    the row's trade date. Continuing days of an existing setup never repeat
+    ``NEW_ANCHOR``.
     """
 
     statuses: list[str] = []
     new_anchors = 0
-    previous_setup_id: str | None = None
     for row in rows:
-        if (
-            row.anchor_snapshot is not None
-            and row.setup_id != previous_setup_id
-        ):
+        is_new_anchor = (
+            row.setup_stage is SetupStage.LIMIT_ANCHOR
+            and row.anchor_snapshot is not None
+            and row.anchor_snapshot.anchor_date == row.trade_date
+        )
+        if is_new_anchor:
             statuses.append("NEW_ANCHOR")
             new_anchors += 1
         else:
             statuses.append(row.setup_stage.value)
-        previous_setup_id = row.setup_id
     return tuple(statuses), new_anchors

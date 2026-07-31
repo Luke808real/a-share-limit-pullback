@@ -104,3 +104,13 @@ python -m limit_pullback screen --as-of 2026-07-31
 数据质量）写入 `data/screen/runs/`，逐股状态写入 `data/screen/states/`。
 全量重建与逐日增量必须一致；未来快照不修改历史结果。不实现 B1_PREP、挂单、
 持仓、S 点卖出或回测。
+
+要点：
+
+- 历史 `--as-of` 默认只读取该时点已发布的 snapshot；如仓库快照晚于请求日，
+  必须显式传 `--snapshot-id`；
+- 正式模式不把 `PROVISIONAL` 涨停池记录当作 OK 锚点（质量降 `UNUSABLE`）；
+  `--pool-debug` 仅用于调试（降 `DEGRADED` 并输出警告）；
+- `NEW_ANCHOR` 仅出现在 `LIMIT_ANCHOR` 且 `anchor_date == trade_date` 的当天；
+- 状态绑定 bars/pool 前缀哈希、strategy commit、config hash 与对账策略版本，
+  任一变化自动从安全起点重算。

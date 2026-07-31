@@ -78,6 +78,19 @@
   全市场结果与随机单股 replay 逐字段一致；对既有 8 案例回归；
 - 不实现 B1_PREP、挂单、持仓、S 点卖出、回测、HTML 报告或自动交易。
 
+### 1.7 2C.2B 修复门禁（2026-07-31 复审）
+
+- `NEW_ANCHOR` 严格定义为 `setup_stage == LIMIT_ANCHOR` 且
+  `anchor_date == trade_date`；已有 setup 的推进日不得重复报告；
+- 历史 `as_of` 解析只返回 `as_of <= T` 的最早发布 snapshot；没有可用快照时
+  要求显式 `--snapshot-id`，禁止读取未来发布的修订；
+- `ScreenState` 绑定并校验 `bars_prefix_hash / limit_pool_prefix_hash /
+  strategy_commit / config_hash / reconciliation_policy_version`；
+- 涨停池单源 `PROVISIONAL` 正式门禁：正式模式 `UNUSABLE` +
+  `LIMIT_POOL_PROVISIONAL`，调试模式 `DEGRADED` + 警告，绝不静默置为 OK；
+- 缓存复用门禁：请求 `--verify-replay` 而缓存未验证时强制重算；
+- screen 与 replay 共用 `quality.py` 公共质量合并/时间线转换模块。
+
 ## 2. 数值与时间类型
 
 - 所有价格、比例、金额、换手率、收益率和评分使用 `Decimal`。

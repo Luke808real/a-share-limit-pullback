@@ -38,7 +38,7 @@ def test_real_screen_eight_case_regression(tmp_path):
         pytest.skip("TUSHARE_TOKEN is not configured")
 
     layout = WarehouseLayout(tmp_path / "warehouse")
-    start = date(2026, 6, 1)
+    start = date(2025, 3, 1)  # >= 500 natural days before 2026-07-30
     end = date(2026, 7, 30)
     today = date.today()
 
@@ -50,6 +50,16 @@ def test_real_screen_eight_case_regression(tmp_path):
         today=today,
     )
     assert bootstrap_result.snapshot_id is not None
+
+    from limit_pullback.screen.canonical import load_canonical_market
+
+    market = load_canonical_market(
+        layout, snapshot_id=bootstrap_result.snapshot_id
+    )
+    per_stock_bars = {
+        code: len(bars) for code, bars in market.bars_by_code.items()
+    }
+    assert all(count >= 120 for count in per_stock_bars.values()), per_stock_bars
 
     began = time.monotonic()
     rebuild_30 = run_screen(
@@ -108,6 +118,7 @@ def test_real_screen_eight_case_regression(tmp_path):
             "rebuild_wall_seconds": round(elapsed, 3),
             "peak_rss_kb": peak_rss,
         },
+        "per_stock_bar_counts": per_stock_bars,
     }
     (outdir / "acceptance.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2, default=str),

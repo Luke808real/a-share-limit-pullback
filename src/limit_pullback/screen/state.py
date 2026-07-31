@@ -27,6 +27,10 @@ def save_state(
     signal: StrategySignal,
     snapshot_id: str,
     bars_prefix_hash: str,
+    limit_pool_prefix_hash: str,
+    strategy_commit: str,
+    config_hash: str,
+    reconciliation_policy_version: str,
     processed_at,
 ) -> ScreenState:
     state = ScreenState(
@@ -36,6 +40,10 @@ def save_state(
         setup_id=signal.setup_id,
         snapshot_id=snapshot_id,
         bars_prefix_hash=bars_prefix_hash,
+        limit_pool_prefix_hash=limit_pool_prefix_hash,
+        strategy_commit=strategy_commit,
+        config_hash=config_hash,
+        reconciliation_policy_version=reconciliation_policy_version,
         processed_at=processed_at,
     )
     write_json_atomic(

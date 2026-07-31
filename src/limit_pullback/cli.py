@@ -178,6 +178,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=400,
     )
     screen_parser.add_argument("--verify-replay", action="store_true")
+    screen_parser.add_argument(
+        "--pool-debug",
+        action="store_true",
+        help="允许 PROVISIONAL 涨停池记录作为锚点（调试模式，降低数据质量）",
+    )
     return parser
 
 
@@ -372,6 +377,7 @@ def _run_screen(args: argparse.Namespace) -> int:
             config_path=args.config,
             lookback_calendar_days=args.lookback_calendar_days,
             verify_replay=args.verify_replay,
+            pool_debug=args.pool_debug,
         )
     except Exception as exc:
         _print_error(exc)

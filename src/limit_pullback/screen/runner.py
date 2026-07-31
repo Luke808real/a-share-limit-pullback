@@ -74,6 +74,25 @@ def _bars_prefix_hash(bars, up_to: date) -> str:
     return _digest(json.dumps(prefix, sort_keys=True))
 
 
+def _pool_prefix_hash(
+    pool_records,
+    pool_status: dict[tuple[str, date], str],
+    up_to: date,
+) -> str:
+    prefix = [
+        (
+            record.code,
+            record.trade_date.isoformat(),
+            pool_status.get((record.code, record.trade_date), "PROVISIONAL"),
+            str(record.limit_price),
+            record.name,
+        )
+        for record in pool_records
+        if record.trade_date <= up_to
+    ]
+    return _digest(json.dumps(prefix, sort_keys=True))
+
+
 def _default_config_path() -> Path:
     return Path(__file__).resolve().parents[3] / "config" / "strategy.yaml"
 
@@ -117,6 +136,7 @@ def run_screen(
     config_path: str | Path | None = None,
     lookback_calendar_days: int = 400,
     verify_replay: bool = False,
+    pool_debug: bool = False,
     clock: Callable[[], datetime] = _now_utc,
     strategy_commit: str | None = None,
 ) -> ScreenRunResult:
@@ -140,6 +160,7 @@ def run_screen(
         raise ValueError(
             f"SNAPSHOT_AS_OF_BEFORE_REQUESTED: {market.snapshot.as_of} < {as_of}"
         )
+    pool_mode = "debug" if pool_debug else "formal"
     resolved_snapshot_id = market.snapshot.snapshot_id
     requested = tuple(sorted({code.zfill(6) for code in (codes or ())}))
     universe = tuple(
@@ -151,43 +172,58 @@ def run_screen(
     kind = "rebuild" if rebuild else "incremental"
     run_id = (
         f"screen-{kind}-{as_of.isoformat()}-"
-        f"{resolved_snapshot_id[:12]}-{_digest(start, requested, commit, config_hash)[:12]}"
+        f"{resolved_snapshot_id[:12]}-"
+        f"{_digest(start, requested, commit, config_hash, pool_mode)[:12]}"
     )
     output_path = layout.root / "screen" / "runs" / f"{run_id}.json"
+    cached_exists = output_path.exists()
     states_root = layout.root / "screen" / "states"
     states_root.mkdir(parents=True, exist_ok=True)
     layout.root.joinpath("screen", "runs").mkdir(parents=True, exist_ok=True)
 
     if output_path.exists():
         cached = json.loads(output_path.read_text(encoding="utf-8"))
-        return ScreenRunResult(
-            run_id=run_id,
-            kind=kind,
-            as_of=as_of,
-            start=start,
-            snapshot_id=resolved_snapshot_id,
-            strategy_commit=commit,
-            config_hash=config_hash,
-            output_hash=cached.get("output_hash", ""),
-            universe_size=len(universe),
-            codes=universe,
-            rows_count=int(cached.get("rows_count", 0)),
-            status_counts=cached.get("status_counts", {}),
-            new_anchor_count=int(cached.get("new_anchor_count", 0)),
-            active_setup_count=int(cached.get("active_setup_count", 0)),
-            entry_candidate_count=int(cached.get("entry_candidate_count", 0)),
-            quality_rejection_count=int(cached.get("quality_rejection_count", 0)),
-            verify_replay=verify_replay,
-            verify_replay_matched=cached.get("verify_replay_matched"),
-            reused=True,
-            output_path=str(output_path),
-            state_path=str(states_root),
-        )
+        if verify_replay and cached.get("verify_replay_matched") is not True:
+            # A cached run must not claim verification it never performed.
+            # Fall through and recompute (same run_id overwrites atomically).
+            pass
+        else:
+            return ScreenRunResult(
+                run_id=run_id,
+                kind=kind,
+                as_of=as_of,
+                start=start,
+                snapshot_id=resolved_snapshot_id,
+                strategy_commit=commit,
+                config_hash=config_hash,
+                output_hash=cached.get("output_hash", ""),
+                universe_size=len(universe),
+                codes=universe,
+                rows_count=int(cached.get("rows_count", 0)),
+                status_counts=cached.get("status_counts", {}),
+                new_anchor_count=int(cached.get("new_anchor_count", 0)),
+                active_setup_count=int(cached.get("active_setup_count", 0)),
+                entry_candidate_count=int(cached.get("entry_candidate_count", 0)),
+                quality_rejection_count=int(cached.get("quality_rejection_count", 0)),
+                verify_replay=verify_replay,
+                verify_replay_matched=cached.get("verify_replay_matched"),
+                pool_mode=pool_mode,
+                reused=True,
+                output_path=str(output_path),
+                state_path=str(states_root),
+            )
 
     generated_at = _generated_at(as_of)
     per_code_rows: list[tuple[str, list[ReplayTimelineItem]]] = []
     processed_at = clock()
     verified = True
+    notes: list[str] = []
+    if pool_mode == "debug":
+        notes.append("LIMIT_POOL_DEBUG_MODE:PROVISIONAL_POOL_ALLOWED")
+    elif any(status == "PROVISIONAL" for status in market.pool_status.values()):
+        notes.append("LIMIT_POOL_PROVISIONAL_BLOCKED_FORMAL")
+    if cached_exists and verify_replay:
+        notes.append("CACHE_REVERIFY")
     for code in universe:
         bars = market.bars_by_code.get(code, ())
         if not bars:
@@ -196,9 +232,23 @@ def run_screen(
         previous_signal: StrategySignal | None = None
         last_processed: date | None = None
         if state is not None:
-            prefix_hash = _bars_prefix_hash(bars, state.last_processed_date)
-            if state.bars_prefix_hash != prefix_hash:
+            stale = (
+                state.strategy_commit != commit
+                or state.config_hash != config_hash
+                or state.reconciliation_policy_version
+                != market.snapshot.reconciliation_policy_version
+                or state.bars_prefix_hash
+                != _bars_prefix_hash(bars, state.last_processed_date)
+                or state.limit_pool_prefix_hash
+                != _pool_prefix_hash(
+                    market.pool_records,
+                    market.pool_status,
+                    state.last_processed_date,
+                )
+            )
+            if stale:
                 state = None
+                notes.append(f"STATE_INVALIDATED:{code}")
             else:
                 previous_signal = StrategySignal.model_validate_json(
                     state.signal_json
@@ -214,6 +264,8 @@ def run_screen(
             generated_at=generated_at,
             previous_signal=previous_signal,
             last_processed=last_processed,
+            pool_status=market.pool_status,
+            pool_mode=pool_mode,
         )
         if final_signal is not None:
             save_state(
@@ -224,6 +276,16 @@ def run_screen(
                 snapshot_id=resolved_snapshot_id,
                 bars_prefix_hash=_bars_prefix_hash(
                     bars, min(final_signal.trade_date, as_of)
+                ),
+                limit_pool_prefix_hash=_pool_prefix_hash(
+                    market.pool_records,
+                    market.pool_status,
+                    min(final_signal.trade_date, as_of),
+                ),
+                strategy_commit=commit,
+                config_hash=config_hash,
+                reconciliation_policy_version=(
+                    market.snapshot.reconciliation_policy_version
                 ),
                 processed_at=processed_at,
             )
@@ -238,6 +300,8 @@ def run_screen(
                 as_of=as_of,
                 generated_at=generated_at,
                 incremental_rows=rows,
+                pool_status=market.pool_status,
+                pool_mode=pool_mode,
             )
             if mismatches:
                 verified = False
@@ -253,6 +317,7 @@ def run_screen(
                 lookback_calendar_days=lookback_calendar_days,
                 generated_at=generated_at,
                 screen_rows=rows,
+                pool_mode=pool_mode,
             )
             if replay_mismatches:
                 verified = False
@@ -305,6 +370,8 @@ def run_screen(
         "entry_candidate_count": entry_candidates,
         "quality_rejection_count": quality_rejections,
         "verify_replay_matched": verified if verify_replay else None,
+        "pool_mode": pool_mode,
+        "notes": notes,
         "universe_size": len(universe),
         "codes": universe,
         "rows": row_payload,
@@ -329,7 +396,9 @@ def run_screen(
         quality_rejection_count=quality_rejections,
         verify_replay=verify_replay,
         verify_replay_matched=verified if verify_replay else None,
+        pool_mode=pool_mode,
         reused=False,
         output_path=str(output_path),
         state_path=str(states_root),
+        notes=tuple(notes),
     )

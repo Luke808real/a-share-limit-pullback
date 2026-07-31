@@ -15,6 +15,10 @@
   Entry Room、事件与数据质量。
 - `--verify-replay` 逐代码校验“重建=增量”与“全市场=单股 replay”逐字段一致；
   既有 8 案例真实验收通过。不实现 B1_PREP、挂单、持仓、S 点卖出或回测。
+- 复审修复：`NEW_ANCHOR` 严格按锚点创建日定义；历史 `as_of` 只读时点已发布
+  snapshot；状态绑定 bars/pool 前缀哈希、strategy commit、config hash 与
+  对账策略版本；涨停池 `PROVISIONAL` 正式门禁（D-028）；缓存未验证不得复用；
+  公共质量合并提取到 `quality.py`。
 
 ## Unreleased — Phase 2C.2A
 

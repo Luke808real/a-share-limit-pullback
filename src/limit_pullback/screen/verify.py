@@ -45,6 +45,8 @@ def verify_rebuild_incremental(
     as_of: date,
     generated_at: datetime,
     incremental_rows: Sequence[ReplayTimelineItem],
+    pool_status=None,
+    pool_mode: str = "formal",
 ) -> list[str]:
     rebuild_rows, _ = screen_code(
         code=code,
@@ -54,6 +56,8 @@ def verify_rebuild_incremental(
         start_date=start,
         as_of=as_of,
         generated_at=generated_at,
+        pool_status=pool_status,
+        pool_mode=pool_mode,
     )
     covered = {
         item.trade_date for item in incremental_rows
@@ -78,6 +82,7 @@ def verify_single_stock_replay(
     lookback_calendar_days: int,
     generated_at: datetime,
     screen_rows: Sequence[ReplayTimelineItem],
+    pool_mode: str = "formal",
 ) -> list[str]:
     bars = market.bars_by_code.get(code, ())
     if not bars:
@@ -91,7 +96,7 @@ def verify_single_stock_replay(
         lookback_calendar_days=effective_lookback,
         config=config,
         daily_provider=market.daily_provider(),
-        limit_pool_provider=market.pool_provider(),
+        limit_pool_provider=market.pool_provider(pool_mode=pool_mode),
         clock=lambda: generated_at,
     )
     replay_rows = output.timeline

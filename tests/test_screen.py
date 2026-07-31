@@ -110,7 +110,7 @@ def _build_warehouse(tmp_path, *, long_codes=("603318", "002640"), short_code="6
         today=dates[-1],
     )
     assert result.snapshot_id is not None
-    return layout, dates
+    return layout, dates, result.snapshot_id
 
 
 def _rows_of(run_file):
@@ -124,12 +124,13 @@ def _rows_of(run_file):
 
 
 def test_screen_offline_deterministic_and_verify_replay(tmp_path):
-    layout, dates = _build_warehouse(tmp_path)
+    layout, dates, snapshot_id = _build_warehouse(tmp_path)
     first = run_screen(
         layout=layout,
         as_of=dates[-1],
         start=dates[0],
         rebuild=True,
+        snapshot_id=snapshot_id,
         verify_replay=True,
     )
     assert first.universe_size == 3
@@ -143,6 +144,7 @@ def test_screen_offline_deterministic_and_verify_replay(tmp_path):
         as_of=dates[-1],
         start=dates[0],
         rebuild=True,
+        snapshot_id=snapshot_id,
     )
     assert cached.reused is True
     assert cached.output_hash == first.output_hash
@@ -152,27 +154,28 @@ def test_screen_offline_deterministic_and_verify_replay(tmp_path):
     from pathlib import Path
 
     other = Path(tempfile.mkdtemp())
-    other_layout, _ = _build_warehouse(other)
+    other_layout, _, other_snapshot = _build_warehouse(other)
     other_run = run_screen(
         layout=other_layout,
         as_of=dates[-1],
         start=dates[0],
         rebuild=True,
+        snapshot_id=other_snapshot,
     )
     assert other_run.output_hash == first.output_hash
 
 
 def test_screen_rebuild_equals_incremental_and_future_isolated(tmp_path):
-    layout, dates = _build_warehouse(tmp_path)
+    layout, dates, snapshot_id = _build_warehouse(tmp_path)
     first_date = dates[30]
     mid_date = dates[70]
     final_date = dates[-1]
 
-    run_inc_1 = run_screen(layout=layout, as_of=first_date)
+    run_inc_1 = run_screen(layout=layout, as_of=first_date, snapshot_id=snapshot_id)
     assert run_inc_1.rows_count > 0
     inc_1_rows = _rows_of(run_inc_1.output_path)
 
-    run_inc_2 = run_screen(layout=layout, as_of=mid_date)
+    run_inc_2 = run_screen(layout=layout, as_of=mid_date, snapshot_id=snapshot_id)
     assert run_inc_2.rows_count > 0
 
     run_rebuild = run_screen(
@@ -180,6 +183,7 @@ def test_screen_rebuild_equals_incremental_and_future_isolated(tmp_path):
         as_of=mid_date,
         start=dates[0],
         rebuild=True,
+        snapshot_id=snapshot_id,
         verify_replay=True,
     )
     assert run_rebuild.verify_replay_matched is True
@@ -195,6 +199,7 @@ def test_screen_rebuild_equals_incremental_and_future_isolated(tmp_path):
         as_of=final_date,
         start=dates[0],
         rebuild=True,
+        snapshot_id=snapshot_id,
     )
     final_rows = _rows_of(run_final.output_path)
     for key, row in inc_1_rows.items():
@@ -202,12 +207,13 @@ def test_screen_rebuild_equals_incremental_and_future_isolated(tmp_path):
 
 
 def test_screen_quality_rejections_for_short_history(tmp_path):
-    layout, dates = _build_warehouse(tmp_path)
+    layout, dates, snapshot_id = _build_warehouse(tmp_path)
     result = run_screen(
         layout=layout,
         as_of=dates[-1],
         start=dates[0],
         rebuild=True,
+        snapshot_id=snapshot_id,
     )
     assert result.quality_rejection_count > 0  # 600199 has only 10 bars
     assert "INSUFFICIENT_TRADING_HISTORY" in str(
@@ -227,9 +233,9 @@ def test_screen_requires_snapshot_with_data(tmp_path):
 
 
 def test_screen_incremental_after_update_only_advances_new_dates(tmp_path):
-    layout, dates = _build_warehouse(tmp_path)
+    layout, dates, snapshot_id = _build_warehouse(tmp_path)
     mid_date = dates[80]
-    first_run = run_screen(layout=layout, as_of=mid_date)
+    first_run = run_screen(layout=layout, as_of=mid_date, snapshot_id=snapshot_id)
     assert first_run.rows_count > 0
 
     # Extend the warehouse with one more trading day for each code.

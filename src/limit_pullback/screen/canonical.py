@@ -76,9 +76,13 @@ class CanonicalLimitUpPoolProvider(LimitUpPoolProvider):
     def __init__(
         self,
         records_by_date: dict[date, tuple[LimitUpRecord, ...]],
+        status_by_key: dict[tuple[str, date], str] | None = None,
+        pool_mode: str = "formal",
         fetched_at: datetime = FIXED_FETCHED_AT,
     ) -> None:
         self._records_by_date = records_by_date
+        self._status_by_key = status_by_key or {}
+        self._pool_mode = pool_mode
         self._fetched_at = fetched_at
 
     def fetch_limit_up_pool(
@@ -89,10 +93,27 @@ class CanonicalLimitUpPoolProvider(LimitUpPoolProvider):
             for record in self._records_by_date.get(request.trade_date, ())
             if not request.codes or record.code in request.codes
         )
+        flags: list[str] = []
+        quality = DataQuality.OK
+        if records:
+            from limit_pullback.screen.engine import pool_quality
+
+            statuses = {
+                self._status_by_key.get((record.code, record.trade_date))
+                for record in records
+            }
+            worst_status = (
+                "PROVISIONAL" if "PROVISIONAL" in statuses else
+                "CONFIRMED" if statuses == {"CONFIRMED"} else None
+            )
+            quality, flag = pool_quality(worst_status, pool_mode=self._pool_mode)
+            if flag is not None:
+                flags.append(flag)
         return LimitUpPoolResult(
             trade_date=request.trade_date,
             records=records,
-            quality=DataQuality.OK,
+            quality=quality,
+            quality_flags=tuple(sorted(flags)),
             fetched_at=self._fetched_at,
         )
 
@@ -106,10 +127,12 @@ class CanonicalMarketData:
         snapshot: SnapshotRecord,
         bars_by_code: dict[str, tuple[DailyBar, ...]],
         pool_records: tuple[LimitUpRecord, ...],
+        pool_status: dict[tuple[str, date], str],
     ) -> None:
         self.snapshot = snapshot
         self.bars_by_code = bars_by_code
         self.pool_records = pool_records
+        self.pool_status = pool_status
 
     @property
     def universe(self) -> tuple[str, ...]:
@@ -118,12 +141,16 @@ class CanonicalMarketData:
     def daily_provider(self) -> CanonicalDailyBarProvider:
         return CanonicalDailyBarProvider(self.bars_by_code)
 
-    def pool_provider(self) -> CanonicalLimitUpPoolProvider:
+    def pool_provider(
+        self, *, pool_mode: str = "formal"
+    ) -> CanonicalLimitUpPoolProvider:
         by_date: dict[date, tuple[LimitUpRecord, ...]] = {}
         for record in self.pool_records:
             by_date.setdefault(record.trade_date, []).append(record)
         return CanonicalLimitUpPoolProvider(
-            {key: tuple(value) for key, value in by_date.items()}
+            {key: tuple(value) for key, value in by_date.items()},
+            status_by_key=self.pool_status,
+            pool_mode=pool_mode,
         )
 
 
@@ -143,12 +170,11 @@ def load_canonical_market(
             if snapshot is None:
                 raise ValueError(f"unknown snapshot: {snapshot_id}")
         elif as_of is not None:
-            snapshot = metadata.latest_snapshot()
+            snapshot = metadata.resolve_snapshot(as_of)
             if snapshot is None:
-                raise ValueError("no dataset snapshot published")
-            if snapshot.as_of < as_of:
                 raise ValueError(
-                    f"no snapshot covers as_of {as_of} (latest {snapshot.as_of})"
+                    f"no snapshot available for as_of {as_of}; "
+                    "pass an explicit --snapshot-id for later-published data"
                 )
         else:
             snapshot = metadata.latest_snapshot()
@@ -223,6 +249,12 @@ def load_canonical_market(
         )
         for row in pool_rows
     )
+    pool_status = {
+        (str(row["code"]), row["trade_date"]): str(
+            row.get("reconciliation_status", "PROVISIONAL")
+        )
+        for row in pool_rows
+    }
     return CanonicalMarketData(
         snapshot=snapshot,
         bars_by_code={
@@ -230,4 +262,5 @@ def load_canonical_market(
             for code, bars in bars_by_code.items()
         },
         pool_records=pool_records,
+        pool_status=pool_status,
     )

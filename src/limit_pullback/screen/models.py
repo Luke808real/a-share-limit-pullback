@@ -29,6 +29,7 @@ class ScreenRunResult(DomainModel):
     quality_rejection_count: int = Field(ge=0)
     verify_replay: bool = False
     verify_replay_matched: bool | None = None
+    pool_mode: str = "formal"
     reused: bool = False
     output_path: str | None = None
     state_path: str | None = None
@@ -42,6 +43,10 @@ class ScreenState(DomainModel):
     setup_id: str | None = None
     snapshot_id: str
     bars_prefix_hash: str
+    limit_pool_prefix_hash: str
+    strategy_commit: str
+    config_hash: str
+    reconciliation_policy_version: str
     processed_at: datetime
 
     @field_validator("processed_at")
