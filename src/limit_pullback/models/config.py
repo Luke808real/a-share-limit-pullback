@@ -142,6 +142,7 @@ class PatternsConfig(DomainModel):
 class SupportConfig(DomainModel):
     cluster_distance: RatioDecimal
     invalid_buffer: RatioDecimal
+    max_above_reference_close: RatioDecimal = Field(le=Decimal("0.005"))
     platform_lookback_days: int = Field(ge=1)
     moving_average_sources: tuple[int, ...]
     prefer_anchor_or_ma10: bool
@@ -151,7 +152,16 @@ class ResistanceConfig(DomainModel):
     cluster_distance: RatioDecimal
     left_high_lookback_days: int = Field(ge=1)
     recent_high_lookback_days: int = Field(ge=1)
+    long_recent_high_lookback_days: int = Field(ge=1)
     first_post_anchor_window_days: int = Field(ge=1)
+
+    @model_validator(mode="after")
+    def validate_windows(self) -> "ResistanceConfig":
+        if self.long_recent_high_lookback_days < self.recent_high_lookback_days:
+            raise ValueError(
+                "long resistance lookback cannot be shorter than recent lookback"
+            )
+        return self
 
 
 class B1Config(DomainModel):
@@ -164,7 +174,6 @@ class B1Config(DomainModel):
     volume_to_anchor_max: PositiveDecimal
     recent_volume_days: int = Field(ge=1)
     recent_volume_to_post_anchor_max: PositiveDecimal
-    minimum_risk_reward: PositiveDecimal
     minimum_condition_ratio: RatioDecimal
 
     @model_validator(mode="after")
@@ -205,6 +214,20 @@ class B2Config(DomainModel):
         return self
 
 
+class EntryRoomConfig(DomainModel):
+    thin_headroom_max: RatioDecimal
+    sufficient_headroom_min: RatioDecimal
+    minimum_risk_reward: PositiveDecimal
+
+    @model_validator(mode="after")
+    def validate_boundary(self) -> "EntryRoomConfig":
+        if self.thin_headroom_max != self.sufficient_headroom_min:
+            raise ValueError(
+                "entry-room THIN and SUFFICIENT boundaries must be identical"
+            )
+        return self
+
+
 class S2Config(DomainModel):
     close_off_high_min: RatioDecimal
     upper_shadow_share_min: RatioDecimal
@@ -212,10 +235,19 @@ class S2Config(DomainModel):
     minimum_condition_ratio: RatioDecimal
 
 
+class SupportWarningConfig(DomainModel):
+    close_to_support_low_max: RatioDecimal
+    close_to_invalid_max: RatioDecimal
+    abnormal_volume_ratio_min: PositiveDecimal
+    volume_lookback_days: int = Field(ge=1)
+    consecutive_test_days: int = Field(ge=2)
+    test_distance_max: RatioDecimal
+
+
 class EventsConfig(DomainModel):
     near_s1_distance: RatioDecimal
     s1_breakout_close_buffer: NonNegativeDecimal
-    support_warning_distance: RatioDecimal
+    support_warning: SupportWarningConfig
     s2: S2Config
 
 
@@ -271,6 +303,7 @@ class StrategyConfig(DomainModel):
     resistance: ResistanceConfig
     b1: B1Config
     b2: B2Config
+    entry_room: EntryRoomConfig
     events: EventsConfig
     invalidation: InvalidationConfig
     scoring: ScoringConfig

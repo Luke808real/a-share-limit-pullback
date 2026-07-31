@@ -29,6 +29,8 @@ class DailyBar(DomainModel):
     amount: NonNegativeDecimal
     turnover_rate: DecimalValue | None = None
     pct_change: DecimalValue | None = None
+    trade_status: bool = True
+    is_st: bool | None = None
     source: str = Field(min_length=1)
     fetched_at: datetime
 
@@ -94,6 +96,16 @@ class DailyBarsRequest(DomainModel):
 
 class LimitUpPoolRequest(DomainModel):
     trade_date: date
+    codes: tuple[str, ...] = ()
+
+    @field_validator("codes")
+    @classmethod
+    def validate_codes(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if any(len(code) != 6 or not code.isdigit() for code in value):
+            raise ValueError("codes must contain six digits")
+        if len(set(value)) != len(value):
+            raise ValueError("codes must be unique")
+        return value
 
 
 class DailyBarsResult(DomainModel):

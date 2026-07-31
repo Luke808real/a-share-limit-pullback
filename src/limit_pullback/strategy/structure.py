@@ -9,7 +9,11 @@ from decimal import Decimal, ROUND_HALF_UP
 from limit_pullback.models.config import StrategyConfig
 from limit_pullback.models.enums import ScoreProfile
 from limit_pullback.models.market import DailyBar, LimitUpRecord
-from limit_pullback.models.signal import AnchorSnapshot
+from limit_pullback.models.signal import (
+    AnchorSnapshot,
+    ResistanceCandidateSnapshot,
+    ResistanceClusterSnapshot,
+)
 from limit_pullback.models.strategy import (
     AnchorEvaluation,
     IndicatorPoint,
@@ -92,7 +96,11 @@ def detect_anchor(
     recent_limit_indices = tuple(
         index
         for index in range(start, len(ordered))
-        if is_limit_close(ordered[index], config)
+        if (
+            ordered[index].trade_status
+            and ordered[index].is_st is not True
+            and is_limit_close(ordered[index], config)
+        )
     )
     if not recent_limit_indices:
         return None
@@ -260,7 +268,11 @@ def select_support_cluster(
     nearby = tuple(
         cluster
         for cluster in clusters
-        if cluster.low <= current_close * (ONE + config.support.cluster_distance)
+        if (
+            cluster.center
+            <= current_close
+            * (ONE + config.support.max_above_reference_close)
+        )
     )
     if not nearby:
         return None
@@ -296,38 +308,193 @@ def generate_resistance_candidates(
         bar for bar in ordered if bar.trade_date > anchor.snapshot.anchor_date
     )
     candidates: list[PriceLevelCandidate] = []
+
+    def append_highest(
+        source_prefix: str,
+        values: Sequence[DailyBar],
+    ) -> None:
+        if not values:
+            return
+        selected = max(
+            values,
+            key=lambda bar: (bar.high, bar.trade_date),
+        )
+        candidates.append(
+            PriceLevelCandidate(
+                source=f"{source_prefix}:{selected.trade_date.isoformat()}",
+                value=selected.high,
+            )
+        )
+
     left = pre_anchor[-config.resistance.left_high_lookback_days :]
-    if left:
-        candidates.append(
-            PriceLevelCandidate(
-                source="LEFT_HIGH_60",
-                value=max(bar.high for bar in left),
-            )
-        )
+    append_highest("PRE_ANCHOR_LEFT_HIGH", left)
     recent = ordered[-config.resistance.recent_high_lookback_days :]
-    if recent:
-        candidates.append(
-            PriceLevelCandidate(
-                source="RECENT_HIGH_20",
-                value=max(bar.high for bar in recent),
-            )
-        )
+    append_highest("RECENT_HIGH_20", recent)
+    long_recent = ordered[
+        -config.resistance.long_recent_high_lookback_days :
+    ]
+    append_highest("RECENT_HIGH_60", long_recent)
     first_window = post_anchor[: config.resistance.first_post_anchor_window_days]
-    if first_window:
-        candidates.append(
-            PriceLevelCandidate(
-                source="FIRST_POST_ANCHOR_HIGH",
-                value=max(bar.high for bar in first_window),
+    append_highest("FIRST_POST_ANCHOR_HIGH", first_window)
+
+    dense_window = tuple(long_recent)
+    for index in range(1, len(dense_window) - 1):
+        previous_bar = dense_window[index - 1]
+        bar = dense_window[index]
+        following_bar = dense_window[index + 1]
+        if (
+            bar.high >= previous_bar.high
+            and bar.high >= following_bar.high
+            and (
+                bar.high > previous_bar.high
+                or bar.high > following_bar.high
             )
-        )
+        ):
+            candidates.append(
+                PriceLevelCandidate(
+                    source=f"DENSE_SWING_HIGH:{bar.trade_date.isoformat()}",
+                    value=bar.high,
+                )
+            )
     return tuple(candidates)
 
 
-def select_resistance_cluster(
-    clusters: Sequence[PriceCluster],
-    current_close: Decimal,
-) -> PriceCluster | None:
-    overhead = tuple(cluster for cluster in clusters if cluster.low > current_close)
-    if not overhead:
+def select_resistance_levels(
+    candidates: Sequence[PriceLevelCandidate],
+    *,
+    anchor_price: Decimal,
+    support: PriceCluster,
+    reference_close: Decimal,
+    expected_b2_trigger: Decimal,
+    config: StrategyConfig,
+) -> tuple[
+    PriceCluster | None,
+    PriceCluster | None,
+    tuple[ResistanceCandidateSnapshot, ...],
+    Decimal,
+]:
+    """Select immediate and target resistance with deterministic exclusions."""
+
+    anchor_reference = PriceLevelCandidate(
+        source="ANCHOR_PRICE_REFERENCE",
+        value=anchor_price,
+    )
+    support_references = (
+        PriceLevelCandidate(
+            source="SUPPORT_LOW_REFERENCE",
+            value=support.low,
+        ),
+        PriceLevelCandidate(
+            source="SUPPORT_HIGH_REFERENCE",
+            value=support.high,
+        ),
+    )
+    clusters = cluster_price_candidates(
+        (*candidates, anchor_reference, *support_references),
+        config.resistance.cluster_distance,
+    )
+
+    def excluded_reason(cluster: PriceCluster) -> str | None:
+        sources = set(cluster.sources)
+        if "ANCHOR_PRICE_REFERENCE" in sources:
+            return "ANCHOR_CLUSTER_OVERLAP"
+        if sources & {"SUPPORT_LOW_REFERENCE", "SUPPORT_HIGH_REFERENCE"}:
+            return "SUPPORT_CLUSTER_OVERLAP"
+        if cluster.low <= reference_close:
+            return "NOT_ABOVE_REFERENCE_PRICE"
         return None
-    return min(overhead, key=lambda cluster: (cluster.low, -len(cluster.sources)))
+
+    valid_clusters = tuple(
+        cluster
+        for cluster in clusters
+        if excluded_reason(cluster) is None
+    )
+    immediate = (
+        min(
+            valid_clusters,
+            key=lambda cluster: (
+                cluster.low,
+                -len(cluster.sources),
+                cluster.center,
+            ),
+        )
+        if valid_clusters
+        else None
+    )
+    immediate_is_b2_platform = (
+        immediate is not None
+        and immediate.low
+        <= expected_b2_trigger * (ONE + config.resistance.cluster_distance)
+        and immediate.high
+        >= expected_b2_trigger * (ONE - config.resistance.cluster_distance)
+    )
+    target_clusters = tuple(
+        cluster
+        for cluster in valid_clusters
+        if (
+            cluster.low > expected_b2_trigger
+            and not (immediate_is_b2_platform and cluster == immediate)
+        )
+    )
+    target = (
+        min(
+            target_clusters,
+            key=lambda cluster: (
+                cluster.low,
+                -len(cluster.sources),
+                cluster.center,
+            ),
+        )
+        if target_clusters
+        else None
+    )
+
+    audit: list[ResistanceCandidateSnapshot] = []
+    for candidate in sorted(candidates, key=lambda item: (item.value, item.source)):
+        cluster = next(
+            cluster
+            for cluster in clusters
+            if (
+                candidate.source in cluster.sources
+                and cluster.low <= candidate.value <= cluster.high
+            )
+        )
+        reason = excluded_reason(cluster)
+        selected_reason: str | None = None
+        if cluster == immediate and cluster == target:
+            selected_reason = "SELECTED_IMMEDIATE_AND_TARGET_S1"
+        elif cluster == immediate:
+            selected_reason = "SELECTED_IMMEDIATE_RESISTANCE"
+        elif cluster == target:
+            selected_reason = "SELECTED_TARGET_S1"
+
+        if (
+            reason is None
+            and immediate_is_b2_platform
+            and cluster == immediate
+        ):
+            reason = "EXPECTED_B2_PLATFORM_CLUSTER"
+        elif reason is None and cluster.low <= expected_b2_trigger:
+            reason = "NOT_ABOVE_EXPECTED_B2_TRIGGER"
+        elif (
+            reason is None
+            and target is not None
+            and cluster.low > target.low
+        ):
+            reason = "HIGHER_THAN_NEAREST_VALID_TARGET"
+
+        audit.append(
+            ResistanceCandidateSnapshot(
+                source=candidate.source,
+                price=candidate.value,
+                cluster=ResistanceClusterSnapshot(
+                    low=cluster.low,
+                    high=cluster.high,
+                    center=cluster.center,
+                    sources=cluster.sources,
+                ),
+                excluded_reason=reason,
+                selected_reason=selected_reason,
+            )
+        )
+    return immediate, target, tuple(audit), expected_b2_trigger

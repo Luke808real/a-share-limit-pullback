@@ -12,6 +12,7 @@ def test_strategy_yaml_loads_with_decimal_values(project_root):
 
     assert config.strategy_version == "0.1.0"
     assert config.support.cluster_distance == Decimal("0.02")
+    assert config.entry_room.minimum_risk_reward == Decimal("1.50")
     assert config.scoring.normalized_score_quantum == Decimal("0.01")
     assert set(config.scoring.profiles) == set(ScoreProfile)
 
@@ -31,4 +32,13 @@ def test_config_rejects_python_float(project_root):
     payload["support"]["cluster_distance"] = 0.02
 
     with pytest.raises(TypeError, match="float is forbidden"):
+        type(config).model_validate(payload)
+
+
+def test_support_above_close_tolerance_must_remain_small(project_root):
+    config = load_strategy_config(project_root / "config" / "strategy.yaml")
+    payload = config.model_dump(mode="python")
+    payload["support"]["max_above_reference_close"] = Decimal("0.006")
+
+    with pytest.raises(ValidationError, match="less than or equal to 0.005"):
         type(config).model_validate(payload)

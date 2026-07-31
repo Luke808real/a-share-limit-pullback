@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import date
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 
 from limit_pullback.models.config import StrategyConfig
 from limit_pullback.models.enums import PatternType
@@ -20,6 +20,11 @@ from limit_pullback.models.strategy import (
 
 ZERO = Decimal("0")
 ONE = Decimal("1")
+PATTERN_SCORE_QUANTUM = Decimal("0.01")
+PATTERN_PRIORITY = (
+    PatternType.BEARISH_PULLBACK,
+    PatternType.AIR_REFUEL,
+)
 
 
 def _mean(values: Sequence[Decimal]) -> Decimal:
@@ -40,6 +45,45 @@ def _condition_score(
             name for name, result in conditions.items() if result is None
         )),
     )
+
+
+def select_primary_pattern(
+    matched_patterns: set[PatternType] | frozenset[PatternType],
+    pattern_scores: dict[PatternType, Decimal],
+) -> PatternType | None:
+    return next(
+        iter(sorted(
+            matched_patterns,
+            key=lambda item: (
+                -pattern_scores[item],
+                PATTERN_PRIORITY.index(item),
+            ),
+        )),
+        None,
+    )
+
+
+def explain_primary_pattern(
+    matched_patterns: set[PatternType] | frozenset[PatternType],
+    pattern_scores: dict[PatternType, Decimal],
+    primary_pattern: PatternType | None,
+) -> str:
+    if primary_pattern is None:
+        return "NO_PATTERN_REACHED_MINIMUM_RATIO"
+    if len(matched_patterns) == 1:
+        return f"ONLY_MATCHED_PATTERN:{primary_pattern.value}"
+    top_score = pattern_scores[primary_pattern]
+    tied = tuple(
+        pattern
+        for pattern in matched_patterns
+        if pattern_scores[pattern] == top_score
+    )
+    if len(tied) > 1:
+        return (
+            f"TIE_BREAK_PRIORITY:{primary_pattern.value}:"
+            "BEARISH_PULLBACK>AIR_REFUEL"
+        )
+    return f"HIGHEST_PATTERN_SCORE:{primary_pattern.value}:{top_score}"
 
 
 def evaluate_patterns(
@@ -179,19 +223,38 @@ def evaluate_patterns(
     )
 
     threshold = config.patterns.minimum_condition_ratio
-    patterns: set[PatternType] = set()
+    pattern_scores = {
+        PatternType.AIR_REFUEL: (
+            air_score.match_ratio * Decimal("100")
+        ).quantize(PATTERN_SCORE_QUANTUM, rounding=ROUND_HALF_UP),
+        PatternType.BEARISH_PULLBACK: (
+            bearish_score.match_ratio * Decimal("100")
+        ).quantize(PATTERN_SCORE_QUANTUM, rounding=ROUND_HALF_UP),
+    }
+    matched_patterns: set[PatternType] = set()
     if (
         air_score.available_count > 0
         and air_score.match_ratio >= threshold
     ):
-        patterns.add(PatternType.AIR_REFUEL)
+        matched_patterns.add(PatternType.AIR_REFUEL)
     if (
         bearish_score.available_count > 0
         and bearish_score.match_ratio >= threshold
     ):
-        patterns.add(PatternType.BEARISH_PULLBACK)
+        matched_patterns.add(PatternType.BEARISH_PULLBACK)
+    primary_pattern = select_primary_pattern(
+        matched_patterns,
+        pattern_scores,
+    )
     return PatternEvaluation(
         air_refuel=air_score,
         bearish_pullback=bearish_score,
-        patterns=frozenset(patterns),
+        matched_patterns=frozenset(matched_patterns),
+        primary_pattern=primary_pattern,
+        pattern_scores=pattern_scores,
+        primary_pattern_reason=explain_primary_pattern(
+            matched_patterns,
+            pattern_scores,
+            primary_pattern,
+        ),
     )

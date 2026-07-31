@@ -162,7 +162,7 @@ def append_s2_bar(bars: list[DailyBar]) -> list[DailyBar]:
         make_bar(
             trade_date,
             open_price="11.40",
-            high="11.65",
+            high="12.35",
             low="11.05",
             close="11.10",
             preclose="11.25",
@@ -183,6 +183,22 @@ def append_invalid_bar(bars: list[DailyBar]) -> list[DailyBar]:
             close="10.40",
             preclose="10.98",
             volume="1500",
+        )
+    )
+    return bars
+
+
+def append_support_threat_bar(bars: list[DailyBar]) -> list[DailyBar]:
+    trade_date = business_dates(bars[-1].trade_date + timedelta(days=1), 1)[0]
+    bars.append(
+        make_bar(
+            trade_date,
+            open_price="10.86",
+            high="10.90",
+            low="10.70",
+            close="10.80",
+            preclose="10.98",
+            volume="300",
         )
     )
     return bars

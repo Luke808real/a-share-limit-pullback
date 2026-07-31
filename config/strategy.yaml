@@ -72,6 +72,7 @@ patterns:
 support:
   cluster_distance: "0.02"
   invalid_buffer: "0.005"
+  max_above_reference_close: "0.002"
   platform_lookback_days: 20
   moving_average_sources: [5, 10, 20, 30, 120, 250]
   prefer_anchor_or_ma10: true
@@ -80,6 +81,7 @@ resistance:
   cluster_distance: "0.02"
   left_high_lookback_days: 60
   recent_high_lookback_days: 20
+  long_recent_high_lookback_days: 60
   first_post_anchor_window_days: 3
 
 b1:
@@ -92,7 +94,6 @@ b1:
   volume_to_anchor_max: "0.85"
   recent_volume_days: 3
   recent_volume_to_post_anchor_max: "0.80"
-  minimum_risk_reward: "1.50"
   minimum_condition_ratio: "0.60"
 
 b2:
@@ -106,10 +107,21 @@ b2:
   skip_gap_open: "0.03"
   minimum_condition_ratio: "0.60"
 
+entry_room:
+  thin_headroom_max: "0.05"
+  sufficient_headroom_min: "0.05"
+  minimum_risk_reward: "1.50"
+
 events:
   near_s1_distance: "0.02"
   s1_breakout_close_buffer: "0.00"
-  support_warning_distance: "0.02"
+  support_warning:
+    close_to_support_low_max: "0.01"
+    close_to_invalid_max: "0.015"
+    abnormal_volume_ratio_min: "1.50"
+    volume_lookback_days: 5
+    consecutive_test_days: 3
+    test_distance_max: "0.01"
   s2:
     close_off_high_min: "0.03"
     upper_shadow_share_min: "0.40"

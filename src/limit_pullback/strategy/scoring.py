@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from decimal import Decimal
 
 from limit_pullback.models.config import StrategyConfig
-from limit_pullback.models.enums import ScoreProfile, SetupStage
+from limit_pullback.models.enums import EventFlag, ScoreProfile, SetupStage
 from limit_pullback.models.market import DailyBar, LimitUpRecord
 from limit_pullback.models.signal import ScoreBreakdown
 from limit_pullback.models.strategy import (
@@ -40,6 +40,7 @@ def build_score(
     b2_conditions: ConditionScore | None,
     setup_stage: SetupStage,
     limit_pool: Sequence[LimitUpRecord],
+    event_flags: frozenset[EventFlag] = frozenset(),
 ) -> ScoreBreakdown:
     profile_config = config.scoring.profiles[profile]
     maxima = profile_config.rule_max_scores
@@ -290,7 +291,14 @@ def build_score(
                 positive["b2_quality"] = "B2已使用预先冻结触发价确认"
             elif setup_stage is SetupStage.B2_READY:
                 values["b2_quality"] = maxima["b2_quality"] * Decimal("0.50")
-                positive["b2_quality"] = "B2触发价已冻结待确认"
+                if (
+                    b2_conditions is not None
+                    and "intraday_trigger_breakout" in b2_conditions.matched
+                    and "close_holds_trigger" in b2_conditions.failed
+                ):
+                    negative["b2_quality"] = "盘中突破B2触发价但收盘未站稳"
+                else:
+                    positive["b2_quality"] = "B2触发价已冻结待确认"
             elif b2_conditions is None:
                 values["b2_quality"] = None
             else:
@@ -332,6 +340,15 @@ def build_score(
             component_scores[rule_id] = value
             component_max_scores[rule_id] = maximum
 
+    explainable_risks = {
+        key: value for key, value in negative.items()
+        if key in component_scores
+    }
+    if EventFlag.NEAR_S1 in event_flags:
+        explainable_risks["near_s1_event"] = (
+            "价格接近S1压力区；暂不淘汰，但新建仓需谨慎"
+        )
+
     return ScoreBreakdown(
         profile=profile,
         profile_max_score=profile_config.profile_max_score,
@@ -342,9 +359,6 @@ def build_score(
             key: value for key, value in positive.items()
             if key in component_scores
         },
-        risks={
-            key: value for key, value in negative.items()
-            if key in component_scores
-        },
+        risks=explainable_risks,
         quality_flags=tuple(sorted(quality_flags)),
     )
