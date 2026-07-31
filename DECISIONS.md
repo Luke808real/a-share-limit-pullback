@@ -69,6 +69,47 @@ AKShare/东方财富提供涨停池，BaoStock 负责历史补录与第三来源
 - Token 只从环境变量读取；缺失返回 `TUSHARE_TOKEN_NOT_CONFIGURED`，Token
   不进入提示词、Git、日志、异常或报告。
 
+## D-027 全市场增量 setup 扫描
+
+**状态：已采纳（Phase 2C.2B）**
+
+使用已发布 canonical 快照进行离线全市场 setup 扫描，复用冻结策略引擎。
+
+- 日线只读 `CONFIRMED` canonical 行；锚点来自 canonical 涨停池；screen 禁止
+  联网，任何 Provider 不可达都不能静默绕过；
+- 初次运行建立活动 setup，日常只推进昨日活动 setup 与当日新 Anchor；状态文件
+  绑定 `bars_prefix_hash`，行情修订时显式丢弃并重算，绝不静默续用旧状态；
+- 相同输入必须产生相同输出；全量重建与逐日增量逐字段一致；未来快照不修改
+  历史结果；全市场结果与单股 replay 逐字段一致；
+- 输出只描述研究信号（NEW_ANCHOR 到 INVALID/EXPIRED 生命周期），不产生任何
+  交易指令；B1_PREP、挂单、持仓、S 点卖出、回测均不在本阶段范围。
+
+## D-028 涨停池单源 PROVISIONAL 正式发布政策
+
+**状态：已采纳（Phase 2C.2B 修复）**
+
+涨停池目前是 AKShare/东方财富单源发布，canonical 状态恒为 `PROVISIONAL`。
+
+- 正式 screen 不得把 `PROVISIONAL` 涨停池记录当作 OK Anchor 数据：锚点日
+  质量降为 `UNUSABLE` 并记录 `LIMIT_POOL_PROVISIONAL`，不生成正式入场候选；
+- 调试模式（`--pool-debug`）才允许 `PROVISIONAL` 锚点，质量降为 `DEGRADED`
+  并输出 `LIMIT_POOL_PROVISIONAL_WARNING` 警告；
+- 任何模式下都不得把 `PROVISIONAL` 静默改为 `DataQuality.OK`；
+- 涨停池取得第二来源并达成 `CONFIRMED` 后，正式模式自动放行。
+
+## D-029 NEW_ANCHOR 与状态失效门禁
+
+**状态：已采纳（Phase 2C.2B 修复）**
+
+- `NEW_ANCHOR` 只标记真正创建新 setup 的交易日：`setup_stage == LIMIT_ANCHOR`
+  且 `anchor_date == trade_date`；已有 setup 的后续推进日不得再次报告；
+- 历史 `as_of` 默认只读取该时点已发布（`as_of <= T` 的最早发布）的 snapshot，
+  禁止用未来发布的修订；显式 `--snapshot-id` 可指向指定快照；
+- `ScreenState` 绑定并验证 `bars_prefix_hash / limit_pool_prefix_hash /
+  strategy_commit / config_hash / reconciliation_policy_version`，任一在
+  `last_processed_date` 之前变化即从安全起点重算；
+- 缓存的 screen 运行在请求 `--verify-replay` 但从未验证时不得复用，必须重算。
+
 ## D-008 最小 Provider Protocol
 
 **状态：已采纳**

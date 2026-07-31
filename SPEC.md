@@ -61,6 +61,36 @@
   最早发布版本；旧快照文件不可变；
 - Provider 修订只产生新快照，未来数据不会改写历史读取结果。
 
+## 1.6 Phase 2C.2B 离线全市场 setup 扫描
+
+- 只读取已发布 canonical 快照：日线仅消费 `CONFIRMED` 行，锚点来自 canonical
+  limit_up_pool；screen 全程禁止联网；
+- 初次运行按有效锚点窗口建立活动 setup；日常运行只推进昨日活动 setup 与当日
+  新 Anchor；状态按代码持久化并绑定 `bars_prefix_hash`，基础行情被修订时自动
+  丢弃状态并重算；
+- 复用冻结策略引擎（`evaluate_strategy` 与 replay 相同调用序列），不复制或
+  重写 B1/B2 逻辑；`strategy.yaml` 阈值不变；
+- 输出状态：`NEW_ANCHOR / WATCH_PULLBACK / B1_READY / B2_READY /
+  B2_CONFIRMED / INVALID / EXPIRED`；保存 setup 快照、评分、Support、Invalid、
+  B2 Trigger、S1、Entry Room、事件与数据质量；
+- 每次运行绑定 strategy commit、config hash、dataset snapshot 与 output hash；
+  相同输入必须产生相同输出；全量重建与逐日增量一致；未来快照不修改历史结果；
+  全市场结果与随机单股 replay 逐字段一致；对既有 8 案例回归；
+- 不实现 B1_PREP、挂单、持仓、S 点卖出、回测、HTML 报告或自动交易。
+
+### 1.7 2C.2B 修复门禁（2026-07-31 复审）
+
+- `NEW_ANCHOR` 严格定义为 `setup_stage == LIMIT_ANCHOR` 且
+  `anchor_date == trade_date`；已有 setup 的推进日不得重复报告；
+- 历史 `as_of` 解析只返回 `as_of <= T` 的最早发布 snapshot；没有可用快照时
+  要求显式 `--snapshot-id`，禁止读取未来发布的修订；
+- `ScreenState` 绑定并校验 `bars_prefix_hash / limit_pool_prefix_hash /
+  strategy_commit / config_hash / reconciliation_policy_version`；
+- 涨停池单源 `PROVISIONAL` 正式门禁：正式模式 `UNUSABLE` +
+  `LIMIT_POOL_PROVISIONAL`，调试模式 `DEGRADED` + 警告，绝不静默置为 OK；
+- 缓存复用门禁：请求 `--verify-replay` 而缓存未验证时强制重算；
+- screen 与 replay 共用 `quality.py` 公共质量合并/时间线转换模块。
+
 ## 2. 数值与时间类型
 
 - 所有价格、比例、金额、换手率、收益率和评分使用 `Decimal`。

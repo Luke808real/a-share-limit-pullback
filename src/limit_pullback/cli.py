@@ -20,7 +20,6 @@ from limit_pullback.warehouse.tushare_provider import CapabilityUnavailable
 
 
 PLANNED_COMMANDS = (
-    "screen",
     "report",
     "run",
     "backtest",
@@ -156,6 +155,34 @@ def build_parser() -> argparse.ArgumentParser:
     )
     validate_parser.add_argument("--data-root", type=Path, default=None)
     validate_parser.add_argument("--snapshot", default=None)
+
+    screen_parser = subparsers.add_parser(
+        "screen",
+        help="基于canonical快照的离线全市场setup扫描（不联网）",
+    )
+    screen_parser.add_argument("--as-of", required=True, type=_iso_date)
+    screen_parser.add_argument("--snapshot-id", default=None)
+    screen_parser.add_argument("--start", type=_iso_date)
+    screen_parser.add_argument("--rebuild", action="store_true")
+    screen_parser.add_argument("--codes", nargs="+", type=_main_board_code)
+    screen_parser.add_argument("--data-root", type=Path, default=None)
+    screen_parser.add_argument(
+        "--config",
+        type=Path,
+        default=_default_config_path(),
+        help="strategy.yaml 路径",
+    )
+    screen_parser.add_argument(
+        "--lookback-calendar-days",
+        type=_positive_integer,
+        default=400,
+    )
+    screen_parser.add_argument("--verify-replay", action="store_true")
+    screen_parser.add_argument(
+        "--pool-debug",
+        action="store_true",
+        help="允许 PROVISIONAL 涨停池记录作为锚点（调试模式，降低数据质量）",
+    )
     return parser
 
 
@@ -334,6 +361,31 @@ def _run_data_validate(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_screen(args: argparse.Namespace) -> int:
+    from limit_pullback.screen.runner import run_screen
+    from limit_pullback.warehouse.layout import WarehouseLayout
+
+    layout = WarehouseLayout(resolve_data_root(args.data_root))
+    try:
+        result = run_screen(
+            layout=layout,
+            as_of=args.as_of,
+            snapshot_id=args.snapshot_id,
+            start=args.start,
+            rebuild=args.rebuild,
+            codes=args.codes or (),
+            config_path=args.config,
+            lookback_calendar_days=args.lookback_calendar_days,
+            verify_replay=args.verify_replay,
+            pool_debug=args.pool_debug,
+        )
+    except Exception as exc:
+        _print_error(exc)
+        return 1
+    print(result.model_dump_json(indent=2))
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -353,6 +405,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_data_status(args)
     if args.command == "data-validate":
         return _run_data_validate(args)
+    if args.command == "screen":
+        return _run_screen(args)
     if args.command is None:
         parser.print_help()
     return 0

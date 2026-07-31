@@ -40,7 +40,7 @@ def raw_daily_schema() -> pa.Schema:
             pa.field("high", PRICE, nullable=False),
             pa.field("low", PRICE, nullable=False),
             pa.field("close", PRICE, nullable=False),
-            pa.field("preclose", PRICE, nullable=False),
+            pa.field("preclose", PRICE, nullable=True),
             pa.field("volume", AMOUNT, nullable=False),
             pa.field("amount", AMOUNT, nullable=False),
             pa.field("turnover_rate", RATE, nullable=True),
