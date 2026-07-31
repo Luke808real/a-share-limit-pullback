@@ -146,6 +146,12 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("TUSHARE", "AKSHARE", "BAOSTOCK"),
         default=("TUSHARE", "AKSHARE", "BAOSTOCK"),
     )
+    bootstrap_parser.add_argument(
+        "--workers",
+        type=_positive_integer,
+        default=1,
+        help="per-code 抓取并发线程数",
+    )
 
     update_parser = subparsers.add_parser(
         "update",
@@ -322,6 +328,7 @@ def _run_bootstrap(args: argparse.Namespace) -> int:
             all_main_board=args.all_main_board,
             batch_size=args.batch_size,
             active_providers=tuple(args.providers),
+            workers=args.workers,
         )
     except Exception as exc:
         _print_error(exc)

@@ -40,6 +40,10 @@ RATE_LIMIT_HINTS = (
     "访问频率过高",
     "请求过于频繁",
     "接口调用过于频繁",
+    "访问次数超限",
+    "请求频率",
+    "频率限制",
+    "频繁",
     "rate limit",
     "too many requests",
     "访问次数",
@@ -77,6 +81,11 @@ def _looks_retryable(message: str) -> bool:
         token in lowered
         for token in ("timeout", "timed out", "connection", "网络", "超时", "远程主机")
     )
+
+
+def _is_rate_limit(message: str) -> bool:
+    lowered = message.lower()
+    return any(hint.lower() in lowered for hint in RATE_LIMIT_HINTS)
 
 
 def _now_utc() -> datetime:
@@ -164,7 +173,11 @@ class TushareProProvider:
                 message = redact(str(exc))
                 if _looks_retryable(message) and attempts < retries:
                     attempts += 1
-                    time.sleep(backoff_seconds * (2 ** (attempts - 1)))
+                    if _is_rate_limit(message):
+                        # Cross the provider's per-minute window.
+                        time.sleep(max(65.0, backoff_seconds * (2 ** (attempts - 1))))
+                    else:
+                        time.sleep(backoff_seconds * (2 ** (attempts - 1)))
                     continue
                 if _looks_like_permission(message):
                     raise CapabilityUnavailable(
@@ -346,6 +359,8 @@ class TushareProProvider:
             ),
         )
         wanted = set(codes)
+        if not wanted:
+            return [normalize_tushare_stock_basic(row) for row in rows]
         return [
             normalize_tushare_stock_basic(row)
             for row in rows
