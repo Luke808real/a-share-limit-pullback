@@ -61,6 +61,23 @@
   最早发布版本；旧快照文件不可变；
 - Provider 修订只产生新快照，未来数据不会改写历史读取结果。
 
+## 1.6 Phase 2C.2B 离线全市场 setup 扫描
+
+- 只读取已发布 canonical 快照：日线仅消费 `CONFIRMED` 行，锚点来自 canonical
+  limit_up_pool；screen 全程禁止联网；
+- 初次运行按有效锚点窗口建立活动 setup；日常运行只推进昨日活动 setup 与当日
+  新 Anchor；状态按代码持久化并绑定 `bars_prefix_hash`，基础行情被修订时自动
+  丢弃状态并重算；
+- 复用冻结策略引擎（`evaluate_strategy` 与 replay 相同调用序列），不复制或
+  重写 B1/B2 逻辑；`strategy.yaml` 阈值不变；
+- 输出状态：`NEW_ANCHOR / WATCH_PULLBACK / B1_READY / B2_READY /
+  B2_CONFIRMED / INVALID / EXPIRED`；保存 setup 快照、评分、Support、Invalid、
+  B2 Trigger、S1、Entry Room、事件与数据质量；
+- 每次运行绑定 strategy commit、config hash、dataset snapshot 与 output hash；
+  相同输入必须产生相同输出；全量重建与逐日增量一致；未来快照不修改历史结果；
+  全市场结果与随机单股 replay 逐字段一致；对既有 8 案例回归；
+- 不实现 B1_PREP、挂单、持仓、S 点卖出、回测、HTML 报告或自动交易。
+
 ## 2. 数值与时间类型
 
 - 所有价格、比例、金额、换手率、收益率和评分使用 `Decimal`。

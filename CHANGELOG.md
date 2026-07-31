@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased — Phase 2C.2B
+
+- 新增离线全市场 `screen` 命令：`screen --as-of --snapshot-id`（增量）与
+  `screen --start --as-of --rebuild`（全量重建）。
+- 只读取已发布 canonical 快照的 `CONFIRMED` 日线与 canonical 涨停池；
+  全程禁止联网；复用 `evaluate_strategy`，不复制 B1/B2 逻辑。
+- 新增逐股状态持久化（`data/screen/states/`）与运行输出
+  （`data/screen/runs/`）；状态绑定 `bars_prefix_hash`，行情修订自动重算。
+- 每次运行绑定 strategy commit、config hash、dataset snapshot 与
+  output hash；相同输入相同输出；全量重建=逐日增量；未来快照不改历史。
+- 输出 `NEW_ANCHOR / WATCH_PULLBACK / B1_READY / B2_READY / B2_CONFIRMED /
+  INVALID / EXPIRED`，保存评分、Support、Invalid、B2 Trigger、S1、
+  Entry Room、事件与数据质量。
+- `--verify-replay` 逐代码校验“重建=增量”与“全市场=单股 replay”逐字段一致；
+  既有 8 案例真实验收通过。不实现 B1_PREP、挂单、持仓、S 点卖出或回测。
+
 ## Unreleased — Phase 2C.2A
 
 - 新增 Tushare Pro 认证（仅环境变量）与 `provider-probe` 能力探针

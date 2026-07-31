@@ -69,6 +69,21 @@ AKShare/东方财富提供涨停池，BaoStock 负责历史补录与第三来源
 - Token 只从环境变量读取；缺失返回 `TUSHARE_TOKEN_NOT_CONFIGURED`，Token
   不进入提示词、Git、日志、异常或报告。
 
+## D-027 全市场增量 setup 扫描
+
+**状态：已采纳（Phase 2C.2B）**
+
+使用已发布 canonical 快照进行离线全市场 setup 扫描，复用冻结策略引擎。
+
+- 日线只读 `CONFIRMED` canonical 行；锚点来自 canonical 涨停池；screen 禁止
+  联网，任何 Provider 不可达都不能静默绕过；
+- 初次运行建立活动 setup，日常只推进昨日活动 setup 与当日新 Anchor；状态文件
+  绑定 `bars_prefix_hash`，行情修订时显式丢弃并重算，绝不静默续用旧状态；
+- 相同输入必须产生相同输出；全量重建与逐日增量逐字段一致；未来快照不修改
+  历史结果；全市场结果与单股 replay 逐字段一致；
+- 输出只描述研究信号（NEW_ANCHOR 到 INVALID/EXPIRED 生命周期），不产生任何
+  交易指令；B1_PREP、挂单、持仓、S 点卖出、回测均不在本阶段范围。
+
 ## D-008 最小 Provider Protocol
 
 **状态：已采纳**

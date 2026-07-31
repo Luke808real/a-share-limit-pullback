@@ -83,3 +83,24 @@ QUARANTINED`。Tushare 与 AKShare 一致时发布 `CONFIRMED`；BaoStock 明确
 进入 `CONFLICTED` 并隔离，绝不发布 canonical；不同来源的字段绝不拼接。
 `TUSHARE_TOKEN` 只从环境变量读取，缺失时返回
 `TUSHARE_TOKEN_NOT_CONFIGURED`，Token 不会出现在日志、异常、报告或 Git 中。
+
+## Phase 2C.2B 离线全市场 setup 扫描
+
+`screen` 完全离线运行：只读取已发布 canonical 快照中的 `CONFIRMED` 日线
+（涨停池取自 canonical pool），不访问任何 Provider、不使用未来数据。
+
+```bash
+# 首次/全量重建
+python -m limit_pullback screen \
+  --start 2026-06-01 --as-of 2026-07-30 --rebuild \
+  --snapshot-id snap-xxx --verify-replay
+
+# 日常增量：只推进昨日活动 setup 与当日新 Anchor
+python -m limit_pullback screen --as-of 2026-07-31
+```
+
+每次运行绑定 `strategy commit / config hash / dataset snapshot / output hash`；
+输出（setup 快照、评分、Support、Invalid、B2 Trigger、S1、Entry Room、事件、
+数据质量）写入 `data/screen/runs/`，逐股状态写入 `data/screen/states/`。
+全量重建与逐日增量必须一致；未来快照不修改历史结果。不实现 B1_PREP、挂单、
+持仓、S 点卖出或回测。
