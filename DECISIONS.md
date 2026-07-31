@@ -49,6 +49,26 @@
 可操作 setup 缺少 S1 时进入 `OPEN_SPACE` 人工复核分组，风险收益比为空，不自动
 淘汰，也不合成目标价。
 
+## D-026 多数据源行情仓库与显式对账
+
+**状态：已采纳（Phase 2C.2A）**
+
+Tushare Pro 为主日线来源，AKShare（sina 日线端点）为日线校验源，
+AKShare/东方财富提供涨停池，BaoStock 负责历史补录与第三来源校验，不作为
+当日数据新鲜度唯一门禁。
+
+- 禁止静默 Provider 回退：任何来源不可用时只记录能力状态并暂停依赖该接口的
+  范围，绝不把权限不足当作空数据；
+- 禁止字段级拼接：canonical 行整体取自 `selected_provider` 的原始行；
+- canonical 必须可追溯：`source_row_hash` 可回溯到对应 Provider 原始行，
+  manifest 记录全部源文件与 canonical 文件哈希；
+- Provider 延迟不等于数据冲突：BaoStock 滞后而 Tushare/AKShare 一致时允许
+  `CONFIRMED` 并审计 `BAOSTOCK_LAGGING`；
+- 只有 `CONFIRMED`（或显式 `PROVISIONAL` 且带状态标记）的 canonical 行进入
+  仓库快照；`CONFLICTED` 一律隔离；
+- Token 只从环境变量读取；缺失返回 `TUSHARE_TOKEN_NOT_CONFIGURED`，Token
+  不进入提示词、Git、日志、异常或报告。
+
 ## D-008 最小 Provider Protocol
 
 **状态：已采纳**

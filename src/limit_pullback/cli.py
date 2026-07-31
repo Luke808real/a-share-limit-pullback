@@ -1,4 +1,4 @@
-"""Phase-2C.1 CLI: arbitrary supported main-board inspect and replay."""
+"""CLI: inspect/replay (2C.1) and local market-data warehouse (2C.2A)."""
 
 from __future__ import annotations
 
@@ -13,11 +13,13 @@ from limit_pullback.instruments import (
     InstrumentCodeError,
     parse_instrument_code,
 )
+from limit_pullback.warehouse.auth import TushareTokenError, redact
+from limit_pullback.warehouse.layout import resolve_data_root
+from limit_pullback.warehouse.pipeline import PipelineError
+from limit_pullback.warehouse.tushare_provider import CapabilityUnavailable
 
 
 PLANNED_COMMANDS = (
-    "bootstrap",
-    "update",
     "screen",
     "report",
     "run",
@@ -67,11 +69,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser = StructuredArgumentParser(
         prog="limit_pullback",
         description=(
-            "A股涨停回调盘后筛选器（Phase 2C.1：沪深主板单股票评价）"
+            "A股涨停回调盘后筛选器（Phase 2C.1：沪深主板单股票评价；"
+            "Phase 2C.2A：本地多源行情仓库）"
         ),
         epilog=(
-            "仅 inspect/replay 会访问固定免费数据源；不建立数据库，不写文件，"
-            "也不执行全市场筛选、报告或回测。"
+            "仅 inspect/replay 会访问固定免费数据源；warehouse 命令在 data/ "
+            "建立 Parquet + DuckDB 本地仓库；不执行全市场筛选、报告或回测。"
         ),
     )
     subparsers = parser.add_subparsers(dest="command", metavar="COMMAND")
@@ -112,6 +115,47 @@ def build_parser() -> argparse.ArgumentParser:
         default=_default_config_path(),
         help="strategy.yaml 路径",
     )
+    probe_parser = subparsers.add_parser(
+        "provider-probe",
+        help="探测数据源能力并输出 AVAILABLE/UNAVAILABLE_* 状态",
+    )
+    probe_parser.add_argument(
+        "--provider",
+        choices=("tushare",),
+        default="tushare",
+        help="当前仅支持 tushare",
+    )
+    probe_parser.add_argument("--data-root", type=Path, default=None)
+
+    bootstrap_parser = subparsers.add_parser(
+        "bootstrap",
+        help="历史行情 bootstrap：下载、对账、canonical 快照",
+    )
+    bootstrap_parser.add_argument("--start", required=True, type=_iso_date)
+    bootstrap_parser.add_argument("--end", required=True, type=_iso_date)
+    bootstrap_parser.add_argument("--codes", nargs="+", type=_main_board_code)
+    bootstrap_parser.add_argument("--data-root", type=Path, default=None)
+
+    update_parser = subparsers.add_parser(
+        "update",
+        help="幂等每日增量更新到指定 as-of 日期",
+    )
+    update_parser.add_argument("--as-of", required=True, type=_iso_date)
+    update_parser.add_argument("--codes", nargs="+", type=_main_board_code)
+    update_parser.add_argument("--data-root", type=Path, default=None)
+
+    status_parser = subparsers.add_parser(
+        "data-status",
+        help="输出仓库新鲜度与对账状态",
+    )
+    status_parser.add_argument("--data-root", type=Path, default=None)
+
+    validate_parser = subparsers.add_parser(
+        "data-validate",
+        help="校验仓库完整性、可追溯性与 manifest",
+    )
+    validate_parser.add_argument("--data-root", type=Path, default=None)
+    validate_parser.add_argument("--snapshot", default=None)
     return parser
 
 
@@ -176,6 +220,120 @@ def _run_replay(args: argparse.Namespace) -> int:
     return 0
 
 
+def _print_error(exc: BaseException) -> None:
+    if isinstance(exc, TushareTokenError):
+        error = {
+            "error": {
+                "type": "TushareTokenError",
+                "code": exc.error_code,
+                "message": exc.error_code,
+            }
+        }
+    elif isinstance(exc, PipelineError):
+        error = {
+            "error": {
+                "type": "PipelineError",
+                "code": exc.code,
+                "message": redact(str(exc)),
+            }
+        }
+    elif isinstance(exc, CapabilityUnavailable):
+        error = {
+            "error": {
+                "type": "CapabilityUnavailable",
+                "code": exc.error_code,
+                "message": f"{exc.capability}: {exc.status}",
+            }
+        }
+    else:
+        error = {
+            "error": {
+                "type": type(exc).__name__,
+                "message": redact(str(exc)),
+            }
+        }
+    print(json.dumps(error, ensure_ascii=False), file=sys.stderr)
+
+
+def _run_provider_probe(args: argparse.Namespace) -> int:
+    from limit_pullback.warehouse.layout import WarehouseLayout
+    from limit_pullback.warehouse.probe import probe_tushare
+
+    layout = WarehouseLayout(resolve_data_root(args.data_root))
+    try:
+        result = probe_tushare(layout=layout)
+    except Exception as exc:
+        _print_error(exc)
+        return 1
+    print(result.model_dump_json(indent=2))
+    return 0
+
+
+def _run_bootstrap(args: argparse.Namespace) -> int:
+    from limit_pullback.warehouse.layout import WarehouseLayout
+    from limit_pullback.warehouse.pipeline import bootstrap
+
+    layout = WarehouseLayout(resolve_data_root(args.data_root))
+    try:
+        result = bootstrap(
+            layout=layout,
+            start=args.start,
+            end=args.end,
+            codes=args.codes or (),
+        )
+    except Exception as exc:
+        _print_error(exc)
+        return 1
+    print(result.model_dump_json(indent=2))
+    return 0
+
+
+def _run_update(args: argparse.Namespace) -> int:
+    from limit_pullback.warehouse.layout import WarehouseLayout
+    from limit_pullback.warehouse.pipeline import update
+
+    layout = WarehouseLayout(resolve_data_root(args.data_root))
+    try:
+        result = update(
+            layout=layout,
+            as_of=args.as_of,
+            codes=args.codes or (),
+        )
+    except Exception as exc:
+        _print_error(exc)
+        return 1
+    print(result.model_dump_json(indent=2))
+    return 0
+
+
+def _run_data_status(args: argparse.Namespace) -> int:
+    from limit_pullback.warehouse.layout import WarehouseLayout
+    from limit_pullback.warehouse.status import data_status
+
+    layout = WarehouseLayout(resolve_data_root(args.data_root))
+    try:
+        result = data_status(layout)
+    except Exception as exc:
+        _print_error(exc)
+        return 1
+    print(result.model_dump_json(indent=2))
+    return 0
+
+
+def _run_data_validate(args: argparse.Namespace) -> int:
+    from limit_pullback.warehouse.layout import WarehouseLayout
+    from limit_pullback.warehouse.validate import data_validate
+
+    layout = WarehouseLayout(resolve_data_root(args.data_root))
+    try:
+        result = data_validate(layout, snapshot_id=args.snapshot)
+    except Exception as exc:
+        _print_error(exc)
+        return 1
+    print(result.model_dump_json(indent=2))
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -185,6 +343,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_inspect(args)
     if args.command == "replay":
         return _run_replay(args)
+    if args.command == "provider-probe":
+        return _run_provider_probe(args)
+    if args.command == "bootstrap":
+        return _run_bootstrap(args)
+    if args.command == "update":
+        return _run_update(args)
+    if args.command == "data-status":
+        return _run_data_status(args)
+    if args.command == "data-validate":
+        return _run_data_validate(args)
     if args.command is None:
         parser.print_help()
     return 0
