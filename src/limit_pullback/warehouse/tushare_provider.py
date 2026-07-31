@@ -451,47 +451,69 @@ class TushareProProvider:
         method_name: str,
         dates: list[date],
         normalizer: Callable[[dict[str, Any]], dict[str, Any]],
+        fields: str | None = None,
     ) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         for trade_date in dates:
+            params: dict[str, Any] = {"trade_date": trade_date.strftime("%Y%m%d")}
+            if fields:
+                params["fields"] = fields
             frame_rows = self._frame_call(
                 capability,
-                lambda client, day=trade_date: getattr(client, method_name)(
-                    trade_date=day.strftime("%Y%m%d")
-                ),
+                lambda client, p=params: getattr(client, method_name)(**p),
             )
             rows.extend(normalizer(row) for row in frame_rows)
         return rows
 
     def fetch_daily_by_trade_date(self, dates: list[date]) -> list[dict[str, Any]]:
         return self._bulk_by_trade_date(
-            "daily_bars", "daily", dates, normalize_tushare_daily
+            "daily_bars",
+            "daily",
+            dates,
+            normalize_tushare_daily,
+            fields="ts_code,trade_date,open,high,low,close,pre_close,vol,amount,pct_chg",
         )
 
     def fetch_daily_basic_by_trade_date(
         self, dates: list[date]
     ) -> list[dict[str, Any]]:
         return self._bulk_by_trade_date(
-            "daily_basic", "daily_basic", dates, normalize_tushare_daily_basic
+            "daily_basic",
+            "daily_basic",
+            dates,
+            normalize_tushare_daily_basic,
+            fields="ts_code,trade_date,turnover_rate,volume_ratio,pe,pb,total_mv,circ_mv",
         )
 
     def fetch_adj_factor_by_trade_date(
         self, dates: list[date]
     ) -> list[dict[str, Any]]:
         return self._bulk_by_trade_date(
-            "adjustment_factor", "adj_factor", dates, normalize_tushare_adj_factor
+            "adjustment_factor",
+            "adj_factor",
+            dates,
+            normalize_tushare_adj_factor,
+            fields="ts_code,trade_date,adj_factor",
         )
 
     def fetch_suspension_by_trade_date(
         self, dates: list[date]
     ) -> list[dict[str, Any]]:
         return self._bulk_by_trade_date(
-            "suspension", "suspend_d", dates, normalize_tushare_suspension
+            "suspension",
+            "suspend_d",
+            dates,
+            normalize_tushare_suspension,
+            fields="ts_code,trade_date,suspend_type,suspend_timing",
         )
 
     def fetch_price_limits_by_trade_date(
         self, dates: list[date]
     ) -> list[dict[str, Any]]:
         return self._bulk_by_trade_date(
-            "price_limits", "stk_limit", dates, normalize_tushare_price_limits
+            "price_limits",
+            "stk_limit",
+            dates,
+            normalize_tushare_price_limits,
+            fields="ts_code,trade_date,up_limit,down_limit",
         )
