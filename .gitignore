@@ -20,3 +20,6 @@ dist/
 
 # Local Codex desktop environment metadata.
 .codex/
+
+# Phase 2C.2A local market-data warehouse (real data never committed).
+data/

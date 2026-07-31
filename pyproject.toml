@@ -17,6 +17,12 @@ integration = [
   "akshare>=1.18,<2",
   "baostock>=0.9.3,<1",
 ]
+warehouse = [
+  "duckdb>=1.1,<2",
+  "pyarrow>=17,<21",
+  "pytz>=2024.1",
+  "tushare>=1.2,<2",
+]
 test = [
   "pytest>=8.3,<9",
 ]

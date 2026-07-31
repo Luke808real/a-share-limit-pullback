@@ -2,7 +2,21 @@
 
 ## 1. 当前交付范围
 
-当前版本交付至“阶段2C.1：任意沪深主板单股票真实检查与Provider边界加固”：
+当前版本交付至“阶段2C.2A：多数据源历史行情仓库与每日增量更新”（叠加在已冻结
+的Phase 2C.1之上）：
+
+- Tushare Pro 主日线、交易日历、股票基本信息、复权因子、`daily_basic`、
+  停复牌与每日涨跌停价格；
+- AKShare（sina 日线端点）日线交叉验证，AKShare/东方财富涨停池
+  （首次/最后封板时间、炸板次数、连板数、行业）；
+- BaoStock 历史补录与第三来源校验，不作为当日数据新鲜度唯一门禁；
+- Parquet 原始层 + DuckDB 元数据 + Parquet canonical 层 + 不可变快照；
+- `bootstrap` 历史回填与 `update` 每日幂等增量；
+- `provider-probe`、`data-status`、`data-validate` 运维命令；
+- 显式对账（`PROVISIONAL / CONFIRMED / INCOMPLETE / CONFLICTED /
+  QUARANTINED`）与 point-in-time 读取保证。
+
+### 1.1 Phase 2C.1 冻结内容（不变）
 
 - 冻结策略语义和状态不变量；
 - 提供严格配置、枚举、Pydantic 输入输出模型和纯函数策略引擎；
@@ -10,8 +24,42 @@
 - 提供任意合法沪深主板单股票的单日 `inspect` 和逐日内存 `replay`；
 - 默认测试完全封锁网络，真实 Provider 测试必须显式选择 `integration`。
 
-当前版本不建立 DuckDB，不读写 Parquet，不生成 HTML 或报告，不实现回测，不扫描
-全市场，不实现盘中或自动交易，也不增加缓存、重试、回退、注册系统或机器学习。
+### 1.2 阶段边界（2C.2A 不实现）
+
+- 不实现全市场 screen、候选排名、HTML 报告、信号收益统计、成交模拟、
+  资金管理、回测、自动交易或分钟级策略；
+- 不自动选择冲突数据、不静默回退 Provider、不把不同 Provider 的字段拼成
+  一根K线；
+- 真实行情、Token 与 `.env` 一律不进 Git。
+
+### 1.3 数据源职责
+
+| 数据源 | 职责 |
+| --- | --- |
+| Tushare Pro | 主日线、交易日历、股票基本信息、复权因子、daily_basic、停复牌、涨跌停价 |
+| AKShare / 东方财富 | 涨停池（封板时间/炸板/连板/行业）、日线交叉验证 |
+| BaoStock | 历史补录、第三来源校验 |
+
+### 1.4 对账与 canonical 规则
+
+- 不同来源同一 `code/date` 分别保留完整记录（`raw/<provider>/daily_bars`）；
+- 禁止字段级拼接：canonical 行整体取自 `selected_provider` 的原始行；
+- 主源（Tushare）与校验源（AKShare）一致 → `CONFIRMED`；
+- BaoStock 明确延迟但 Tushare 与 AKShare 一致 → 仍 `CONFIRMED`，并在审计
+  记录 `BAOSTOCK_LAGGING`；
+- OHLC 超出容差 → `CONFLICTED`，进入 quarantine，不发布 canonical；
+- 容差只吸收格式/单位微差（价格相对 0.1% 且绝对 0.01 元，量额相对 0.5%），
+  不得掩盖真实价格冲突；
+- 单来源或缺少主/校验配对 → `PROVISIONAL`；日历交易日无任何来源 →
+  `INCOMPLETE`；所有选择与拒绝原因进入 `reconciliation_results`。
+
+### 1.5 Point-in-time 保证
+
+- 每个快照包含 `snapshot_id / created_at / as_of / provider_versions /
+  source_file_hashes / canonical_file_hashes / reconciliation_policy_version`；
+- `as_of=T` 读取只使用 `trade_date <= T` 且快照边界（as_of）不晚于 T 的
+  最早发布版本；旧快照文件不可变；
+- Provider 修订只产生新快照，未来数据不会改写历史读取结果。
 
 ## 2. 数值与时间类型
 

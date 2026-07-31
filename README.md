@@ -1,7 +1,9 @@
 # A-share Limit Pullback
 
-纯盘后、单股票的A股涨停回调策略检查器。当前Phase 2C.1支持任意合法沪深主板
-六位代码，但不提供全市场扫描、数据库、报告、回测、盘中监控或自动交易。
+纯盘后、单股票的A股涨停回调策略检查器。Phase 2C.1支持任意合法沪深主板六位
+代码的 `inspect` / `replay`；Phase 2C.2A提供本地多数据源历史行情仓库
+（Tushare 主日线 + AKShare 交叉验证/涨停池 + BaoStock 历史补录），但不提供
+全市场扫描、HTML报告、回测、盘中监控或自动交易。
 
 ## CLI
 
@@ -38,3 +40,46 @@ pytest -q
 ```bash
 pytest -m integration -q
 ```
+
+## Phase 2C.2A 本地行情仓库
+
+仓库命令把真实数据写入默认 `data/` 目录（可用 `--data-root` 或环境变量
+`LIMIT_PULLBACK_DATA_ROOT` 覆盖）；`data/` 已被 Git 忽略，真实行情永不入库。
+
+```bash
+# 探测 Tushare 各接口能力（仅从环境变量 TUSHARE_TOKEN 读取认证）
+python -m limit_pullback provider-probe --provider tushare
+
+# 历史 bootstrap：下载 → 单位标准化 → 对账 → canonical 快照
+python -m limit_pullback bootstrap \
+  --start 2026-06-01 --end 2026-07-30 \
+  --codes 603918 603318 002640 600199 002891
+
+# 幂等每日增量更新
+python -m limit_pullback update --as-of 2026-07-31
+
+# 仓库状态与完整性校验
+python -m limit_pullback data-status
+python -m limit_pullback data-validate
+```
+
+布局：
+
+```text
+data/
+  raw/tushare/            daily_bars, adjustment_factor, daily_basic,
+                          suspension, price_limits
+  raw/akshare/            daily_bars, limit_up_pool
+  raw/baostock/           daily_bars
+  canonical/              daily_bars, limit_up_pool（按 snapshot 不可变发布）
+  quarantine/             冲突与隔离记录
+  manifests/              snapshot manifest（原子提交）
+  warehouse.duckdb        运行/能力/文件/快照/对账元数据
+```
+
+对账状态：`PROVISIONAL / CONFIRMED / INCOMPLETE / CONFLICTED /
+QUARANTINED`。Tushare 与 AKShare 一致时发布 `CONFIRMED`；BaoStock 明确
+延迟但双源一致时仍 `CONFIRMED` 并记录 `BAOSTOCK_LAGGING`；OHLC 超容差冲突
+进入 `CONFLICTED` 并隔离，绝不发布 canonical；不同来源的字段绝不拼接。
+`TUSHARE_TOKEN` 只从环境变量读取，缺失时返回
+`TUSHARE_TOKEN_NOT_CONFIGURED`，Token 不会出现在日志、异常、报告或 Git 中。
