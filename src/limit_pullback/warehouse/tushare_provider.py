@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import date, datetime, timezone
 from importlib.metadata import PackageNotFoundError, version
+import time
 from typing import Any
 
 from limit_pullback.warehouse.auth import TushareTokenError, redact, tushare_token
@@ -34,6 +35,15 @@ PERMISSION_HINTS = (
     "not authorized",
     "forbidden",
 )
+RATE_LIMIT_HINTS = (
+    "每分钟最多访问",
+    "访问频率过高",
+    "请求过于频繁",
+    "接口调用过于频繁",
+    "rate limit",
+    "too many requests",
+    "访问次数",
+)
 
 
 class CapabilityUnavailable(RuntimeError):
@@ -57,6 +67,16 @@ class CapabilityUnavailable(RuntimeError):
 def _looks_like_permission(message: str) -> bool:
     lowered = message.lower()
     return any(hint.lower() in lowered for hint in PERMISSION_HINTS)
+
+
+def _looks_retryable(message: str) -> bool:
+    lowered = message.lower()
+    if any(hint.lower() in lowered for hint in RATE_LIMIT_HINTS):
+        return True
+    return any(
+        token in lowered
+        for token in ("timeout", "timed out", "connection", "网络", "超时", "远程主机")
+    )
 
 
 def _now_utc() -> datetime:
@@ -123,29 +143,42 @@ class TushareProProvider:
             self._client = tushare.pro_api(token)
         return self._client
 
-    def _call(self, capability: str, function: Callable[[], Any]) -> Any:
-        try:
-            client = self._load_client()
-            return function(client)
-        except TushareTokenError:
-            raise
-        except CapabilityUnavailable:
-            raise
-        except Exception as exc:
-            message = redact(str(exc))
-            if _looks_like_permission(message):
+    def _call(
+        self,
+        capability: str,
+        function: Callable[[], Any],
+        *,
+        retries: int = 4,
+        backoff_seconds: float = 1.5,
+    ) -> Any:
+        attempts = 0
+        while True:
+            try:
+                client = self._load_client()
+                return function(client)
+            except TushareTokenError:
+                raise
+            except CapabilityUnavailable:
+                raise
+            except Exception as exc:
+                message = redact(str(exc))
+                if _looks_retryable(message) and attempts < retries:
+                    attempts += 1
+                    time.sleep(backoff_seconds * (2 ** (attempts - 1)))
+                    continue
+                if _looks_like_permission(message):
+                    raise CapabilityUnavailable(
+                        capability,
+                        "UNAVAILABLE_PERMISSION",
+                        error_code="PERMISSION_DENIED",
+                        detail=message,
+                    ) from exc
                 raise CapabilityUnavailable(
                     capability,
-                    "UNAVAILABLE_PERMISSION",
-                    error_code="PERMISSION_DENIED",
-                    detail=message,
+                    "UNAVAILABLE_PROVIDER",
+                    error_code=type(exc).__name__,
+                    detail=message[:500],
                 ) from exc
-            raise CapabilityUnavailable(
-                capability,
-                "UNAVAILABLE_PROVIDER",
-                error_code=type(exc).__name__,
-                detail=message[:500],
-            ) from exc
 
     def _frame_call(self, capability: str, function: Callable[[Any], Any]) -> Any:
         frame = self._call(capability, function)
@@ -396,3 +429,54 @@ class TushareProProvider:
             )
             rows.extend(normalize_tushare_price_limits(row) for row in frame_rows)
         return rows
+
+    def _bulk_by_trade_date(
+        self,
+        capability: str,
+        method_name: str,
+        dates: list[date],
+        normalizer: Callable[[dict[str, Any]], dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        for trade_date in dates:
+            frame_rows = self._frame_call(
+                capability,
+                lambda client, day=trade_date: getattr(client, method_name)(
+                    trade_date=day.strftime("%Y%m%d")
+                ),
+            )
+            rows.extend(normalizer(row) for row in frame_rows)
+        return rows
+
+    def fetch_daily_by_trade_date(self, dates: list[date]) -> list[dict[str, Any]]:
+        return self._bulk_by_trade_date(
+            "daily_bars", "daily", dates, normalize_tushare_daily
+        )
+
+    def fetch_daily_basic_by_trade_date(
+        self, dates: list[date]
+    ) -> list[dict[str, Any]]:
+        return self._bulk_by_trade_date(
+            "daily_basic", "daily_basic", dates, normalize_tushare_daily_basic
+        )
+
+    def fetch_adj_factor_by_trade_date(
+        self, dates: list[date]
+    ) -> list[dict[str, Any]]:
+        return self._bulk_by_trade_date(
+            "adjustment_factor", "adj_factor", dates, normalize_tushare_adj_factor
+        )
+
+    def fetch_suspension_by_trade_date(
+        self, dates: list[date]
+    ) -> list[dict[str, Any]]:
+        return self._bulk_by_trade_date(
+            "suspension", "suspend_d", dates, normalize_tushare_suspension
+        )
+
+    def fetch_price_limits_by_trade_date(
+        self, dates: list[date]
+    ) -> list[dict[str, Any]]:
+        return self._bulk_by_trade_date(
+            "price_limits", "stk_limit", dates, normalize_tushare_price_limits
+        )

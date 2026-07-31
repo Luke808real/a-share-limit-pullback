@@ -134,6 +134,18 @@ def build_parser() -> argparse.ArgumentParser:
     bootstrap_parser.add_argument("--end", required=True, type=_iso_date)
     bootstrap_parser.add_argument("--codes", nargs="+", type=_main_board_code)
     bootstrap_parser.add_argument("--data-root", type=Path, default=None)
+    bootstrap_parser.add_argument(
+        "--all-main-board",
+        action="store_true",
+        help="从 stock_basic 枚举全部合法沪深主板代码",
+    )
+    bootstrap_parser.add_argument("--batch-size", type=_positive_integer, default=50)
+    bootstrap_parser.add_argument(
+        "--providers",
+        nargs="+",
+        choices=("TUSHARE", "AKSHARE", "BAOSTOCK"),
+        default=("TUSHARE", "AKSHARE", "BAOSTOCK"),
+    )
 
     update_parser = subparsers.add_parser(
         "update",
@@ -307,6 +319,9 @@ def _run_bootstrap(args: argparse.Namespace) -> int:
             start=args.start,
             end=args.end,
             codes=args.codes or (),
+            all_main_board=args.all_main_board,
+            batch_size=args.batch_size,
+            active_providers=tuple(args.providers),
         )
     except Exception as exc:
         _print_error(exc)

@@ -110,3 +110,23 @@ def test_probe_error_message_never_contains_token(capsys, monkeypatch):
     assert "super-secret-token" not in (daily.detail or "")
     output = capsys.readouterr()
     assert "super-secret-token" not in output.out + output.err
+
+
+def test_rate_limit_error_is_retried_with_backoff(monkeypatch):
+    monkeypatch.setenv("TUSHARE_TOKEN", "fake-token")
+    calls = {"count": 0}
+
+    def flaky_daily():
+        calls["count"] += 1
+        if calls["count"] < 3:
+            raise Exception("抱歉，您每分钟最多访问该接口200次")
+        return pd.DataFrame()
+
+    client = FakeTushareClient({"daily": flaky_daily})
+    provider = TushareProProvider(client_factory=lambda token: client)
+    result = provider.probe_all()
+    daily = next(
+        item for item in result.capabilities if item.capability == "daily_bars"
+    )
+    assert daily.status == "AVAILABLE"
+    assert calls["count"] == 3

@@ -54,6 +54,26 @@ class WarehouseProviderSet(Protocol):
         self, codes: tuple[str, ...], start: date, end: date
     ) -> list[dict[str, Any]]: ...
 
+    def fetch_tushare_daily_by_trade_date(
+        self, dates: list[date]
+    ) -> list[dict[str, Any]]: ...
+
+    def fetch_tushare_daily_basic_by_trade_date(
+        self, dates: list[date]
+    ) -> list[dict[str, Any]]: ...
+
+    def fetch_tushare_adj_factor_by_trade_date(
+        self, dates: list[date]
+    ) -> list[dict[str, Any]]: ...
+
+    def fetch_tushare_suspension_by_trade_date(
+        self, dates: list[date]
+    ) -> list[dict[str, Any]]: ...
+
+    def fetch_tushare_price_limits_by_trade_date(
+        self, dates: list[date]
+    ) -> list[dict[str, Any]]: ...
+
 
 class RealWarehouseProviderSet:
     """Wraps Tushare, AKShare and BaoStock with strict normalization."""
@@ -124,3 +144,28 @@ class RealWarehouseProviderSet:
         self, codes: tuple[str, ...], start: date, end: date
     ) -> list[dict[str, Any]]:
         return self._baostock.fetch_daily(codes, start, end)
+
+    def fetch_tushare_daily_by_trade_date(
+        self, dates: list[date]
+    ) -> list[dict[str, Any]]:
+        return self._tushare.fetch_daily_by_trade_date(dates)
+
+    def fetch_tushare_daily_basic_by_trade_date(
+        self, dates: list[date]
+    ) -> list[dict[str, Any]]:
+        return self._tushare.fetch_daily_basic_by_trade_date(dates)
+
+    def fetch_tushare_adj_factor_by_trade_date(
+        self, dates: list[date]
+    ) -> list[dict[str, Any]]:
+        return self._tushare.fetch_adj_factor_by_trade_date(dates)
+
+    def fetch_tushare_suspension_by_trade_date(
+        self, dates: list[date]
+    ) -> list[dict[str, Any]]:
+        return self._tushare.fetch_suspension_by_trade_date(dates)
+
+    def fetch_tushare_price_limits_by_trade_date(
+        self, dates: list[date]
+    ) -> list[dict[str, Any]]:
+        return self._tushare.fetch_price_limits_by_trade_date(dates)
