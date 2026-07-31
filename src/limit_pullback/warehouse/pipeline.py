@@ -362,6 +362,7 @@ def bootstrap(
     active_providers: tuple[str, ...] = ("TUSHARE", "AKSHARE", "BAOSTOCK"),
     bulk_threshold: int = 200,
     workers: int = 1,
+    skip_tushare_aux: bool = False,
 ) -> BootstrapResult:
     """Full historical bootstrap with an exclusive write lock."""
 
@@ -381,6 +382,7 @@ def bootstrap(
             active_providers=active_providers,
             bulk_threshold=bulk_threshold,
             workers=workers,
+            skip_tushare_aux=skip_tushare_aux,
         )
 
 
@@ -399,6 +401,7 @@ def _bootstrap_impl(
     active_providers: tuple[str, ...] = ("TUSHARE", "AKSHARE", "BAOSTOCK"),
     bulk_threshold: int = 200,
     workers: int = 1,
+    skip_tushare_aux: bool = False,
 ) -> BootstrapResult:
     """Full historical bootstrap with atomic snapshot publication."""
 
@@ -529,7 +532,7 @@ def _bootstrap_impl(
                 return fetchers[dataset]((code,), start, end)
 
             tushare_aux: dict[str, list[dict[str, Any]]] = {}
-            if "TUSHARE" in active_providers:
+            if "TUSHARE" in active_providers and not skip_tushare_aux:
                 for dataset in (
                     "adjustment_factor",
                     "daily_basic",
@@ -562,6 +565,14 @@ def _bootstrap_impl(
                             per_item_fn=lambda c, d=dataset: _tushare_per_code(d, c),
                             workers=workers,
                         )
+            elif skip_tushare_aux:
+                for dataset in (
+                    "adjustment_factor",
+                    "daily_basic",
+                    "suspension",
+                    "price_limits",
+                ):
+                    notes.append(f"SKIPPED_DATASET:{dataset}:AUX_SKIPPED_BY_FLAG")
 
             daily_basic_rows = tushare_aux.get("daily_basic", [])
             if (

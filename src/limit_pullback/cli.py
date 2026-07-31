@@ -152,6 +152,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=1,
         help="per-code 抓取并发线程数",
     )
+    bootstrap_parser.add_argument(
+        "--skip-tushare-aux",
+        action="store_true",
+        help="跳过 Tushare 辅助数据集（adj_factor/daily_basic/suspension/price_limits）",
+    )
 
     update_parser = subparsers.add_parser(
         "update",
@@ -329,6 +334,7 @@ def _run_bootstrap(args: argparse.Namespace) -> int:
             batch_size=args.batch_size,
             active_providers=tuple(args.providers),
             workers=args.workers,
+            skip_tushare_aux=args.skip_tushare_aux,
         )
     except Exception as exc:
         _print_error(exc)
