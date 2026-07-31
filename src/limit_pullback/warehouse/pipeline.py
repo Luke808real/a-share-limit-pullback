@@ -5,9 +5,12 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
+from limit_pullback.warehouse.auth import redact
 from limit_pullback.warehouse.layout import WarehouseLayout
+from limit_pullback.warehouse.locking import WarehouseLock
 from limit_pullback.warehouse.metadata import WarehouseMetadata
 from limit_pullback.warehouse.models import (
     BootstrapResult,
@@ -305,7 +308,73 @@ def _missing_records(
     return records
 
 
+def _historical_daily_rows(
+    *,
+    layout: WarehouseLayout,
+    metadata: WarehouseMetadata,
+    exclude_run_id: str,
+    window_start: date,
+    window_end: date,
+) -> dict[tuple[str, str, date], dict[str, Any]]:
+    """Latest previously-stored raw daily row per (provider, code, date).
+
+    Used by ``update`` so that a transient provider gap in the revision
+    window never silently downgrades previously confirmed rows.
+    """
+
+    from limit_pullback.warehouse.parquet import read_rows
+
+    result: dict[tuple[str, str, date], dict[str, Any]] = {}
+    rows = metadata._connection.execute(
+        """
+        SELECT path, provider FROM source_files
+        WHERE ingest_run_id <> ?
+          AND path LIKE '%/daily_bars/%'
+        ORDER BY recorded_at ASC
+        """,
+        [exclude_run_id],
+    ).fetchall()
+    for path_value, provider in rows:
+        path = Path(path_value)
+        if not path.exists():
+            continue
+        for row in read_rows(path):
+            trade_date = row["trade_date"]
+            if not (window_start <= trade_date <= window_end):
+                continue
+            key = (str(provider), str(row["code"]), trade_date)
+            result[key] = dict(row)
+    return result
+
+
 def bootstrap(
+    *,
+    layout: WarehouseLayout,
+    start: date,
+    end: date,
+    codes: Sequence[str],
+    provider_set: WarehouseProviderSet | None = None,
+    policy: ReconciliationPolicy | None = None,
+    clock: Callable[[], datetime] = _now_utc,
+    today: date | None = None,
+) -> BootstrapResult:
+    """Full historical bootstrap with an exclusive write lock."""
+
+    layout.ensure_dirs()
+    with WarehouseLock(layout.root / ".warehouse.lock"):
+        return _bootstrap_impl(
+            layout=layout,
+            start=start,
+            end=end,
+            codes=codes,
+            provider_set=provider_set,
+            policy=policy,
+            clock=clock,
+            today=today,
+        )
+
+
+def _bootstrap_impl(
     *,
     layout: WarehouseLayout,
     start: date,
@@ -484,7 +553,7 @@ def bootstrap(
                 policy=policy,
                 clock=clock,
             )
-            canonical_pool, pool_records = reconcile_limit_up_pool(
+            canonical_pool, pool_records, pool_quarantines = reconcile_limit_up_pool(
                 raw_pool_rows, clock=clock
             )
             missing = _missing_records(
@@ -495,7 +564,8 @@ def bootstrap(
             )
             all_records = [*daily_records, *pool_records, *missing]
             source_file_hashes = {
-                str(record.path): record.sha256 for record in source_files
+                str(Path(record.path).relative_to(layout.root)): record.sha256
+                for record in source_files
             }
             snapshot = create_snapshot(
                 layout=layout,
@@ -512,7 +582,7 @@ def bootstrap(
                 metadata.insert_reconciliation(
                     record.model_copy(update={"snapshot_id": snapshot.snapshot_id})
                 )
-            for record in quarantines:
+            for record in [*quarantines, *pool_quarantines]:
                 metadata.insert_quarantine(record)
             metadata.finish_ingest_run(
                 run_id=run_id,
@@ -530,7 +600,7 @@ def bootstrap(
                 canonical_daily_rows=len(canonical_daily),
                 canonical_pool_rows=len(canonical_pool),
                 reconciliation_rows=len(all_records),
-                quarantine_rows=len(quarantines),
+                quarantine_rows=len([*quarantines, *pool_quarantines]),
                 reused=False,
                 notes=tuple(notes),
             )
@@ -539,12 +609,39 @@ def bootstrap(
                 run_id=run_id,
                 status="FAILED",
                 finished_at=clock(),
-                error=f"{type(exc).__name__}: {exc}",
+                error=redact(f"{type(exc).__name__}: {exc}"),
             )
             raise
 
 
 def update(
+    *,
+    layout: WarehouseLayout,
+    as_of: date,
+    codes: Sequence[str] | None = None,
+    provider_set: WarehouseProviderSet | None = None,
+    policy: ReconciliationPolicy | None = None,
+    revision_calendar_days: int = 7,
+    clock: Callable[[], datetime] = _now_utc,
+    today: date | None = None,
+) -> UpdateResult:
+    """Incremental idempotent update with an exclusive write lock."""
+
+    layout.ensure_dirs()
+    with WarehouseLock(layout.root / ".warehouse.lock"):
+        return _update_impl(
+            layout=layout,
+            as_of=as_of,
+            codes=codes,
+            provider_set=provider_set,
+            policy=policy,
+            revision_calendar_days=revision_calendar_days,
+            clock=clock,
+            today=today,
+        )
+
+
+def _update_impl(
     *,
     layout: WarehouseLayout,
     as_of: date,
@@ -767,12 +864,30 @@ def update(
                     fallback_row["row_hash"] = fallback_row["source_row_hash"]
                     fallback_rows.setdefault(provider, []).append(fallback_row)
 
+            historical_rows = _historical_daily_rows(
+                layout=layout,
+                metadata=metadata,
+                exclude_run_id=run_id,
+                window_start=window_start,
+                window_end=as_of,
+            )
+            current_keys = {
+                (provider, str(row["code"]), row["trade_date"])
+                for provider, rows in raw_daily_by_provider.items()
+                for row in rows
+            }
+            for (provider, code, trade_date), row in historical_rows.items():
+                if (provider, code, trade_date) in current_keys:
+                    continue
+                if window_start <= trade_date <= as_of:
+                    fallback_rows.setdefault(provider, []).append(dict(row))
+
             canonical_daily, daily_records, quarantines = reconcile_daily_rows(
                 fallback_rows,
                 policy=policy,
                 clock=clock,
             )
-            canonical_pool, pool_records = reconcile_limit_up_pool(
+            canonical_pool, pool_records, pool_quarantines = reconcile_limit_up_pool(
                 raw_pool_rows, clock=clock
             )
             missing = _missing_records(
@@ -798,7 +913,11 @@ def update(
             final_pool.sort(key=lambda row: (row["code"], row["trade_date"]))
 
             source_file_hashes = {
-                str(record.path): record.sha256 for record in source_files
+                **previous.source_file_hashes,
+                **{
+                    str(Path(record.path).relative_to(layout.root)): record.sha256
+                    for record in source_files
+                },
             }
             snapshot = create_snapshot(
                 layout=layout,
@@ -815,7 +934,7 @@ def update(
                 metadata.insert_reconciliation(
                     record.model_copy(update={"snapshot_id": snapshot.snapshot_id})
                 )
-            for record in quarantines:
+            for record in [*quarantines, *pool_quarantines]:
                 metadata.insert_quarantine(record)
             metadata.finish_ingest_run(
                 run_id=run_id,
@@ -834,7 +953,7 @@ def update(
                 canonical_daily_rows=len(final_daily),
                 canonical_pool_rows=len(final_pool),
                 reconciliation_rows=len(all_records),
-                quarantine_rows=len(quarantines),
+                quarantine_rows=len([*quarantines, *pool_quarantines]),
                 reused=False,
                 notes=tuple(notes),
             )
@@ -843,6 +962,6 @@ def update(
                 run_id=run_id,
                 status="FAILED",
                 finished_at=clock(),
-                error=f"{type(exc).__name__}: {exc}",
+                error=redact(f"{type(exc).__name__}: {exc}"),
             )
             raise

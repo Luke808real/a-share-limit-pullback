@@ -229,18 +229,52 @@ def reconcile_limit_up_pool(
     *,
     snapshot_id: str | None = None,
     clock=None,
-) -> tuple[list[dict[str, Any]], list[ReconciliationRecord]]:
-    """The limit-up pool is AKShare-owned; rows stay whole and PROVISIONAL."""
+) -> tuple[list[dict[str, Any]], list[ReconciliationRecord], list[QuarantineRecord]]:
+    """The limit-up pool is AKShare-owned; rows stay whole and PROVISIONAL.
+
+    Distinct rows for the same (code, date) are a same-source conflict and go
+    to quarantine instead of being silently resolved.
+    """
 
     now = (clock or _now_utc)()
     canonical: list[dict[str, Any]] = []
     records: list[ReconciliationRecord] = []
-    seen: set[tuple[str, date]] = set()
+    quarantines: list[QuarantineRecord] = []
+    grouped: dict[tuple[str, date], list[dict[str, Any]]] = {}
     for row in rows:
-        key = (str(row["code"]), row["trade_date"])
-        if key in seen:
+        grouped.setdefault((str(row["code"]), row["trade_date"]), []).append(dict(row))
+    for (code, trade_date), group in sorted(grouped.items()):
+        unique = {row["row_hash"]: row for row in group}
+        if len(unique) > 1:
+            reason = "PROVIDER_INTERNAL_CONFLICT"
+            quarantines.append(
+                QuarantineRecord(
+                    record_id=_identifier(code, trade_date, "AKSHARE", reason),
+                    code=code,
+                    trade_date=trade_date,
+                    providers=("AKSHARE",),
+                    reason=reason,
+                    payload=json.dumps(group, ensure_ascii=False, default=str, sort_keys=True),
+                    created_at=now,
+                )
+            )
+            records.append(
+                ReconciliationRecord(
+                    reconciliation_id=_identifier(
+                        code, trade_date, "AKSHARE", QUARANTINED, snapshot_id or ""
+                    ),
+                    code=code,
+                    trade_date=trade_date,
+                    providers=("AKSHARE",),
+                    status=QUARANTINED,
+                    selected_provider="AKSHARE",
+                    notes=reason,
+                    created_at=now,
+                    snapshot_id=snapshot_id,
+                )
+            )
             continue
-        seen.add(key)
+        row = next(iter(unique.values()))
         canonical_row = dict(row)
         canonical_row["selected_provider"] = "AKSHARE"
         canonical_row["reconciliation_status"] = PROVISIONAL
@@ -249,10 +283,10 @@ def reconcile_limit_up_pool(
         records.append(
             ReconciliationRecord(
                 reconciliation_id=_identifier(
-                    key[0], key[1], "AKSHARE", PROVISIONAL, snapshot_id or ""
+                    code, trade_date, "AKSHARE", PROVISIONAL, snapshot_id or ""
                 ),
-                code=key[0],
-                trade_date=key[1],
+                code=code,
+                trade_date=trade_date,
                 providers=("AKSHARE",),
                 status=PROVISIONAL,
                 selected_provider="AKSHARE",
@@ -262,4 +296,4 @@ def reconcile_limit_up_pool(
             )
         )
     canonical.sort(key=lambda item: (item["code"], item["trade_date"]))
-    return canonical, records
+    return canonical, records, quarantines

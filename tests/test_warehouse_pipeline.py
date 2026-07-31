@@ -6,6 +6,7 @@ from decimal import Decimal
 import pytest
 
 from limit_pullback.warehouse.layout import WarehouseLayout
+from limit_pullback.warehouse.locking import WarehouseLock
 from limit_pullback.warehouse.metadata import WarehouseMetadata
 from limit_pullback.warehouse.pipeline import (
     PipelineError,
@@ -104,8 +105,14 @@ def test_baostock_lagging_is_recorded_but_confirmed(tmp_path):
     calendar = _dates(29, 30)
     fake = FakeProviderSet(
         calendar=calendar,
-        tushare_daily=_tushare_rows(calendar),
-        akshare_daily=_tushare_rows(calendar),
+        tushare_daily=[
+            daily_row("603318", "2026-07-29"),
+            daily_row("603318", "2026-07-30", preclose="10.20", close="10.30"),
+        ],
+        akshare_daily=[
+            daily_row("603318", "2026-07-29"),
+            daily_row("603318", "2026-07-30", preclose="10.20", close="10.30"),
+        ],
         baostock_daily=_tushare_rows(calendar, baostock_missing_last=True),
     )
     bootstrap(
@@ -212,8 +219,14 @@ def test_update_is_idempotent_and_point_in_time_is_stable(tmp_path):
     calendar = _dates(29, 30)
     fake = FakeProviderSet(
         calendar=calendar,
-        tushare_daily=_tushare_rows(calendar),
-        akshare_daily=_tushare_rows(calendar),
+        tushare_daily=[
+            daily_row("603318", "2026-07-29"),
+            daily_row("603318", "2026-07-30", preclose="10.20", close="10.30"),
+        ],
+        akshare_daily=[
+            daily_row("603318", "2026-07-29"),
+            daily_row("603318", "2026-07-30", preclose="10.20", close="10.30"),
+        ],
     )
     first = bootstrap(
         layout=layout,
@@ -400,3 +413,137 @@ def test_core_capability_permission_stops_bootstrap(tmp_path):
             today=date(2026, 7, 30),
         )
     assert exc_info.value.code == "CORE_CAPABILITY_daily_bars_UNAVAILABLE_PERMISSION"
+
+
+def test_warehouse_lock_is_exclusive(tmp_path):
+    lock_path = tmp_path / "data" / ".warehouse.lock"
+    first = WarehouseLock(lock_path)
+    second = WarehouseLock(lock_path)
+    with first:
+        with pytest.raises(BlockingIOError):
+            second.acquire(nonblocking=True)
+    second.acquire(nonblocking=True)
+    second.release()
+
+
+def test_failed_run_error_is_redacted(tmp_path, monkeypatch):
+    monkeypatch.setenv("TUSHARE_TOKEN", "secret-token-value")
+    layout = _layout(tmp_path)
+
+    import limit_pullback.warehouse.pipeline as pipeline_module
+
+    def boom(**kwargs):
+        raise RuntimeError("failure with secret-token-value inside")
+
+    monkeypatch.setattr(pipeline_module, "_probe_and_record", boom)
+    with pytest.raises(RuntimeError):
+        bootstrap(
+            layout=layout,
+            start=date(2026, 7, 29),
+            end=date(2026, 7, 30),
+            codes=["603318"],
+            today=date(2026, 7, 30),
+        )
+    with WarehouseMetadata(layout.duckdb_path, read_only=True) as metadata:
+        row = metadata._connection.execute(
+            "SELECT error FROM ingest_runs WHERE kind = 'bootstrap' ORDER BY started_at DESC LIMIT 1"
+        ).fetchone()
+        assert row is not None
+        assert "secret-token-value" not in (row[0] or "")
+
+
+def test_update_preserves_confirmed_when_source_transiently_missing(tmp_path):
+    layout = _layout(tmp_path)
+    calendar = _dates(29, 30)
+    fake = FakeProviderSet(
+        calendar=calendar,
+        tushare_daily=[
+            daily_row("603318", "2026-07-29"),
+            daily_row("603318", "2026-07-30", preclose="10.20", close="10.30"),
+        ],
+        akshare_daily=[
+            daily_row("603318", "2026-07-29"),
+            daily_row("603318", "2026-07-30", preclose="10.20", close="10.30"),
+        ],
+    )
+    first = bootstrap(
+        layout=layout,
+        start=calendar[0],
+        end=calendar[-1],
+        codes=["603318"],
+        provider_set=fake,
+        today=calendar[-1],
+    )
+    day_31 = date(2026, 7, 31)
+    fake.calendar.append(day_31)
+    # Current fetch: Tushare returns all three days, AKShare returns ONLY the
+    # new day (transient gap for previous dates).
+    fake.tushare_daily = [
+        daily_row("603318", "2026-07-29"),
+        daily_row("603318", "2026-07-30", preclose="10.20", close="10.30"),
+        daily_row("603318", day_31.isoformat(), preclose="10.30", close="10.40"),
+    ]
+    fake.akshare_daily = [
+        daily_row("603318", day_31.isoformat(), preclose="10.30", close="10.40")
+    ]
+    updated = update(
+        layout=layout,
+        as_of=day_31,
+        provider_set=fake,
+        today=day_31,
+    )
+    with WarehouseMetadata(layout.duckdb_path, read_only=True) as metadata:
+        new_snapshot = metadata.snapshot_by_id(updated.snapshot_id)
+        rows = read_snapshot_daily(layout, new_snapshot)
+        row_30 = next(row for row in rows if row["trade_date"] == date(2026, 7, 30))
+        assert row_30["reconciliation_status"] == "CONFIRMED"
+        assert row_30["close"] == Decimal("10.30")
+        # Manifest must keep historical source files for traceability.
+        assert first.snapshot_id is not None
+        assert len(new_snapshot.source_file_hashes) >= len(
+            metadata.snapshot_by_id(first.snapshot_id).source_file_hashes
+        )
+    from limit_pullback.warehouse.validate import data_validate
+
+    validation = data_validate(layout)
+    assert validation.valid is True
+
+
+def test_limit_pool_same_source_conflict_quarantined(tmp_path):
+    layout = _layout(tmp_path)
+    day = date(2026, 7, 30)
+    pool_a = {
+        "code": "603318",
+        "trade_date": day,
+        "name": "公司A",
+        "limit_price": Decimal("10.20"),
+        "first_seal_time": None,
+        "last_seal_time": None,
+        "open_count": None,
+        "consecutive_count": None,
+        "turnover_rate": None,
+        "float_market_cap": None,
+        "total_market_cap": None,
+        "industry": None,
+    }
+    pool_b = {**pool_a, "limit_price": Decimal("10.50")}
+    fake = FakeProviderSet(
+        calendar=[day],
+        tushare_daily=[daily_row("603318", day.isoformat())],
+        akshare_daily=[daily_row("603318", day.isoformat())],
+        pool=[pool_a, pool_b],
+    )
+    result = bootstrap(
+        layout=layout,
+        start=day,
+        end=day,
+        codes=["603318"],
+        provider_set=fake,
+        today=day,
+    )
+    assert result.canonical_pool_rows == 0
+    assert result.quarantine_rows >= 1
+    with WarehouseMetadata(layout.duckdb_path, read_only=True) as metadata:
+        assert metadata.quarantine_count() >= 1
+        counts = metadata.count_by_status()
+        assert counts.get("QUARANTINED", 0) >= 1

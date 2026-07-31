@@ -173,7 +173,11 @@ def data_validate(
                 continue
             if "/daily_bars/" not in relative_path:
                 continue
-            provider = relative_path.split("/raw/")[1].split("/")[0].upper()
+            parts = Path(relative_path).parts
+            try:
+                provider = parts[parts.index("raw") + 1].upper()
+            except (ValueError, IndexError):
+                continue
             if provider not in raw_hashes_by_provider:
                 continue
             for row in _read_parquet_rows(path):
