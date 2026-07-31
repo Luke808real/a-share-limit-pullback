@@ -95,11 +95,16 @@ class FakeProviderSet:
     def fetch_trade_calendar(self, start: date, end: date) -> list[date]:
         return [day for day in self.calendar if start <= day <= end]
 
-    def fetch_stock_basic(self, codes: tuple[str, ...]) -> list[dict[str, Any]]:
+    def fetch_stock_basic(
+        self, codes: tuple[str, ...], *, listed_only: bool = False
+    ) -> list[dict[str, Any]]:
         wanted = set(codes)
+        rows = self.stock_basic
+        if listed_only:
+            rows = [row for row in rows if row.get("delist_date") is None]
         if not wanted:
-            return [dict(row) for row in self.stock_basic]
-        return [dict(row) for row in self.stock_basic if row["code"] in wanted]
+            return [dict(row) for row in rows]
+        return [dict(row) for row in rows if row["code"] in wanted]
 
     def fetch_tushare_daily(
         self, codes: tuple[str, ...], start: date, end: date

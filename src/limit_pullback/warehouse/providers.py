@@ -20,7 +20,9 @@ class WarehouseProviderSet(Protocol):
 
     def fetch_trade_calendar(self, start: date, end: date) -> list[date]: ...
 
-    def fetch_stock_basic(self, codes: tuple[str, ...]) -> list[dict[str, Any]]: ...
+    def fetch_stock_basic(
+        self, codes: tuple[str, ...], *, listed_only: bool = False
+    ) -> list[dict[str, Any]]: ...
 
     def fetch_tushare_daily(
         self, codes: tuple[str, ...], start: date, end: date
@@ -105,8 +107,10 @@ class RealWarehouseProviderSet:
     def fetch_trade_calendar(self, start: date, end: date) -> list[date]:
         return self._tushare.fetch_trade_calendar(start, end)
 
-    def fetch_stock_basic(self, codes: tuple[str, ...]) -> list[dict[str, Any]]:
-        return self._tushare.fetch_stock_basic(codes)
+    def fetch_stock_basic(
+        self, codes: tuple[str, ...], *, listed_only: bool = False
+    ) -> list[dict[str, Any]]:
+        return self._tushare.fetch_stock_basic(codes, listed_only=listed_only)
 
     def fetch_tushare_daily(
         self, codes: tuple[str, ...], start: date, end: date

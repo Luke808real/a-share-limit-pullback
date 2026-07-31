@@ -365,9 +365,14 @@ class TushareProProvider:
                         dates.add(parsed)
         return sorted(dates)
 
-    def fetch_stock_basic(self, codes: tuple[str, ...]) -> list[dict[str, Any]]:
+    def fetch_stock_basic(
+        self,
+        codes: tuple[str, ...],
+        *,
+        listed_only: bool = False,
+    ) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
-        for list_status in ("L", "D", "P"):
+        for list_status in ("L",) if listed_only else ("L", "D", "P"):
             rows.extend(
                 self._frame_call(
                     "stock_basic",

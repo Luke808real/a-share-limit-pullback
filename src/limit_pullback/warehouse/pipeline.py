@@ -434,6 +434,7 @@ def bootstrap(
     akshare_worker_runner=None,
     snapshot_status: str = "CURRENT",
     aux_backfill: bool = False,
+    listed_only: bool = False,
 ) -> BootstrapResult:
     """Full historical bootstrap with an exclusive write lock."""
 
@@ -453,6 +454,7 @@ def bootstrap(
                 batch_size=batch_size,
                 workers=workers,
                 bulk_threshold=bulk_threshold,
+                listed_only=listed_only,
             )
         return _bootstrap_impl(
             layout=layout,
@@ -472,6 +474,7 @@ def bootstrap(
             isolate_akshare=isolate_akshare,
             akshare_worker_runner=akshare_worker_runner,
             snapshot_status=snapshot_status,
+            listed_only=listed_only,
         )
 
 
@@ -494,6 +497,7 @@ def _bootstrap_impl(
     isolate_akshare: bool = False,
     akshare_worker_runner=None,
     snapshot_status: str = "CURRENT",
+    listed_only: bool = False,
 ) -> BootstrapResult:
     """Full historical bootstrap with atomic snapshot publication."""
 
@@ -525,7 +529,9 @@ def _bootstrap_impl(
 
             try:
                 stock_basic = fetch_with_retry(
-                    lambda: providers.fetch_stock_basic(provided_codes),
+                    lambda: providers.fetch_stock_basic(
+                        provided_codes, listed_only=listed_only
+                    ),
                     retries=6,
                     backoff_seconds=2.0,
                 )
@@ -940,6 +946,7 @@ def _aux_backfill_impl(
     batch_size: int = 50,
     workers: int = 1,
     bulk_threshold: int = 200,
+    listed_only: bool = False,
 ) -> BootstrapResult:
     """Backfill Tushare auxiliary datasets under a dedicated run_id.
 
@@ -975,7 +982,9 @@ def _aux_backfill_impl(
 
             try:
                 stock_basic = fetch_with_retry(
-                    lambda: providers.fetch_stock_basic(provided_codes),
+                    lambda: providers.fetch_stock_basic(
+                        provided_codes, listed_only=listed_only
+                    ),
                     retries=6,
                     backoff_seconds=2.0,
                 )

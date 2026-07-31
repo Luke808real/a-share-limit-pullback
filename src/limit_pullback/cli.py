@@ -172,6 +172,11 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("CURRENT", "SCREEN_READY", "RESEARCH_READY"),
         default="CURRENT",
     )
+    bootstrap_parser.add_argument(
+        "--listed-only",
+        action="store_true",
+        help="stock_basic 仅取上市状态（与既有 run_id 的 universe 一致）",
+    )
 
     update_parser = subparsers.add_parser(
         "update",
@@ -353,6 +358,7 @@ def _run_bootstrap(args: argparse.Namespace) -> int:
             isolate_akshare=args.isolate_akshare,
             snapshot_status=args.snapshot_status,
             aux_backfill=args.aux_backfill,
+            listed_only=args.listed_only,
         )
     except Exception as exc:
         _print_error(exc)
