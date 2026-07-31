@@ -167,6 +167,12 @@ def data_validate(
             provider: set()
             for provider in ("TUSHARE", "AKSHARE", "BAOSTOCK")
         }
+        raw_rows_by_provider: dict[
+            str, dict[tuple[str, date], dict[str, Any]]
+        ] = {
+            provider: {}
+            for provider in ("TUSHARE", "AKSHARE", "BAOSTOCK")
+        }
         for relative_path in snapshot.source_file_hashes:
             path = layout.root / relative_path
             if not path.exists():
@@ -182,6 +188,9 @@ def data_validate(
                 continue
             for row in _read_parquet_rows(path):
                 raw_hashes_by_provider[provider].add(str(row["row_hash"]))
+                raw_rows_by_provider[provider][
+                    (str(row["code"]), row["trade_date"])
+                ] = dict(row)
 
         _check_unique(
             daily_rows,
@@ -223,24 +232,35 @@ def data_validate(
                     )
                 )
 
-        by_date: dict[str, list[dict[str, Any]]] = {}
         for row in daily_rows:
-            by_date.setdefault(str(row["code"]), []).append(row)
-        for code, rows in by_date.items():
-            rows.sort(key=lambda item: item["trade_date"])
-            previous: dict[str, Any] | None = None
-            for row in rows:
-                if previous is not None:
-                    difference = abs(Decimal(row["preclose"]) - Decimal(previous["close"]))
-                    scale = max(abs(Decimal(row["preclose"])), abs(Decimal(previous["close"])))
-                    if difference > max(PRICE_TOLERANCE, PRICE_RELATIVE * scale):
-                        issues.append(
-                            _issue(
-                                "PRECLOSE_CONTINUITY",
-                                f"{code} {row['trade_date']} preclose vs prior close mismatch",
-                            )
-                        )
-                previous = row
+            code = str(row["code"])
+            provider = str(row["selected_provider"])
+            provider_rows = raw_rows_by_provider.get(provider, {})
+            previous_dates = sorted(
+                trade_date
+                for (other_code, trade_date) in provider_rows
+                if other_code == code and trade_date < row["trade_date"]
+            )
+            if not previous_dates:
+                continue
+            previous_row = provider_rows[(code, previous_dates[-1])]
+            if previous_row.get("close") is None:
+                continue
+            difference = abs(
+                Decimal(row["preclose"]) - Decimal(previous_row["close"])
+            )
+            scale = max(
+                abs(Decimal(row["preclose"])),
+                abs(Decimal(previous_row["close"])),
+            )
+            if difference > max(PRICE_TOLERANCE, PRICE_RELATIVE * scale):
+                issues.append(
+                    _issue(
+                        "PRECLOSE_CONTINUITY",
+                        f"{code} {row['trade_date']} preclose vs "
+                        f"{provider} prior close mismatch",
+                    )
+                )
 
         for row in pool_rows:
             if row["limit_price"] <= 0:
