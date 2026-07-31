@@ -363,6 +363,8 @@ def bootstrap(
     bulk_threshold: int = 200,
     workers: int = 1,
     skip_tushare_aux: bool = False,
+    isolate_akshare: bool = False,
+    akshare_worker_runner=None,
 ) -> BootstrapResult:
     """Full historical bootstrap with an exclusive write lock."""
 
@@ -383,6 +385,8 @@ def bootstrap(
             bulk_threshold=bulk_threshold,
             workers=workers,
             skip_tushare_aux=skip_tushare_aux,
+            isolate_akshare=isolate_akshare,
+            akshare_worker_runner=akshare_worker_runner,
         )
 
 
@@ -402,6 +406,8 @@ def _bootstrap_impl(
     bulk_threshold: int = 200,
     workers: int = 1,
     skip_tushare_aux: bool = False,
+    isolate_akshare: bool = False,
+    akshare_worker_runner=None,
 ) -> BootstrapResult:
     """Full historical bootstrap with atomic snapshot publication."""
 
@@ -508,6 +514,10 @@ def _bootstrap_impl(
                 clock=clock,
                 versions=provider_versions,
                 batch_rows=max(20000, batch_size * 400),
+            )
+            ctx.worker_runner = akshare_worker_runner
+            use_akshare_isolation = (
+                isolate_akshare or akshare_worker_runner is not None
             )
             use_bulk = len(codes_tuple) >= bulk_threshold
 
@@ -623,6 +633,10 @@ def _bootstrap_impl(
                         stock_basic=stock_basic,
                     ),
                     workers=workers,
+                    isolate_process=use_akshare_isolation,
+                    start_date=start,
+                    end_date=end,
+                    worker_codes=codes_tuple,
                 )
                 akshare_pool = fetch_rows(
                     ctx,
@@ -634,6 +648,10 @@ def _bootstrap_impl(
                     ),
                     item_is_date=True,
                     workers=workers,
+                    isolate_process=use_akshare_isolation,
+                    start_date=start,
+                    end_date=end,
+                    worker_codes=codes_tuple,
                 )
             else:
                 akshare_daily = []
@@ -664,6 +682,7 @@ def _bootstrap_impl(
                 rows_by_provider,
                 policy=policy,
                 clock=clock,
+                adjustment_factor_rows=tushare_aux.get("adjustment_factor", []),
             )
             canonical_pool, pool_records, pool_quarantines = reconcile_limit_up_pool(
                 akshare_pool, clock=clock
@@ -882,6 +901,7 @@ def _update_impl(
 
             tushare_daily = providers.fetch_tushare_daily(codes_tuple, fetch_start, as_of)
             tushare_daily_basic: list[dict[str, Any]] = []
+            tushare_adj_factor: list[dict[str, Any]] = []
             for capability, fetch in (
                 ("adjustment_factor", providers.fetch_tushare_adj_factor),
                 ("daily_basic", providers.fetch_tushare_daily_basic),
@@ -892,6 +912,8 @@ def _update_impl(
                     rows = fetch(codes_tuple, fetch_start, as_of)
                     if capability == "daily_basic":
                         tushare_daily_basic = rows
+                    if capability == "adjustment_factor":
+                        tushare_adj_factor = rows
                     _write_dataset(
                         layout=layout,
                         metadata=metadata,
@@ -1017,6 +1039,7 @@ def _update_impl(
                 fallback_rows,
                 policy=policy,
                 clock=clock,
+                adjustment_factor_rows=tushare_adj_factor,
             )
             canonical_pool, pool_records, pool_quarantines = reconcile_limit_up_pool(
                 raw_pool_rows, clock=clock

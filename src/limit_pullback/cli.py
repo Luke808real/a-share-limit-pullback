@@ -157,6 +157,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="跳过 Tushare 辅助数据集（adj_factor/daily_basic/suspension/price_limits）",
     )
+    bootstrap_parser.add_argument(
+        "--isolate-akshare",
+        action="store_true",
+        help="在独立子进程中抓取 AKShare（隔离 V8/mini_racer 原生崩溃）",
+    )
 
     update_parser = subparsers.add_parser(
         "update",
@@ -335,6 +340,7 @@ def _run_bootstrap(args: argparse.Namespace) -> int:
             active_providers=tuple(args.providers),
             workers=args.workers,
             skip_tushare_aux=args.skip_tushare_aux,
+            isolate_akshare=args.isolate_akshare,
         )
     except Exception as exc:
         _print_error(exc)

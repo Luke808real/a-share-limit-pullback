@@ -8,10 +8,14 @@ bootstrap run_id only retries missing/failed items and appends new batches.
 from __future__ import annotations
 
 import hashlib
+import json
+import subprocess
+import sys
 import time
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Any
 
 from limit_pullback.warehouse.auth import redact
@@ -111,6 +115,71 @@ def main_board_universe(stock_basic_rows: Sequence[dict[str, Any]]) -> tuple[str
     return tuple(sorted(codes))
 
 
+def _decode_worker_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        if "__decimal__" in value:
+            return Decimal(value["__decimal__"])
+        if "__date__" in value:
+            return date.fromisoformat(value["__date__"])
+    return value
+
+
+def run_akshare_worker(
+    *,
+    mode: str,
+    codes: tuple[str, ...],
+    dates: list[date] | None = None,
+    start: date | None = None,
+    end: date | None = None,
+    timeout_seconds: int = 300,
+) -> list[dict[str, Any]] | None:
+    """Run one AKShare fetch chunk in a fresh subprocess.
+
+    Returns decoded rows, or ``None`` when the worker crashed or failed so the
+    caller records the whole chunk as failed.
+    """
+
+    arguments = [
+        sys.executable,
+        "-m",
+        "limit_pullback.warehouse.akshare_worker",
+        "--mode",
+        mode,
+        "--codes",
+        ",".join(codes),
+    ]
+    if dates is not None:
+        arguments += ["--dates", ",".join(day.isoformat() for day in dates)]
+    if start is not None:
+        arguments += ["--start", start.isoformat()]
+    if end is not None:
+        arguments += ["--end", end.isoformat()]
+    try:
+        completed = subprocess.run(
+            arguments,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+        )
+    except Exception:
+        return None
+    if completed.returncode != 0:
+        return None
+    try:
+        payload = json.loads(completed.stdout or "[]")
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, list):
+        return None
+    return [
+        {
+            key: _decode_worker_value(value)
+            for key, value in dict(row).items()
+        }
+        for row in payload
+    ]
+
+
 def _failure_id(*parts: object) -> str:
     payload = "|".join(str(part) for part in parts)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:24]
@@ -139,6 +208,7 @@ class FetchContext:
         self.batch_rows = batch_rows
         self.retries = retries
         self.backoff_seconds = backoff_seconds
+        self.worker_runner = None
         self.failures: list[dict[str, Any]] = []
 
     def completed(self, provider: str, dataset: str) -> set[str]:
@@ -263,6 +333,12 @@ def fetch_rows(
     item_is_date: bool = False,
     batch_size: int = 20,
     workers: int = 1,
+    isolate_process: bool = False,
+    worker_chunk_size: int = 25,
+    worker_runner=None,
+    start_date: date | None = None,
+    end_date: date | None = None,
+    worker_codes: tuple[str, ...] = (),
 ) -> list[dict[str, Any]]:
     """Fetch dataset rows with per-item failure isolation and resume.
 
@@ -339,6 +415,40 @@ def fetch_rows(
         pending_keys.append(key(item))
 
     todo_items = [item for item in items if key(item) not in completed]
+    if isolate_process:
+        runner = worker_runner or ctx.worker_runner or run_akshare_worker
+        for offset in range(0, len(todo_items), worker_chunk_size):
+            chunk = todo_items[offset : offset + worker_chunk_size]
+            if item_is_date:
+                rows = runner(
+                    mode="pool",
+                    codes=worker_codes,
+                    dates=[item for item in chunk],
+                )
+            else:
+                rows = runner(
+                    mode="daily",
+                    codes=tuple(str(item).zfill(6) for item in chunk),
+                    start=start_date,
+                    end=end_date,
+                )
+            if rows is None:
+                for item in chunk:
+                    ctx._fail(
+                        provider,
+                        dataset,
+                        None if item_is_date else str(item).zfill(6),
+                        item if item_is_date else None,
+                        "AKSHARE_WORKER_CRASHED",
+                    )
+                continue
+            pending_rows.extend(rows)
+            pending_keys.extend(key(item) for item in chunk)
+            if len(pending_rows) >= ctx.batch_rows:
+                flush()
+        flush()
+        return ctx.read_all(provider, dataset)
+
     if workers > 1:
         chunk = max(workers * 8, 32)
         for offset in range(0, len(todo_items), chunk):
