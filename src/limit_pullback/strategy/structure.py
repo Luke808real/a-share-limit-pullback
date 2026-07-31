@@ -211,11 +211,15 @@ def cluster_price_candidates(
     clusters = []
     for group in groups:
         values = tuple(item.value for item in group)
+        low = min(values)
+        high = max(values)
+        arithmetic_mean = sum(values, Decimal("0")) / Decimal(len(values))
+        center = min(max(arithmetic_mean, low), high)
         clusters.append(
             PriceCluster(
-                low=min(values),
-                high=max(values),
-                center=sum(values, Decimal("0")) / Decimal(len(values)),
+                low=low,
+                high=high,
+                center=center,
                 sources=tuple(sorted({item.source for item in group})),
             )
         )
