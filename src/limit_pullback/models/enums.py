@@ -57,3 +57,13 @@ class SetupTerminationReason(StrEnum):
     INVALIDATED = "INVALIDATED"
     SUPERSEDED_BY_NEW_ANCHOR = "SUPERSEDED_BY_NEW_ANCHOR"
     EXPIRED = "EXPIRED"
+
+
+class ExecutionLabel(StrEnum):
+    """Post-close execution label; not a setup lifecycle state."""
+
+    B1_PREP = "B1_PREP"
+    B1_READY = "B1_READY"
+    B2_READY = "B2_READY"
+    B2_CONFIRMED = "B2_CONFIRMED"
+    WATCH_ONLY = "WATCH_ONLY"

@@ -14,7 +14,7 @@ from limit_pullback.instruments import (
     parse_instrument_code,
 )
 from limit_pullback.warehouse.auth import TushareTokenError, redact
-from limit_pullback.warehouse.layout import resolve_data_root
+from limit_pullback.warehouse.layout import WarehouseLayout, resolve_data_root
 from limit_pullback.warehouse.pipeline import PipelineError
 from limit_pullback.warehouse.tushare_provider import CapabilityUnavailable
 
@@ -231,6 +231,20 @@ def build_parser() -> argparse.ArgumentParser:
         "--pool-debug",
         action="store_true",
         help="允许 PROVISIONAL 涨停池记录作为锚点（调试模式，降低数据质量）",
+    )
+
+    trade_plan_parser = subparsers.add_parser(
+        "trade-plan",
+        help="从已有canonical快照输出盘后B点候选与次日计划（不联网）",
+    )
+    trade_plan_parser.add_argument("--as-of", required=True, type=_iso_date)
+    trade_plan_parser.add_argument("--snapshot-id", required=True)
+    trade_plan_parser.add_argument("--data-root", type=Path, default=None)
+    trade_plan_parser.add_argument(
+        "--config",
+        type=Path,
+        default=_default_config_path(),
+        help="strategy.yaml 路径",
     )
 
     hardware_parser = subparsers.add_parser(
@@ -451,6 +465,27 @@ def _run_screen(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_trade_plan(args: argparse.Namespace) -> int:
+    from limit_pullback.config import load_strategy_config
+    from limit_pullback.trade_plan import build_trade_plan_output
+    from limit_pullback.warehouse.parquet import sha256_file
+
+    layout = WarehouseLayout(resolve_data_root(args.data_root))
+    try:
+        result = build_trade_plan_output(
+            layout=layout,
+            as_of=args.as_of,
+            snapshot_id=args.snapshot_id,
+            config=load_strategy_config(args.config),
+            config_hash=sha256_file(args.config),
+        )
+    except Exception as exc:
+        _print_error(exc)
+        return 1
+    print(result.model_dump_json(indent=2))
+    return 0
+
+
 def _run_hardware_profile(args: argparse.Namespace) -> int:
     from limit_pullback.resources import detect_hardware
 
@@ -495,6 +530,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_data_validate(args)
     if args.command == "screen":
         return _run_screen(args)
+    if args.command == "trade-plan":
+        return _run_trade_plan(args)
     if args.command == "hardware-profile":
         return _run_hardware_profile(args)
     if args.command is None:
