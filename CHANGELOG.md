@@ -19,6 +19,19 @@
   snapshot；状态绑定 bars/pool 前缀哈希、strategy commit、config hash 与
   对账策略版本；涨停池 `PROVISIONAL` 正式门禁（D-028）；缓存未验证不得复用；
   公共质量合并提取到 `quality.py`。
+- 全市场韧性：bootstrap 写入显式 heartbeat（`.bootstrap_heartbeat.json`）并
+  记录限频预计恢复时间（`.rate_limit_wait.json`）；限频失败独立记录为
+  `DEFERRED_RATE_LIMIT`（含 retry_at），与真实 FAILED 分开；
+  AKShare 抓取可隔离到独立子进程（`--isolate-akshare`），V8 原生崩溃只影响
+  该批次。
+- 快照与回填：核心行情完成后可发布 `SCREEN_READY` 快照；`--aux-backfill`
+  使用独立 run_id 补抓 Tushare 辅助数据集并发布 `RESEARCH_READY` 快照；
+  adjustment_factor 补齐后自动重处理 `PRECLOSE_DIVERGENCE_UNCONFIRMED`
+  记录并释放确认为除权的行。
+- 涨停池政策：单源正式发布状态改为 `CONFIRMED_SINGLE_SOURCE`（正式 screen
+  可用，不用 pool_debug）；`PROVISIONAL` 仍仅调试模式。
+- 历史覆盖：stock_basic 抓取 L/D/P 三状态并携带 delist_date；universe 按
+  上市/退市区间过滤，报告窗口内退市股票覆盖。
 
 ## Unreleased — Phase 2C.2A
 

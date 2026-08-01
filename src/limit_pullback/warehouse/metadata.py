@@ -35,7 +35,12 @@ def _aware(value: datetime | None) -> datetime | None:
 class WarehouseMetadata:
     """Owns the DuckDB file and exposes typed helpers."""
 
-    def __init__(self, duckdb_path: str | Path, read_only: bool = False) -> None:
+    def __init__(
+        self,
+        duckdb_path: str | Path,
+        read_only: bool = False,
+        profile=None,
+    ) -> None:
         self.duckdb_path = Path(duckdb_path)
         if read_only:
             self._connection = duckdb.connect(str(self.duckdb_path), read_only=True)
@@ -44,6 +49,16 @@ class WarehouseMetadata:
             self._connection = duckdb.connect(str(self.duckdb_path))
         if not read_only:
             self.init_schema()
+            if profile is not None:
+                from limit_pullback.resources import apply_duckdb_settings
+
+                temp_dir = self.duckdb_path.parent / "tmp" / "duckdb"
+                temp_dir.mkdir(parents=True, exist_ok=True)
+                apply_duckdb_settings(
+                    self._connection,
+                    profile,
+                    str(temp_dir),
+                )
 
     def close(self) -> None:
         self._connection.close()
@@ -150,6 +165,44 @@ class WarehouseMetadata:
                 payload VARCHAR NOT NULL,
                 created_at TIMESTAMPTZ NOT NULL
             )
+            """
+        )
+        self._connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ingest_progress (
+                run_id VARCHAR NOT NULL,
+                provider VARCHAR NOT NULL,
+                dataset VARCHAR NOT NULL,
+                code VARCHAR NOT NULL,
+                status VARCHAR NOT NULL,
+                rows BIGINT NOT NULL DEFAULT 0,
+                error VARCHAR,
+                updated_at TIMESTAMPTZ NOT NULL,
+                PRIMARY KEY (run_id, provider, dataset, code)
+            )
+            """
+        )
+        self._connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ingest_failures (
+                failure_id VARCHAR PRIMARY KEY,
+                run_id VARCHAR NOT NULL,
+                provider VARCHAR NOT NULL,
+                dataset VARCHAR NOT NULL,
+                code VARCHAR,
+                trade_date DATE,
+                error VARCHAR,
+                retry_count BIGINT NOT NULL DEFAULT 0,
+                status VARCHAR NOT NULL,
+                retry_at TIMESTAMPTZ,
+                created_at TIMESTAMPTZ NOT NULL,
+                updated_at TIMESTAMPTZ NOT NULL
+            )
+            """
+        )
+        self._connection.execute(
+            """
+            ALTER TABLE ingest_failures ADD COLUMN IF NOT EXISTS retry_at TIMESTAMPTZ
             """
         )
 
@@ -470,6 +523,177 @@ class WarehouseMetadata:
             "SELECT count(*) FROM quarantine_records"
         ).fetchone()
         return int(row[0]) if row else 0
+
+    def upsert_progress(
+        self,
+        *,
+        run_id: str,
+        provider: str,
+        dataset: str,
+        code: str,
+        status: str,
+        rows: int = 0,
+        error: str | None = None,
+        updated_at: datetime,
+    ) -> None:
+        self._connection.execute(
+            """
+            INSERT INTO ingest_progress (
+                run_id, provider, dataset, code, status, rows, error, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (run_id, provider, dataset, code) DO UPDATE SET
+                status = excluded.status,
+                rows = excluded.rows,
+                error = excluded.error,
+                updated_at = excluded.updated_at
+            """,
+            [
+                run_id,
+                provider,
+                dataset,
+                code,
+                status,
+                rows,
+                error,
+                _utc(updated_at),
+            ],
+        )
+
+    def progress_status(
+        self,
+        *,
+        run_id: str,
+        provider: str,
+        dataset: str,
+        code: str,
+    ) -> str | None:
+        rows = self._connection.execute(
+            """
+            SELECT status FROM ingest_progress
+            WHERE run_id = ? AND provider = ? AND dataset = ? AND code = ?
+            """,
+            [run_id, provider, dataset, code],
+        ).fetchall()
+        return str(rows[0][0]) if rows else None
+
+    def completed_progress_codes(
+        self, *, run_id: str, provider: str, dataset: str
+    ) -> set[str]:
+        rows = self._connection.execute(
+            """
+            SELECT code FROM ingest_progress
+            WHERE run_id = ? AND provider = ? AND dataset = ?
+              AND status = 'COMPLETED'
+            """,
+            [run_id, provider, dataset],
+        ).fetchall()
+        return {str(row[0]) for row in rows}
+
+    def record_failure(
+        self,
+        *,
+        failure_id: str,
+        run_id: str,
+        provider: str,
+        dataset: str,
+        code: str | None,
+        trade_date,
+        error: str,
+        retry_count: int = 0,
+        status: str = "PENDING",
+        retry_at=None,
+        created_at: datetime,
+        updated_at: datetime | None = None,
+    ) -> None:
+        if isinstance(retry_at, (int, float)):
+            retry_at = datetime.fromtimestamp(retry_at, tz=timezone.utc)
+        self._connection.execute(
+            """
+            INSERT INTO ingest_failures (
+                failure_id, run_id, provider, dataset, code, trade_date,
+                error, retry_count, status, retry_at, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (failure_id) DO UPDATE SET
+                error = excluded.error,
+                retry_count = excluded.retry_count,
+                status = excluded.status,
+                retry_at = excluded.retry_at,
+                updated_at = excluded.updated_at
+            """,
+            [
+                failure_id,
+                run_id,
+                provider,
+                dataset,
+                code,
+                trade_date,
+                error,
+                retry_count,
+                status,
+                retry_at,
+                _utc(created_at),
+                _utc(updated_at or created_at),
+            ],
+        )
+
+    def pending_failures(self, run_id: str) -> list[dict]:
+        rows = self._connection.execute(
+            """
+            SELECT provider, dataset, code, trade_date, error, retry_count
+            FROM ingest_failures
+            WHERE run_id = ? AND status = 'PENDING'
+            ORDER BY provider, dataset, code, trade_date
+            """,
+            [run_id],
+        ).fetchall()
+        return [
+            {
+                "provider": row[0],
+                "dataset": row[1],
+                "code": row[2],
+                "trade_date": row[3],
+                "error": row[4],
+                "retry_count": row[5],
+            }
+            for row in rows
+        ]
+
+    def deferred_failures(self, run_id: str) -> list[dict]:
+        rows = self._connection.execute(
+            """
+            SELECT provider, dataset, code, trade_date, error, retry_count, retry_at
+            FROM ingest_failures
+            WHERE run_id = ? AND status = 'DEFERRED_RATE_LIMIT'
+            ORDER BY provider, dataset, code, trade_date
+            """,
+            [run_id],
+        ).fetchall()
+        return [
+            {
+                "provider": row[0],
+                "dataset": row[1],
+                "code": row[2],
+                "trade_date": row[3],
+                "error": row[4],
+                "retry_count": row[5],
+                "retry_at": row[6],
+            }
+            for row in rows
+        ]
+
+    def failure_status_counts(self, run_id: str) -> dict[str, int]:
+        rows = self._connection.execute(
+            "SELECT status, count(*) FROM ingest_failures WHERE run_id = ? GROUP BY status",
+            [run_id],
+        ).fetchall()
+        return {str(status): int(count) for status, count in rows}
+
+    def failure_count(self, run_id: str) -> int:
+        rows = self._connection.execute(
+            "SELECT count(*) FROM ingest_failures WHERE run_id = ?",
+            [run_id],
+        ).fetchall()
+        return int(rows[0][0]) if rows else 0
 
     def raw_max_date_by_provider(self, data_root: str) -> dict[str, date | None]:
         result: dict[str, date | None] = {}

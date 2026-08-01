@@ -76,7 +76,11 @@ class AkshareWarehouseProvider:
                     row["preclose"] = previous_close
                 previous_close = row["close"]
             completed.extend(code_rows)
-        rows = [row for row in completed if start <= row["trade_date"] <= end]
+        rows = [
+            row
+            for row in completed
+            if start <= row["trade_date"] <= end and row.get("preclose") is not None
+        ]
         return rows
 
     def fetch_limit_up_pool(

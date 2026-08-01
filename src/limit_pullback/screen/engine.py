@@ -20,6 +20,7 @@ from limit_pullback.quality import merge_signal_quality, timeline_item
 from limit_pullback.strategy.engine import evaluate_strategy
 
 POOL_STATUS_CONFIRMED = "CONFIRMED"
+POOL_STATUS_SINGLE_SOURCE = "CONFIRMED_SINGLE_SOURCE"
 POOL_STATUS_PROVISIONAL = "PROVISIONAL"
 
 
@@ -34,7 +35,7 @@ def pool_quality(
     debug mode allows them with an explicit warning flag and lower quality.
     """
 
-    if status == POOL_STATUS_CONFIRMED:
+    if status in (POOL_STATUS_CONFIRMED, POOL_STATUS_SINGLE_SOURCE):
         return DataQuality.OK, None
     if status == POOL_STATUS_PROVISIONAL:
         if pool_mode == "debug":

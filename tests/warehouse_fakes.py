@@ -95,9 +95,16 @@ class FakeProviderSet:
     def fetch_trade_calendar(self, start: date, end: date) -> list[date]:
         return [day for day in self.calendar if start <= day <= end]
 
-    def fetch_stock_basic(self, codes: tuple[str, ...]) -> list[dict[str, Any]]:
+    def fetch_stock_basic(
+        self, codes: tuple[str, ...], *, listed_only: bool = False
+    ) -> list[dict[str, Any]]:
         wanted = set(codes)
-        return [dict(row) for row in self.stock_basic if row["code"] in wanted]
+        rows = self.stock_basic
+        if listed_only:
+            rows = [row for row in rows if row.get("delist_date") is None]
+        if not wanted:
+            return [dict(row) for row in rows]
+        return [dict(row) for row in rows if row["code"] in wanted]
 
     def fetch_tushare_daily(
         self, codes: tuple[str, ...], start: date, end: date
@@ -139,6 +146,36 @@ class FakeProviderSet:
         self, codes: tuple[str, ...], start: date, end: date
     ) -> list[dict[str, Any]]:
         return self._window(self.baostock_daily, start, end)
+
+    def fetch_tushare_daily_by_trade_date(
+        self, dates: list[date]
+    ) -> list[dict[str, Any]]:
+        wanted = set(dates)
+        return [dict(row) for row in self.tushare_daily if row["trade_date"] in wanted]
+
+    def fetch_tushare_daily_basic_by_trade_date(
+        self, dates: list[date]
+    ) -> list[dict[str, Any]]:
+        wanted = set(dates)
+        return [dict(row) for row in self.daily_basic if row["trade_date"] in wanted]
+
+    def fetch_tushare_adj_factor_by_trade_date(
+        self, dates: list[date]
+    ) -> list[dict[str, Any]]:
+        wanted = set(dates)
+        return [dict(row) for row in self.adj_factor if row["trade_date"] in wanted]
+
+    def fetch_tushare_suspension_by_trade_date(
+        self, dates: list[date]
+    ) -> list[dict[str, Any]]:
+        wanted = set(dates)
+        return [dict(row) for row in self.suspension if row["trade_date"] in wanted]
+
+    def fetch_tushare_price_limits_by_trade_date(
+        self, dates: list[date]
+    ) -> list[dict[str, Any]]:
+        wanted = set(dates)
+        return [dict(row) for row in self.price_limits if row["trade_date"] in wanted]
 
     @staticmethod
     def _window(rows: list[dict[str, Any]], start: date, end: date) -> list[dict[str, Any]]:

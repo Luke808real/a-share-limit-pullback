@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import threading
+import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
@@ -11,6 +14,11 @@ from typing import Any, Callable, Mapping, Sequence
 from limit_pullback.warehouse.auth import redact
 from limit_pullback.warehouse.layout import WarehouseLayout
 from limit_pullback.warehouse.locking import WarehouseLock
+from limit_pullback.resources import (
+    PerformanceProfile,
+    available_memory_bytes,
+    peak_rss_bytes,
+)
 from limit_pullback.warehouse.metadata import WarehouseMetadata
 from limit_pullback.warehouse.models import (
     BootstrapResult,
@@ -22,12 +30,14 @@ from limit_pullback.warehouse.models import (
 from limit_pullback.warehouse.parquet import (
     RAW_SCHEMAS,
     quantize_row,
+    read_rows,
     row_hash,
     sha256_file,
     write_rows_atomic,
 )
 from limit_pullback.warehouse.providers import RealWarehouseProviderSet, WarehouseProviderSet
 from limit_pullback.warehouse.reconciliation import (
+    CORPORATE_ACTION_PRECLOSE_DIVERGENCE,
     INCOMPLETE,
     ReconciliationPolicy,
     reconcile_daily_rows,
@@ -107,6 +117,77 @@ class PipelineError(RuntimeError):
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
         self.code = code
+
+
+class _Heartbeat:
+    """Explicit liveness heartbeat for the bootstrap supervisor."""
+
+    def __init__(
+        self,
+        *,
+        layout: WarehouseLayout,
+        run_id: str,
+        clock: Callable[[], datetime],
+    ) -> None:
+        self.path = layout.root / ".bootstrap_heartbeat.json"
+        self.run_id = run_id
+        self.clock = clock
+        self.phase = ""
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def set_phase(self, phase: str) -> None:
+        self.phase = phase
+
+    def stop(self) -> None:
+        self._stop.set()
+        try:
+            self._thread.join(timeout=2)
+        except RuntimeError:
+            pass
+
+    def _run(self) -> None:
+        self._write()
+        while not self._stop.wait(30):
+            self._write()
+
+    def _write(self) -> None:
+        try:
+            payload = {
+                "pid": os.getpid(),
+                "run_id": self.run_id,
+                "phase": self.phase,
+                "updated_at": self.clock().timestamp(),
+            }
+            self.path.write_text(json.dumps(payload), encoding="utf-8")
+        except Exception:
+            pass
+
+
+def _rate_limit_sink(
+    layout: WarehouseLayout,
+    metrics: dict[str, Any] | None = None,
+) -> Callable[[float], None]:
+    path = layout.root / ".rate_limit_wait.json"
+
+    def sink(next_retry_at: float) -> None:
+        if metrics is not None:
+            metrics["rate_limit_waits"] = metrics.get("rate_limit_waits", 0) + 1
+            metrics["rate_limit_wait_seconds"] = metrics.get(
+                "rate_limit_wait_seconds", 0.0
+            ) + max(0.0, next_retry_at - _now_utc().timestamp())
+        try:
+            path.write_text(
+                json.dumps({"next_retry_at": next_retry_at}),
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
+
+    return sink
 
 
 def _now_utc() -> datetime:
@@ -241,7 +322,7 @@ def _probe_and_record(
     for capability, status in by_name.items():
         if status != "AVAILABLE" and capability not in ("trade_calendar", "daily_bars"):
             notes.append(f"SKIPPED_DATASET:{capability}:{status}")
-    return notes, provider_set.provider_versions()
+    return notes, provider_set.provider_versions(), dict(by_name)
 
 
 def _trading_dates(calendar: Sequence[date], start: date, end: date) -> list[date]:
@@ -357,11 +438,42 @@ def bootstrap(
     policy: ReconciliationPolicy | None = None,
     clock: Callable[[], datetime] = _now_utc,
     today: date | None = None,
+    all_main_board: bool = False,
+    batch_size: int = 50,
+    active_providers: tuple[str, ...] = ("TUSHARE", "AKSHARE", "BAOSTOCK"),
+    bulk_threshold: int = 200,
+    workers: int = 1,
+    skip_tushare_aux: bool = False,
+    isolate_akshare: bool = False,
+    akshare_worker_runner=None,
+    snapshot_status: str = "CURRENT",
+    aux_backfill: bool = False,
+    listed_only: bool = False,
+    profile: PerformanceProfile | None = None,
+    force_finalize: bool = False,
 ) -> BootstrapResult:
     """Full historical bootstrap with an exclusive write lock."""
 
     layout.ensure_dirs()
     with WarehouseLock(layout.root / ".warehouse.lock"):
+        if aux_backfill:
+            return _aux_backfill_impl(
+                layout=layout,
+                start=start,
+                end=end,
+                codes=codes,
+                provider_set=provider_set,
+                policy=policy,
+                clock=clock,
+                today=today,
+                all_main_board=all_main_board,
+                batch_size=batch_size,
+                workers=workers,
+                bulk_threshold=bulk_threshold,
+                listed_only=listed_only,
+                profile=profile,
+                force_finalize=force_finalize,
+            )
         return _bootstrap_impl(
             layout=layout,
             start=start,
@@ -371,7 +483,176 @@ def bootstrap(
             policy=policy,
             clock=clock,
             today=today,
+            all_main_board=all_main_board,
+            batch_size=batch_size,
+            active_providers=active_providers,
+            bulk_threshold=bulk_threshold,
+            workers=workers,
+            skip_tushare_aux=skip_tushare_aux,
+            isolate_akshare=isolate_akshare,
+            akshare_worker_runner=akshare_worker_runner,
+            snapshot_status=snapshot_status,
+            listed_only=listed_only,
+            profile=profile,
+            force_finalize=force_finalize,
         )
+
+
+def _iter_code_groups(cursor):
+    columns = [description[0] for description in cursor.description]
+    carry: dict[str, list[dict[str, Any]]] = {}
+    carry_order: list[str] = []
+    batch = cursor.fetchmany(20000)
+    while batch:
+        for raw_row in batch:
+            row = dict(zip(columns, raw_row))
+            code = str(row["code"])
+            if code not in carry:
+                carry[code] = []
+                carry_order.append(code)
+            carry[code].append(row)
+        for code in carry_order[:-1]:
+            yield code, carry.pop(code)
+        carry_order = carry_order[-1:]
+        batch = cursor.fetchmany(20000)
+    for code in carry_order:
+        yield code, carry.pop(code)
+
+
+def _stream_reconcile_market(
+    *,
+    layout: WarehouseLayout,
+    metadata: WarehouseMetadata,
+    run_id: str,
+    trading_dates: list[date],
+    policy: ReconciliationPolicy,
+    clock: Callable[[], datetime],
+    adjustment_factor_rows: list[dict[str, Any]] = (),
+    profile: PerformanceProfile | None = None,
+) -> tuple[Any, list[ReconciliationRecord], list[QuarantineRecord], list[ReconciliationRecord]]:
+    """Reconcile the full market code-by-code with bounded memory.
+
+    Raw rows are streamed from Parquet through DuckDB cursors and canonical
+    rows accumulate in a columnar pyarrow table instead of Python dicts.
+    """
+
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    import duckdb
+    import time
+
+    from limit_pullback.warehouse.parquet import canonical_daily_schema
+    from limit_pullback.warehouse.parquet import write_table_atomic
+
+    profile = profile or PerformanceProfile.load()
+
+    globs: dict[str, str] = {}
+    codes_by_provider: dict[str, list[str]] = {}
+    connection = duckdb.connect()
+    for provider in ("TUSHARE", "AKSHARE", "BAOSTOCK"):
+        directory = layout.raw_dataset_dir(provider, "daily_bars")
+        files = sorted(directory.glob(f"{run_id}-*.parquet"))
+        if not files:
+            continue
+        glob_expr = str(directory / f"{run_id}-*.parquet")
+        globs[provider] = glob_expr
+        codes_by_provider[provider] = [
+            str(row[0])
+            for row in connection.execute(
+                f"SELECT DISTINCT code FROM read_parquet('{glob_expr}') ORDER BY code"
+            ).fetchall()
+        ]
+    all_codes = sorted(
+        set().union(*codes_by_provider.values())
+        if codes_by_provider
+        else set()
+    )
+    columns_by_provider: dict[str, list[str]] = {}
+    for provider, glob_expr in globs.items():
+        cursor = connection.execute(
+            f"SELECT * FROM read_parquet('{glob_expr}') WHERE code = ? "
+            "ORDER BY trade_date",
+            [all_codes[0] if all_codes else ""],
+        )
+        columns_by_provider[provider] = [
+            description[0] for description in cursor.description
+        ]
+
+    schema = canonical_daily_schema().remove(
+        canonical_daily_schema().get_field_index("dataset_snapshot_id")
+    )
+    canonical_parts: list[Path] = []
+    pending_canonical: list[dict[str, Any]] = []
+    part_directory = layout.root / "tmp" / "canonical"
+    part_directory.mkdir(parents=True, exist_ok=True)
+    daily_records: list[ReconciliationRecord] = []
+    quarantines: list[QuarantineRecord] = []
+    missing_records: list[ReconciliationRecord] = []
+
+    def flush_canonical() -> None:
+        if not pending_canonical:
+            return
+        part_path = part_directory / f"part-{len(canonical_parts) + 1:05d}.parquet"
+        write_table_atomic(
+            pa.Table.from_pylist(pending_canonical, schema=schema),
+            part_path,
+        )
+        canonical_parts.append(part_path)
+        pending_canonical.clear()
+
+    for code in all_codes:
+        available_gb = available_memory_bytes() / (1024**3)
+        if available_gb < profile.pause_available_memory_gb:
+            flush_canonical()
+            time.sleep(2)
+        elif available_gb < profile.minimum_available_memory_gb:
+            time.sleep(0.5)
+        rows_by_provider: dict[str, list[dict[str, Any]]] = {}
+        for provider, glob_expr in globs.items():
+            if code not in codes_by_provider.get(provider, []):
+                continue
+            cursor = connection.execute(
+                f"SELECT * FROM read_parquet('{glob_expr}') WHERE code = ? "
+                "ORDER BY trade_date",
+                [code],
+            )
+            columns = columns_by_provider[provider]
+            rows_by_provider[provider] = [
+                dict(zip(columns, row)) for row in cursor.fetchall()
+            ]
+        if not rows_by_provider:
+            continue
+        canonical, records, quarantined = reconcile_daily_rows(
+            rows_by_provider,
+            policy=policy,
+            clock=clock,
+            adjustment_factor_rows=adjustment_factor_rows,
+        )
+        if canonical:
+            pending_canonical.extend(canonical)
+            if len(pending_canonical) >= profile.canonical_flush_rows:
+                flush_canonical()
+        daily_records.extend(records)
+        quarantines.extend(quarantined)
+        missing_records.extend(
+            _missing_records(
+                calendar=trading_dates,
+                rows_by_provider=rows_by_provider,
+                snapshot_id=None,
+                clock=clock,
+            )
+        )
+    flush_canonical()
+    if canonical_parts:
+        tables = [
+            pq.read_table(str(path), schema=schema)
+            for path in canonical_parts
+        ]
+        daily_table = pa.concat_tables(tables)
+    else:
+        daily_table = pa.Table.from_pylist([], schema=canonical_daily_schema())
+    connection.close()
+    return daily_table, daily_records, quarantines, missing_records
 
 
 def _bootstrap_impl(
@@ -384,6 +665,18 @@ def _bootstrap_impl(
     policy: ReconciliationPolicy | None = None,
     clock: Callable[[], datetime] = _now_utc,
     today: date | None = None,
+    all_main_board: bool = False,
+    batch_size: int = 50,
+    active_providers: tuple[str, ...] = ("TUSHARE", "AKSHARE", "BAOSTOCK"),
+    bulk_threshold: int = 200,
+    workers: int = 1,
+    skip_tushare_aux: bool = False,
+    isolate_akshare: bool = False,
+    akshare_worker_runner=None,
+    snapshot_status: str = "CURRENT",
+    listed_only: bool = False,
+    profile: PerformanceProfile | None = None,
+    force_finalize: bool = False,
 ) -> BootstrapResult:
     """Full historical bootstrap with atomic snapshot publication."""
 
@@ -392,191 +685,336 @@ def _bootstrap_impl(
         raise PipelineError("INVALID_DATE_RANGE", "start must not be after end")
     if end > today_value:
         raise PipelineError("END_DATE_IN_FUTURE", "end must not be in the future")
-    codes_tuple = tuple(sorted({code.zfill(6) for code in codes}))
-    if not codes_tuple:
-        raise PipelineError("NO_CODES", "at least one code is required")
+    provided_codes = tuple(sorted({code.zfill(6) for code in codes}))
 
     policy = policy or ReconciliationPolicy()
-    providers = provider_set or RealWarehouseProviderSet()
+    profile = profile or PerformanceProfile.load()
+    metrics: dict[str, Any] = {
+        "rate_limit_waits": 0,
+        "rate_limit_wait_seconds": 0.0,
+        "worker_restarts": 0,
+        "peak_rss_mb": 0,
+    }
+    providers = provider_set or RealWarehouseProviderSet(
+        rate_limit_sink=_rate_limit_sink(layout, metrics)
+    )
     fetched_at = clock()
     layout.ensure_dirs()
+    run_id: str | None = None
 
-    run_id = _run_id("bootstrap", start, end, codes_tuple, policy.policy_version)
-    with WarehouseMetadata(layout.duckdb_path) as metadata:
-        existing = metadata.get_ingest_run(run_id)
-        if existing is not None and existing.status == "COMPLETED":
-            snapshot = metadata.latest_snapshot_for(end)
-            return BootstrapResult(
-                run_id=run_id,
-                snapshot_id=snapshot.snapshot_id if snapshot else None,
-                start_date=start,
-                end_date=end,
-                codes=codes_tuple,
-                reused=True,
-            )
-        metadata.begin_ingest_run(
-            run_id=run_id,
-            kind="bootstrap",
-            started_at=fetched_at,
-            start_date=start,
-            end_date=end,
-            codes=codes_tuple,
-            config_json=json.dumps(
-                {
-                    "policy_version": policy.policy_version,
-                    "start": start.isoformat(),
-                    "end": end.isoformat(),
-                },
-                sort_keys=True,
-            ),
-        )
-        _cleanup_run_files(layout, metadata, run_id)
+    with WarehouseMetadata(layout.duckdb_path, profile=profile) as metadata:
         try:
-            notes, provider_versions = _probe_and_record(
+            notes, provider_versions, capability_status = _probe_and_record(
                 provider_set=providers, layout=layout, metadata=metadata, clock=clock
             )
             calendar = providers.fetch_trade_calendar(start, end)
             trading_dates = _trading_dates(calendar, start, end)
             if not trading_dates:
                 raise PipelineError("NO_TRADING_DAYS", "no trading days in range")
+            from limit_pullback.warehouse.fetch import fetch_with_retry
+
             try:
-                stock_basic = providers.fetch_stock_basic(codes_tuple)
+                stock_basic = fetch_with_retry(
+                    lambda: providers.fetch_stock_basic(
+                        provided_codes, listed_only=listed_only
+                    ),
+                    retries=6,
+                    backoff_seconds=2.0,
+                )
             except CapabilityUnavailable as exc:
                 stock_basic = []
                 notes.append(f"SKIPPED_DATASET:stock_basic:{exc.status}")
+                notes.append(f"STOCK_BASIC_DETAIL:{exc.error_code}:{exc.detail}")
+            if all_main_board:
+                if not stock_basic:
+                    raise PipelineError(
+                        "STOCK_BASIC_UNAVAILABLE",
+                        (
+                            "all-main-board bootstrap requires stock_basic: "
+                            f"{notes[-2:] if notes else ''}"
+                        ),
+                    )
+                from limit_pullback.warehouse.fetch import main_board_universe
 
-            tushare_daily = providers.fetch_tushare_daily(codes_tuple, start, end)
-            tushare_adj_factor: list[dict[str, Any]] = []
-            tushare_daily_basic: list[dict[str, Any]] = []
-            tushare_suspension: list[dict[str, Any]] = []
-            tushare_price_limits: list[dict[str, Any]] = []
-            for capability in (
-                "adjustment_factor",
-                "daily_basic",
-                "suspension",
-                "price_limits",
-            ):
-                try:
-                    if capability == "adjustment_factor":
-                        tushare_adj_factor = providers.fetch_tushare_adj_factor(codes_tuple, start, end)
-                    elif capability == "daily_basic":
-                        tushare_daily_basic = providers.fetch_tushare_daily_basic(codes_tuple, start, end)
-                    elif capability == "suspension":
-                        tushare_suspension = providers.fetch_tushare_suspension(codes_tuple, start, end)
-                    else:
-                        tushare_price_limits = providers.fetch_tushare_price_limits(codes_tuple, start, end)
-                except CapabilityUnavailable as exc:
-                    notes.append(f"SKIPPED_DATASET:{capability}:{exc.status}")
-
-            try:
-                akshare_daily = providers.fetch_akshare_daily(codes_tuple, start, end)
-            except Exception as exc:
-                akshare_daily = []
-                notes.append(f"SKIPPED_DATASET:akshare_daily:{type(exc).__name__}")
-            try:
-                pool_rows = providers.fetch_akshare_limit_up_pool(trading_dates, codes_tuple)
-            except Exception as exc:
-                pool_rows = []
-                notes.append(f"SKIPPED_DATASET:limit_up_pool:{type(exc).__name__}")
-            try:
-                baostock_daily = providers.fetch_baostock_daily(codes_tuple, start, end)
-            except Exception as exc:
-                baostock_daily = []
-                notes.append(f"SKIPPED_DATASET:baostock_daily:{type(exc).__name__}")
-
-            tushare_daily = _fill_auxiliary(
-                tushare_daily,
-                daily_basic=tushare_daily_basic,
-                stock_basic=stock_basic,
-            )
-            akshare_daily = _fill_auxiliary(
-                akshare_daily,
-                daily_basic=[],
-                stock_basic=stock_basic,
-            )
-
-            source_files: list[SourceFileRecord] = []
-            tushare_version = provider_versions.get("TUSHARE", "unknown")
-            akshare_version = provider_versions.get("AKSHARE", "unknown")
-            baostock_version = provider_versions.get("BAOSTOCK", "unknown")
-            dataset_rows: dict[tuple[str, str], list[dict[str, Any]]] = {
-                ("TUSHARE", "daily_bars"): tushare_daily,
-                ("TUSHARE", "adjustment_factor"): tushare_adj_factor,
-                ("TUSHARE", "daily_basic"): tushare_daily_basic,
-                ("TUSHARE", "suspension"): tushare_suspension,
-                ("TUSHARE", "price_limits"): tushare_price_limits,
-                ("AKSHARE", "daily_bars"): akshare_daily,
-                ("AKSHARE", "limit_up_pool"): pool_rows,
-                ("BAOSTOCK", "daily_bars"): baostock_daily,
-            }
-            versions = {
-                "TUSHARE": tushare_version,
-                "AKSHARE": akshare_version,
-                "BAOSTOCK": baostock_version,
-            }
-            raw_daily_by_provider: dict[str, list[dict[str, Any]]] = {}
-            raw_pool_rows: list[dict[str, Any]] = []
-            for (provider, dataset), (_, source_unit, normalized_unit) in (
-                (key, DATASETS_BY_PROVIDER[key[0]][
-                    [item[0] for item in DATASETS_BY_PROVIDER[key[0]]].index(key[1])
-                ])
-                for key in dataset_rows
-            ):
-                if not dataset_rows[(provider, dataset)]:
-                    continue
-                record, raw_rows = _write_dataset(
-                    layout=layout,
-                    metadata=metadata,
-                    run_id=run_id,
-                    provider=provider,
-                    provider_version=versions[provider],
-                    dataset=dataset,
-                    source_unit=source_unit,
-                    normalized_unit=normalized_unit,
-                    rows=dataset_rows[(provider, dataset)],
-                    fetched_at=fetched_at,
+                codes_tuple = main_board_universe(stock_basic, start, end)
+                if not codes_tuple:
+                    raise PipelineError(
+                        "NO_MAIN_BOARD_CODES",
+                        "stock_basic returned no legal main-board codes",
+                    )
+            else:
+                codes_tuple = provided_codes or tuple(
+                    sorted({str(row["code"]) for row in stock_basic})
                 )
-                if record is not None:
-                    source_files.append(record)
-                if dataset == "daily_bars":
-                    raw_daily_by_provider[provider] = raw_rows
-                if dataset == "limit_up_pool":
-                    raw_pool_rows = raw_rows
+            if not codes_tuple:
+                raise PipelineError("NO_CODES", "at least one code is required")
+            if all_main_board:
+                from limit_pullback.warehouse.fetch import stock_coverage
 
-            rows_by_provider = {
-                "TUSHARE": raw_daily_by_provider.get("TUSHARE", []),
-                "AKSHARE": raw_daily_by_provider.get("AKSHARE", []),
-                "BAOSTOCK": raw_daily_by_provider.get("BAOSTOCK", []),
-            }
-            canonical_daily, daily_records, quarantines = reconcile_daily_rows(
-                rows_by_provider,
+                coverage = stock_coverage(stock_basic, start, end)
+                notes.append(
+                    "STOCK_COVERAGE:" + json.dumps(coverage, sort_keys=True)
+                )
+
+            run_id = _run_id(
+                "bootstrap", start, end, codes_tuple, policy.policy_version
+            )
+            heartbeat = _Heartbeat(layout=layout, run_id=run_id, clock=clock)
+            heartbeat.start()
+            start_wall = time.monotonic()
+            existing = metadata.get_ingest_run(run_id)
+            pending = metadata.pending_failures(run_id)
+            if (
+                existing is not None
+                and existing.status == "COMPLETED"
+                and not pending
+                and not force_finalize
+            ):
+                snapshot = metadata.latest_snapshot_for(end)
+                return BootstrapResult(
+                    run_id=run_id,
+                    snapshot_id=snapshot.snapshot_id if snapshot else None,
+                    start_date=start,
+                    end_date=end,
+                    codes=codes_tuple,
+                    reused=True,
+                    failure_count=metadata.failure_count(run_id),
+                    pending_failures=len(pending),
+                )
+            metadata.begin_ingest_run(
+                run_id=run_id,
+                kind="bootstrap",
+                started_at=fetched_at,
+                start_date=start,
+                end_date=end,
+                codes=codes_tuple,
+                config_json=json.dumps(
+                    {
+                        "policy_version": policy.policy_version,
+                        "start": start.isoformat(),
+                        "end": end.isoformat(),
+                        "all_main_board": all_main_board,
+                        "active_providers": list(active_providers),
+                    },
+                    sort_keys=True,
+                ),
+            )
+
+            from limit_pullback.warehouse.fetch import FetchContext, fetch_rows
+
+            ctx = FetchContext(
+                layout=layout,
+                metadata=metadata,
+                run_id=run_id,
+                clock=clock,
+                versions=provider_versions,
+                batch_rows=max(20000, batch_size * 400),
+            )
+            ctx.worker_runner = akshare_worker_runner
+            use_akshare_isolation = (
+                isolate_akshare or akshare_worker_runner is not None
+            )
+            use_bulk = len(codes_tuple) >= bulk_threshold
+
+            def _tushare_bulk(dataset: str, dates: list[date]) -> list[dict[str, Any]]:
+                fetchers = {
+                    "adjustment_factor": providers.fetch_tushare_adj_factor_by_trade_date,
+                    "daily_basic": providers.fetch_tushare_daily_basic_by_trade_date,
+                    "suspension": providers.fetch_tushare_suspension_by_trade_date,
+                    "price_limits": providers.fetch_tushare_price_limits_by_trade_date,
+                }
+                return fetchers[dataset](dates)
+
+            def _tushare_per_code(
+                dataset: str, code: str
+            ) -> list[dict[str, Any]]:
+                fetchers = {
+                    "adjustment_factor": providers.fetch_tushare_adj_factor,
+                    "daily_basic": providers.fetch_tushare_daily_basic,
+                    "suspension": providers.fetch_tushare_suspension,
+                    "price_limits": providers.fetch_tushare_price_limits,
+                }
+                return fetchers[dataset]((code,), start, end)
+
+            tushare_aux: dict[str, list[dict[str, Any]]] = {}
+            if "TUSHARE" in active_providers and not skip_tushare_aux:
+                heartbeat.set_phase("tushare-aux")
+                for dataset in (
+                    "adjustment_factor",
+                    "daily_basic",
+                    "suspension",
+                    "price_limits",
+                ):
+                    if capability_status.get(dataset) != "AVAILABLE":
+                        notes.append(
+                            f"SKIPPED_DATASET:{dataset}:"
+                            f"{capability_status.get(dataset, 'INACTIVE')}"
+                        )
+                        continue
+                    if use_bulk:
+                        tushare_aux[dataset] = fetch_rows(
+                            ctx,
+                            provider="TUSHARE",
+                            dataset=dataset,
+                            items=trading_dates,
+                            bulk_fn=lambda dates, d=dataset: _tushare_bulk(d, dates),
+                            use_bulk=True,
+                            item_is_date=True,
+                            batch_size=batch_size,
+                        )
+                    else:
+                        tushare_aux[dataset] = fetch_rows(
+                            ctx,
+                            provider="TUSHARE",
+                            dataset=dataset,
+                            items=codes_tuple,
+                            per_item_fn=lambda c, d=dataset: _tushare_per_code(d, c),
+                            workers=workers,
+                        )
+            elif skip_tushare_aux:
+                for dataset in (
+                    "adjustment_factor",
+                    "daily_basic",
+                    "suspension",
+                    "price_limits",
+                ):
+                    notes.append(f"SKIPPED_DATASET:{dataset}:AUX_SKIPPED_BY_FLAG")
+
+            daily_basic_rows = tushare_aux.get("daily_basic", [])
+            heartbeat.set_phase("tushare-daily")
+            if (
+                "TUSHARE" in active_providers
+                and capability_status.get("daily_bars") == "AVAILABLE"
+            ):
+                if use_bulk:
+                    tushare_daily = fetch_rows(
+                        ctx,
+                        provider="TUSHARE",
+                        dataset="daily_bars",
+                        items=trading_dates,
+                        bulk_fn=lambda dates: _fill_auxiliary(
+                            providers.fetch_tushare_daily_by_trade_date(dates),
+                            daily_basic=daily_basic_rows,
+                            stock_basic=stock_basic,
+                        ),
+                        use_bulk=True,
+                        item_is_date=True,
+                        batch_size=batch_size,
+                        return_rows=False,
+                    )
+                else:
+                    tushare_daily = fetch_rows(
+                        ctx,
+                        provider="TUSHARE",
+                        dataset="daily_bars",
+                        items=codes_tuple,
+                        per_item_fn=lambda c: _fill_auxiliary(
+                            providers.fetch_tushare_daily((c,), start, end),
+                            daily_basic=daily_basic_rows,
+                            stock_basic=stock_basic,
+                        ),
+                        workers=workers,
+                        return_rows=False,
+                    )
+            else:
+                tushare_daily = []
+                notes.append("SKIPPED_DATASET:daily_bars:TUSHARE_INACTIVE")
+
+            if "AKSHARE" in active_providers:
+                heartbeat.set_phase("akshare-daily")
+                akshare_daily = fetch_rows(
+                    ctx,
+                    provider="AKSHARE",
+                    dataset="daily_bars",
+                    items=codes_tuple,
+                    per_item_fn=lambda c: _fill_auxiliary(
+                        providers.fetch_akshare_daily((c,), start, end),
+                        daily_basic=[],
+                        stock_basic=stock_basic,
+                    ),
+                    workers=workers,
+                    isolate_process=use_akshare_isolation,
+                    start_date=start,
+                    end_date=end,
+                    worker_codes=codes_tuple,
+                    return_rows=False,
+                )
+                akshare_pool = fetch_rows(
+                    ctx,
+                    provider="AKSHARE",
+                    dataset="limit_up_pool",
+                    items=trading_dates,
+                    per_item_fn=lambda d: providers.fetch_akshare_limit_up_pool(
+                        [d], codes_tuple
+                    ),
+                    item_is_date=True,
+                    workers=workers,
+                    isolate_process=use_akshare_isolation,
+                    start_date=start,
+                    end_date=end,
+                    worker_codes=codes_tuple,
+                )
+            else:
+                akshare_daily = []
+                akshare_pool = []
+                notes.append("SKIPPED_DATASET:akshare_daily:INACTIVE")
+
+            if "BAOSTOCK" in active_providers:
+                heartbeat.set_phase("baostock-daily")
+                baostock_daily = fetch_rows(
+                    ctx,
+                    provider="BAOSTOCK",
+                    dataset="daily_bars",
+                    items=codes_tuple,
+                    per_item_fn=lambda c: providers.fetch_baostock_daily(
+                        (c,), start, end
+                    ),
+                    workers=workers,
+                    isolate_process=use_akshare_isolation,
+                    start_date=start,
+                    end_date=end,
+                    worker_codes=codes_tuple,
+                    worker_mode="baostock",
+                    return_rows=False,
+                )
+            else:
+                baostock_daily = []
+                notes.append("SKIPPED_DATASET:baostock_daily:INACTIVE")
+
+            daily_table, daily_records, quarantines, missing = _stream_reconcile_market(
+                layout=layout,
+                metadata=metadata,
+                run_id=run_id,
+                trading_dates=trading_dates,
                 policy=policy,
                 clock=clock,
+                adjustment_factor_rows=tushare_aux.get("adjustment_factor", []),
+                profile=profile,
             )
             canonical_pool, pool_records, pool_quarantines = reconcile_limit_up_pool(
-                raw_pool_rows, clock=clock
-            )
-            missing = _missing_records(
-                calendar=trading_dates,
-                rows_by_provider=rows_by_provider,
-                snapshot_id=None,
-                clock=clock,
+                akshare_pool, clock=clock
             )
             all_records = [*daily_records, *pool_records, *missing]
+            source_rows = metadata._connection.execute(
+                "SELECT path, sha256, row_count FROM source_files WHERE ingest_run_id = ?",
+                [run_id],
+            ).fetchall()
             source_file_hashes = {
-                str(Path(record.path).relative_to(layout.root)): record.sha256
-                for record in source_files
+                str(Path(path_value).relative_to(layout.root)): sha
+                for path_value, sha, _row_count in source_rows
             }
             snapshot = create_snapshot(
                 layout=layout,
                 metadata=metadata,
                 as_of=end,
-                provider_versions=versions,
-                daily_rows=canonical_daily,
+                provider_versions=dict(provider_versions),
+                daily_rows=[],
+                daily_table=daily_table,
                 pool_rows=canonical_pool,
                 source_file_hashes=source_file_hashes,
                 reconciliation_policy_version=policy.policy_version,
                 clock=clock,
+                status=snapshot_status,
             )
             for record in all_records:
                 metadata.insert_reconciliation(
@@ -590,27 +1028,458 @@ def _bootstrap_impl(
                 finished_at=clock(),
                 error=None,
             )
+            metrics["worker_restarts"] = ctx.worker_restarts
+            metrics["rows_written"] = sum(
+                row_count for _, _, row_count in source_rows
+            )
+            metrics["peak_rss_mb"] = peak_rss_bytes() // (1024 * 1024)
+            metrics["wall_seconds"] = round(time.monotonic() - start_wall, 3)
             return BootstrapResult(
                 run_id=run_id,
                 snapshot_id=snapshot.snapshot_id,
                 start_date=start,
                 end_date=end,
                 codes=codes_tuple,
-                raw_files=tuple(source_files),
-                canonical_daily_rows=len(canonical_daily),
+                raw_files=tuple(
+                    SourceFileRecord(
+                        path=str(path_value),
+                        provider=str(path_value).split("/")[-3].upper()
+                        if "/raw/" in str(path_value)
+                        else "UNKNOWN",
+                        ingest_run_id=run_id,
+                        sha256=sha,
+                        row_count=row_count,
+                        recorded_at=fetched_at,
+                    )
+                    for path_value, sha, row_count in source_rows
+                ),
+                canonical_daily_rows=daily_table.num_rows,
                 canonical_pool_rows=len(canonical_pool),
                 reconciliation_rows=len(all_records),
                 quarantine_rows=len([*quarantines, *pool_quarantines]),
                 reused=False,
                 notes=tuple(notes),
+                failure_count=metadata.failure_count(run_id),
+                pending_failures=len(metadata.pending_failures(run_id)),
+                metrics=dict(metrics),
             )
         except BaseException as exc:
+            if run_id is not None:
+                metadata.finish_ingest_run(
+                    run_id=run_id,
+                    status="FAILED",
+                    finished_at=clock(),
+                    error=redact(f"{type(exc).__name__}: {exc}"),
+                )
+            raise
+
+
+def _reprocess_preclose_divergences(
+    *,
+    layout: WarehouseLayout,
+    metadata: WarehouseMetadata,
+    policy: ReconciliationPolicy,
+    clock: Callable[[], datetime],
+    adj_run_id: str,
+) -> tuple[list[dict[str, Any]], list[ReconciliationRecord]]:
+    """Re-evaluate PRECLOSE_DIVERGENCE_UNCONFIRMED records with adj data."""
+
+    quarantines = metadata._connection.execute(
+        """
+        SELECT code, trade_date FROM quarantine_records
+        WHERE reason = 'PRECLOSE_DIVERGENCE_UNCONFIRMED'
+        """
+    ).fetchall()
+    if not quarantines:
+        return [], []
+
+    def query_rows(glob_expr: str, where: str, params: list[Any]) -> list[dict[str, Any]]:
+        cursor = metadata._connection.execute(
+            f"SELECT * FROM read_parquet('{glob_expr}') WHERE {where}",
+            params,
+        )
+        columns = [description[0] for description in cursor.description]
+        return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+    adj_glob = str(
+        layout.raw_dataset_dir("TUSHARE", "adjustment_factor")
+        / f"{adj_run_id}-*.parquet"
+    )
+    if not any(
+        layout.raw_dataset_dir("TUSHARE", "adjustment_factor").glob(
+            f"{adj_run_id}-*.parquet"
+        )
+    ):
+        return [], []
+    daily_globs = {
+        provider: str(layout.raw_dataset_dir(provider, "daily_bars") / "*.parquet")
+        for provider in ("TUSHARE", "AKSHARE", "BAOSTOCK")
+    }
+    daily_files_exist = {
+        provider: any(
+            layout.raw_dataset_dir(provider, "daily_bars").glob("*.parquet")
+        )
+        for provider in ("TUSHARE", "AKSHARE", "BAOSTOCK")
+    }
+    raw_cache: dict[tuple[str, str], dict[date, dict[str, Any]]] = {}
+    for provider in ("TUSHARE", "AKSHARE", "BAOSTOCK"):
+        raw_cache[(provider, "")] = {}
+
+    released: list[dict[str, Any]] = []
+    records: list[ReconciliationRecord] = []
+    for code, trade_date in quarantines:
+        code = str(code)
+        adjustment_factor_rows = query_rows(
+            adj_glob,
+            "code = ?",
+            [code],
+        )
+        adjustment_factor_rows.sort(key=lambda row: row["trade_date"])
+        if not adjustment_factor_rows:
+            continue
+        rows_by_provider: dict[str, list[dict[str, Any]]] = {}
+        for provider in ("TUSHARE", "AKSHARE", "BAOSTOCK"):
+            if not daily_files_exist[provider]:
+                continue
+            cache_key = (provider, code)
+            if cache_key not in raw_cache:
+                raw_cache[cache_key] = {
+                    row["trade_date"]: row
+                    for row in query_rows(
+                        daily_globs[provider],
+                        "code = ?",
+                        [code],
+                    )
+                }
+            row = raw_cache[cache_key].get(trade_date)
+            if row is not None:
+                rows_by_provider[provider] = [dict(row)]
+        if "TUSHARE" not in rows_by_provider:
+            continue
+        canonical, reconciled, _ = reconcile_daily_rows(
+            rows_by_provider,
+            policy=policy,
+            clock=clock,
+            adjustment_factor_rows=adjustment_factor_rows,
+        )
+        if canonical and any(
+            CORPORATE_ACTION_PRECLOSE_DIVERGENCE in (record.notes or "")
+            for record in reconciled
+        ):
+            released.extend(canonical)
+            records.extend(reconciled)
+            metadata._connection.execute(
+                """
+                UPDATE quarantine_records SET reason = 'RESOLVED_CORPORATE_ACTION'
+                WHERE code = ? AND trade_date = ?
+                  AND reason = 'PRECLOSE_DIVERGENCE_UNCONFIRMED'
+                """,
+                [code, trade_date],
+            )
+    return released, records
+
+
+def _aux_backfill_impl(
+    *,
+    layout: WarehouseLayout,
+    start: date,
+    end: date,
+    codes: Sequence[str],
+    provider_set: WarehouseProviderSet | None = None,
+    policy: ReconciliationPolicy | None = None,
+    clock: Callable[[], datetime] = _now_utc,
+    today: date | None = None,
+    all_main_board: bool = False,
+    batch_size: int = 50,
+    workers: int = 1,
+    bulk_threshold: int = 200,
+    listed_only: bool = False,
+    profile: PerformanceProfile | None = None,
+    force_finalize: bool = False,
+) -> BootstrapResult:
+    """Backfill Tushare auxiliary datasets under a dedicated run_id.
+
+    Publishes a RESEARCH_READY snapshot on top of the previous SCREEN_READY
+    snapshot, and re-releases ex-date rows whose preclose divergence is now
+    confirmed as a corporate action by adjustment_factor.
+    """
+
+    today_value = today or date.today()
+    if start > end:
+        raise PipelineError("INVALID_DATE_RANGE", "start must not be after end")
+    if end > today_value:
+        raise PipelineError("END_DATE_IN_FUTURE", "end must not be in the future")
+    provided_codes = tuple(sorted({code.zfill(6) for code in codes}))
+    policy = policy or ReconciliationPolicy()
+    profile = profile or PerformanceProfile.load()
+    metrics: dict[str, Any] = {
+        "rate_limit_waits": 0,
+        "rate_limit_wait_seconds": 0.0,
+        "worker_restarts": 0,
+        "peak_rss_mb": 0,
+    }
+    providers = provider_set or RealWarehouseProviderSet(
+        rate_limit_sink=_rate_limit_sink(layout, metrics)
+    )
+    fetched_at = clock()
+    layout.ensure_dirs()
+    run_id: str | None = None
+
+    with WarehouseMetadata(layout.duckdb_path, profile=profile) as metadata:
+        try:
+            notes, provider_versions, capability_status = _probe_and_record(
+                provider_set=providers, layout=layout, metadata=metadata, clock=clock
+            )
+            calendar = providers.fetch_trade_calendar(start, end)
+            trading_dates = _trading_dates(calendar, start, end)
+            if not trading_dates:
+                raise PipelineError("NO_TRADING_DAYS", "no trading days in range")
+            from limit_pullback.warehouse.fetch import fetch_with_retry
+
+            try:
+                stock_basic = fetch_with_retry(
+                    lambda: providers.fetch_stock_basic(
+                        provided_codes, listed_only=listed_only
+                    ),
+                    retries=6,
+                    backoff_seconds=2.0,
+                )
+            except CapabilityUnavailable as exc:
+                stock_basic = []
+                notes.append(f"SKIPPED_DATASET:stock_basic:{exc.status}")
+            if all_main_board:
+                if not stock_basic:
+                    raise PipelineError(
+                        "STOCK_BASIC_UNAVAILABLE",
+                        "aux backfill requires stock_basic",
+                    )
+                from limit_pullback.warehouse.fetch import main_board_universe
+
+                codes_tuple = main_board_universe(stock_basic, start, end)
+            else:
+                codes_tuple = provided_codes or tuple(
+                    sorted({str(row["code"]) for row in stock_basic})
+                )
+            if not codes_tuple:
+                raise PipelineError("NO_CODES", "at least one code is required")
+
+            run_id = _run_id(
+                "aux-backfill", start, end, codes_tuple, policy.policy_version
+            )
+            heartbeat = _Heartbeat(layout=layout, run_id=run_id, clock=clock)
+            heartbeat.start()
+            existing = metadata.get_ingest_run(run_id)
+            if (
+                existing is not None
+                and existing.status == "COMPLETED"
+                and not metadata.pending_failures(run_id)
+            ):
+                return BootstrapResult(
+                    run_id=run_id,
+                    snapshot_id=None,
+                    start_date=start,
+                    end_date=end,
+                    codes=codes_tuple,
+                    reused=True,
+                    notes=tuple(["AUX_BACKFILL_COMPLETED"]),
+                )
+            metadata.begin_ingest_run(
+                run_id=run_id,
+                kind="aux-backfill",
+                started_at=fetched_at,
+                start_date=start,
+                end_date=end,
+                codes=codes_tuple,
+                config_json=json.dumps(
+                    {
+                        "policy_version": policy.policy_version,
+                        "start": start.isoformat(),
+                        "end": end.isoformat(),
+                        "all_main_board": all_main_board,
+                    },
+                    sort_keys=True,
+                ),
+            )
+            from limit_pullback.warehouse.fetch import FetchContext, fetch_rows
+
+            ctx = FetchContext(
+                layout=layout,
+                metadata=metadata,
+                run_id=run_id,
+                clock=clock,
+                versions=provider_versions,
+                batch_rows=max(20000, batch_size * 400),
+            )
+            use_bulk = len(codes_tuple) >= bulk_threshold
+
+            def _tushare_bulk(dataset: str, dates: list[date]) -> list[dict[str, Any]]:
+                fetchers = {
+                    "adjustment_factor": providers.fetch_tushare_adj_factor_by_trade_date,
+                    "daily_basic": providers.fetch_tushare_daily_basic_by_trade_date,
+                    "suspension": providers.fetch_tushare_suspension_by_trade_date,
+                    "price_limits": providers.fetch_tushare_price_limits_by_trade_date,
+                }
+                return fetchers[dataset](dates)
+
+            def _tushare_per_code(
+                dataset: str, code: str
+            ) -> list[dict[str, Any]]:
+                fetchers = {
+                    "adjustment_factor": providers.fetch_tushare_adj_factor,
+                    "daily_basic": providers.fetch_tushare_daily_basic,
+                    "suspension": providers.fetch_tushare_suspension,
+                    "price_limits": providers.fetch_tushare_price_limits,
+                }
+                return fetchers[dataset]((code,), start, end)
+
+            aux_rows: dict[str, list[dict[str, Any]]] = {}
+            for dataset in (
+                "adjustment_factor",
+                "daily_basic",
+                "suspension",
+                "price_limits",
+            ):
+                if capability_status.get(dataset) != "AVAILABLE":
+                    notes.append(
+                        f"SKIPPED_DATASET:{dataset}:"
+                        f"{capability_status.get(dataset, 'INACTIVE')}"
+                    )
+                    continue
+                heartbeat.set_phase(f"aux-{dataset}")
+                if use_bulk:
+                    aux_rows[dataset] = fetch_rows(
+                        ctx,
+                        provider="TUSHARE",
+                        dataset=dataset,
+                        items=trading_dates,
+                        bulk_fn=lambda dates, d=dataset: _tushare_bulk(d, dates),
+                        use_bulk=True,
+                        item_is_date=True,
+                        batch_size=batch_size,
+                        return_rows=False,
+                    )
+                else:
+                    aux_rows[dataset] = fetch_rows(
+                        ctx,
+                        provider="TUSHARE",
+                        dataset=dataset,
+                        items=codes_tuple,
+                        per_item_fn=lambda c, d=dataset: _tushare_per_code(d, c),
+                        workers=workers,
+                        return_rows=False,
+                    )
+
+            previous = metadata.latest_snapshot()
+            if previous is None:
+                raise PipelineError(
+                    "NO_BASELINE_SNAPSHOT",
+                    "aux backfill requires a published core snapshot",
+                )
+            import pyarrow as pa
+
+            from limit_pullback.warehouse.parquet import canonical_daily_schema
+            from limit_pullback.warehouse.snapshot import read_snapshot_daily_table
+
+            previous_daily_table = read_snapshot_daily_table(layout, previous)
+            previous_pool = read_snapshot_pool(layout, previous)
+            released, released_records = _reprocess_preclose_divergences(
+                layout=layout,
+                metadata=metadata,
+                policy=policy,
+                clock=clock,
+                adj_run_id=run_id,
+            )
+            released_table = (
+                pa.Table.from_pylist(
+                    released,
+                    schema=canonical_daily_schema().remove(
+                        canonical_daily_schema().get_field_index(
+                            "dataset_snapshot_id"
+                        )
+                    ),
+                )
+                if released
+                else None
+            )
+            tables = [
+                table
+                for table in (previous_daily_table, released_table)
+                if table is not None
+            ]
+            tables = [
+                table.drop("dataset_snapshot_id")
+                if "dataset_snapshot_id" in table.column_names
+                else table
+                for table in tables
+            ]
+            if tables:
+                daily_table = pa.concat_tables(tables)
+            else:
+                daily_table = pa.Table.from_pylist(
+                    [],
+                    schema=canonical_daily_schema(),
+                )
+            source_rows = metadata._connection.execute(
+                "SELECT path, sha256 FROM source_files WHERE ingest_run_id = ?",
+                [run_id],
+            ).fetchall()
+            source_file_hashes = {
+                **previous.source_file_hashes,
+                **{
+                    str(Path(path_value).relative_to(layout.root)): sha
+                    for path_value, sha in source_rows
+                },
+            }
+            snapshot = create_snapshot(
+                layout=layout,
+                metadata=metadata,
+                as_of=end,
+                provider_versions=dict(provider_versions),
+                daily_rows=[],
+                daily_table=daily_table,
+                pool_rows=previous_pool,
+                source_file_hashes=source_file_hashes,
+                reconciliation_policy_version=policy.policy_version,
+                clock=clock,
+                status="RESEARCH_READY",
+            )
+            for record in released_records:
+                metadata.insert_reconciliation(
+                    record.model_copy(update={"snapshot_id": snapshot.snapshot_id})
+                )
+            notes.append(
+                f"RELEASED_CORPORATE_ACTION_ROWS:{len(released)}"
+            )
             metadata.finish_ingest_run(
                 run_id=run_id,
-                status="FAILED",
+                status="COMPLETED",
                 finished_at=clock(),
-                error=redact(f"{type(exc).__name__}: {exc}"),
+                error=None,
             )
+            metrics["worker_restarts"] = ctx.worker_restarts
+            metrics["peak_rss_mb"] = peak_rss_bytes() // (1024 * 1024)
+            return BootstrapResult(
+                run_id=run_id,
+                snapshot_id=snapshot.snapshot_id,
+                start_date=start,
+                end_date=end,
+                codes=codes_tuple,
+                canonical_daily_rows=daily_table.num_rows,
+                reconciliation_rows=len(released_records),
+                reused=False,
+                notes=tuple(notes),
+                failure_count=metadata.failure_count(run_id),
+                pending_failures=len(metadata.pending_failures(run_id)),
+                metrics=dict(metrics),
+            )
+        except BaseException as exc:
+            if run_id is not None:
+                metadata.finish_ingest_run(
+                    run_id=run_id,
+                    status="FAILED",
+                    finished_at=clock(),
+                    error=redact(f"{type(exc).__name__}: {exc}"),
+                )
             raise
 
 
@@ -717,7 +1586,7 @@ def _update_impl(
         )
         _cleanup_run_files(layout, metadata, run_id)
         try:
-            notes, provider_versions = _probe_and_record(
+            notes, provider_versions, _ = _probe_and_record(
                 provider_set=providers, layout=layout, metadata=metadata, clock=clock
             )
             fetch_start = max(
@@ -751,6 +1620,7 @@ def _update_impl(
 
             tushare_daily = providers.fetch_tushare_daily(codes_tuple, fetch_start, as_of)
             tushare_daily_basic: list[dict[str, Any]] = []
+            tushare_adj_factor: list[dict[str, Any]] = []
             for capability, fetch in (
                 ("adjustment_factor", providers.fetch_tushare_adj_factor),
                 ("daily_basic", providers.fetch_tushare_daily_basic),
@@ -761,6 +1631,8 @@ def _update_impl(
                     rows = fetch(codes_tuple, fetch_start, as_of)
                     if capability == "daily_basic":
                         tushare_daily_basic = rows
+                    if capability == "adjustment_factor":
+                        tushare_adj_factor = rows
                     _write_dataset(
                         layout=layout,
                         metadata=metadata,
@@ -886,6 +1758,7 @@ def _update_impl(
                 fallback_rows,
                 policy=policy,
                 clock=clock,
+                adjustment_factor_rows=tushare_adj_factor,
             )
             canonical_pool, pool_records, pool_quarantines = reconcile_limit_up_pool(
                 raw_pool_rows, clock=clock

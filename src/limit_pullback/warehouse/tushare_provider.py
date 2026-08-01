@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import date, datetime, timezone
 from importlib.metadata import PackageNotFoundError, version
+import time
 from typing import Any
 
 from limit_pullback.warehouse.auth import TushareTokenError, redact, tushare_token
@@ -34,6 +35,19 @@ PERMISSION_HINTS = (
     "not authorized",
     "forbidden",
 )
+RATE_LIMIT_HINTS = (
+    "每分钟最多访问",
+    "访问频率过高",
+    "请求过于频繁",
+    "接口调用过于频繁",
+    "访问次数超限",
+    "请求频率",
+    "频率限制",
+    "频繁",
+    "rate limit",
+    "too many requests",
+    "访问次数",
+)
 
 
 class CapabilityUnavailable(RuntimeError):
@@ -57,6 +71,21 @@ class CapabilityUnavailable(RuntimeError):
 def _looks_like_permission(message: str) -> bool:
     lowered = message.lower()
     return any(hint.lower() in lowered for hint in PERMISSION_HINTS)
+
+
+def _looks_retryable(message: str) -> bool:
+    lowered = message.lower()
+    if any(hint.lower() in lowered for hint in RATE_LIMIT_HINTS):
+        return True
+    return any(
+        token in lowered
+        for token in ("timeout", "timed out", "connection", "网络", "超时", "远程主机")
+    )
+
+
+def _is_rate_limit(message: str) -> bool:
+    lowered = message.lower()
+    return any(hint.lower() in lowered for hint in RATE_LIMIT_HINTS)
 
 
 def _now_utc() -> datetime:
@@ -99,10 +128,12 @@ class TushareProProvider:
         *,
         client_factory: Callable[[str], Any] | None = None,
         clock: Callable[[], datetime] = _now_utc,
+        rate_limit_sink: Callable[[datetime], None] | None = None,
     ) -> None:
         self._client_factory = client_factory
         self._client: Any | None = None
         self._clock = clock
+        self._rate_limit_sink = rate_limit_sink
 
     @property
     def provider_version(self) -> str:
@@ -123,29 +154,60 @@ class TushareProProvider:
             self._client = tushare.pro_api(token)
         return self._client
 
-    def _call(self, capability: str, function: Callable[[], Any]) -> Any:
-        try:
-            client = self._load_client()
-            return function(client)
-        except TushareTokenError:
-            raise
-        except CapabilityUnavailable:
-            raise
-        except Exception as exc:
-            message = redact(str(exc))
-            if _looks_like_permission(message):
+    def _call(
+        self,
+        capability: str,
+        function: Callable[[], Any],
+        *,
+        retries: int = 4,
+        backoff_seconds: float = 1.5,
+    ) -> Any:
+        attempts = 0
+        while True:
+            try:
+                client = self._load_client()
+                return function(client)
+            except TushareTokenError:
+                raise
+            except CapabilityUnavailable:
+                raise
+            except Exception as exc:
+                message = redact(str(exc))
+                if _looks_retryable(message) and attempts < retries:
+                    attempts += 1
+                    if _is_rate_limit(message):
+                        # Cross the provider's per-minute window.
+                        delay = max(
+                            65.0, backoff_seconds * (2 ** (attempts - 1))
+                        )
+                        if self._rate_limit_sink is not None:
+                            self._rate_limit_sink(
+                                datetime.now(timezone.utc).timestamp() + delay
+                            )
+                        time.sleep(delay)
+                    else:
+                        time.sleep(backoff_seconds * (2 ** (attempts - 1)))
+                    continue
+                if _is_rate_limit(message):
+                    raise CapabilityUnavailable(
+                        capability,
+                        "UNAVAILABLE_PROVIDER",
+                        error_code="RATE_LIMITED",
+                        detail=message,
+                    ) from exc
+                if _looks_like_permission(message):
+                    raise CapabilityUnavailable(
+                        capability,
+                        "UNAVAILABLE_PERMISSION",
+                        error_code="PERMISSION_DENIED",
+                        detail=message,
+                    ) from exc
                 raise CapabilityUnavailable(
                     capability,
-                    "UNAVAILABLE_PERMISSION",
-                    error_code="PERMISSION_DENIED",
-                    detail=message,
+                    "UNAVAILABLE_PROVIDER",
+                    error_code=type(exc).__name__,
+                    detail=message[:500],
                 ) from exc
-            raise CapabilityUnavailable(
-                capability,
-                "UNAVAILABLE_PROVIDER",
-                error_code=type(exc).__name__,
-                detail=message[:500],
-            ) from exc
 
     def _frame_call(self, capability: str, function: Callable[[Any], Any]) -> Any:
         frame = self._call(capability, function)
@@ -303,16 +365,30 @@ class TushareProProvider:
                         dates.add(parsed)
         return sorted(dates)
 
-    def fetch_stock_basic(self, codes: tuple[str, ...]) -> list[dict[str, Any]]:
-        rows = self._frame_call(
-            "stock_basic",
-            lambda client: client.stock_basic(
-                exchange="",
-                list_status="L",
-                fields="ts_code,symbol,name,industry,market,list_date",
-            ),
-        )
+    def fetch_stock_basic(
+        self,
+        codes: tuple[str, ...],
+        *,
+        listed_only: bool = False,
+    ) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        for list_status in ("L",) if listed_only else ("L", "D", "P"):
+            rows.extend(
+                self._frame_call(
+                    "stock_basic",
+                    lambda client, status=list_status: client.stock_basic(
+                        exchange="",
+                        list_status=status,
+                        fields=(
+                            "ts_code,symbol,name,industry,market,"
+                            "list_date,delist_date"
+                        ),
+                    ),
+                )
+            )
         wanted = set(codes)
+        if not wanted:
+            return [normalize_tushare_stock_basic(row) for row in rows]
         return [
             normalize_tushare_stock_basic(row)
             for row in rows
@@ -330,7 +406,11 @@ class TushareProProvider:
                     end_date=self._d(end),
                 ),
             )
-            rows.extend(normalize_tushare_daily(row) for row in frame_rows)
+            for row in frame_rows:
+                try:
+                    rows.append(normalize_tushare_daily(row))
+                except (KeyError, TypeError, ValueError):
+                    continue
         return rows
 
     def fetch_adj_factor(
@@ -396,3 +476,80 @@ class TushareProProvider:
             )
             rows.extend(normalize_tushare_price_limits(row) for row in frame_rows)
         return rows
+
+    def _bulk_by_trade_date(
+        self,
+        capability: str,
+        method_name: str,
+        dates: list[date],
+        normalizer: Callable[[dict[str, Any]], dict[str, Any]],
+        fields: str | None = None,
+    ) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        for trade_date in dates:
+            params: dict[str, Any] = {"trade_date": trade_date.strftime("%Y%m%d")}
+            if fields:
+                params["fields"] = fields
+            frame_rows = self._frame_call(
+                capability,
+                lambda client, p=params: getattr(client, method_name)(**p),
+            )
+            for row in frame_rows:
+                try:
+                    rows.append(normalizer(row))
+                except (KeyError, TypeError, ValueError):
+                    continue
+        return rows
+
+    def fetch_daily_by_trade_date(self, dates: list[date]) -> list[dict[str, Any]]:
+        return self._bulk_by_trade_date(
+            "daily_bars",
+            "daily",
+            dates,
+            normalize_tushare_daily,
+            fields="ts_code,trade_date,open,high,low,close,pre_close,vol,amount,pct_chg",
+        )
+
+    def fetch_daily_basic_by_trade_date(
+        self, dates: list[date]
+    ) -> list[dict[str, Any]]:
+        return self._bulk_by_trade_date(
+            "daily_basic",
+            "daily_basic",
+            dates,
+            normalize_tushare_daily_basic,
+            fields="ts_code,trade_date,turnover_rate,volume_ratio,pe,pb,total_mv,circ_mv",
+        )
+
+    def fetch_adj_factor_by_trade_date(
+        self, dates: list[date]
+    ) -> list[dict[str, Any]]:
+        return self._bulk_by_trade_date(
+            "adjustment_factor",
+            "adj_factor",
+            dates,
+            normalize_tushare_adj_factor,
+            fields="ts_code,trade_date,adj_factor",
+        )
+
+    def fetch_suspension_by_trade_date(
+        self, dates: list[date]
+    ) -> list[dict[str, Any]]:
+        return self._bulk_by_trade_date(
+            "suspension",
+            "suspend_d",
+            dates,
+            normalize_tushare_suspension,
+            fields="ts_code,trade_date,suspend_type,suspend_timing",
+        )
+
+    def fetch_price_limits_by_trade_date(
+        self, dates: list[date]
+    ) -> list[dict[str, Any]]:
+        return self._bulk_by_trade_date(
+            "price_limits",
+            "stk_limit",
+            dates,
+            normalize_tushare_price_limits,
+            fields="ts_code,trade_date,up_limit,down_limit",
+        )

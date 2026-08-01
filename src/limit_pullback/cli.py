@@ -134,6 +134,55 @@ def build_parser() -> argparse.ArgumentParser:
     bootstrap_parser.add_argument("--end", required=True, type=_iso_date)
     bootstrap_parser.add_argument("--codes", nargs="+", type=_main_board_code)
     bootstrap_parser.add_argument("--data-root", type=Path, default=None)
+    bootstrap_parser.add_argument(
+        "--all-main-board",
+        action="store_true",
+        help="从 stock_basic 枚举全部合法沪深主板代码",
+    )
+    bootstrap_parser.add_argument("--batch-size", type=_positive_integer, default=50)
+    bootstrap_parser.add_argument(
+        "--providers",
+        nargs="+",
+        choices=("TUSHARE", "AKSHARE", "BAOSTOCK"),
+        default=("TUSHARE", "AKSHARE", "BAOSTOCK"),
+    )
+    bootstrap_parser.add_argument(
+        "--workers",
+        type=_positive_integer,
+        default=1,
+        help="per-code 抓取并发线程数",
+    )
+    bootstrap_parser.add_argument(
+        "--skip-tushare-aux",
+        action="store_true",
+        help="跳过 Tushare 辅助数据集（adj_factor/daily_basic/suspension/price_limits）",
+    )
+    bootstrap_parser.add_argument(
+        "--isolate-akshare",
+        action="store_true",
+        help="在独立子进程中抓取 AKShare（隔离 V8/mini_racer 原生崩溃）",
+    )
+    bootstrap_parser.add_argument(
+        "--aux-backfill",
+        action="store_true",
+        help="使用独立 run_id 补抓 Tushare 辅助数据集并发布 RESEARCH_READY 快照",
+    )
+    bootstrap_parser.add_argument(
+        "--snapshot-status",
+        choices=("CURRENT", "SCREEN_READY", "RESEARCH_READY"),
+        default="CURRENT",
+    )
+    bootstrap_parser.add_argument(
+        "--listed-only",
+        action="store_true",
+        help="stock_basic 仅取上市状态（与既有 run_id 的 universe 一致）",
+    )
+    bootstrap_parser.add_argument(
+        "--profile",
+        choices=("apple-silicon-16gb",),
+        default="apple-silicon-16gb",
+        help="性能档（可用 LIMIT_PULLBACK_* 环境变量覆盖各参数）",
+    )
 
     update_parser = subparsers.add_parser(
         "update",
@@ -182,6 +231,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--pool-debug",
         action="store_true",
         help="允许 PROVISIONAL 涨停池记录作为锚点（调试模式，降低数据质量）",
+    )
+
+    hardware_parser = subparsers.add_parser(
+        "hardware-profile",
+        help="探测本机硬件并校验原生 arm64（性能验收前置检查）",
     )
     return parser
 
@@ -299,6 +353,7 @@ def _run_provider_probe(args: argparse.Namespace) -> int:
 def _run_bootstrap(args: argparse.Namespace) -> int:
     from limit_pullback.warehouse.layout import WarehouseLayout
     from limit_pullback.warehouse.pipeline import bootstrap
+    from limit_pullback.resources import PerformanceProfile
 
     layout = WarehouseLayout(resolve_data_root(args.data_root))
     try:
@@ -307,6 +362,16 @@ def _run_bootstrap(args: argparse.Namespace) -> int:
             start=args.start,
             end=args.end,
             codes=args.codes or (),
+            all_main_board=args.all_main_board,
+            batch_size=args.batch_size,
+            active_providers=tuple(args.providers),
+            workers=args.workers,
+            skip_tushare_aux=args.skip_tushare_aux,
+            isolate_akshare=args.isolate_akshare,
+            snapshot_status=args.snapshot_status,
+            aux_backfill=args.aux_backfill,
+            listed_only=args.listed_only,
+            profile=PerformanceProfile.load(args.profile),
         )
     except Exception as exc:
         _print_error(exc)
@@ -386,6 +451,29 @@ def _run_screen(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_hardware_profile(args: argparse.Namespace) -> int:
+    from limit_pullback.resources import detect_hardware
+
+    profile = detect_hardware()
+    if not profile["native_arm64"]:
+        print(
+            json.dumps(
+                {
+                    "warning": (
+                        "native arm64 not detected; "
+                        "formal performance acceptance is stopped"
+                    ),
+                    **profile,
+                },
+                ensure_ascii=False,
+            ),
+            file=sys.stderr,
+        )
+        return 2
+    print(json.dumps(profile, ensure_ascii=False, indent=2))
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -407,6 +495,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_data_validate(args)
     if args.command == "screen":
         return _run_screen(args)
+    if args.command == "hardware-profile":
+        return _run_hardware_profile(args)
     if args.command is None:
         parser.print_help()
     return 0

@@ -21,6 +21,8 @@ CONFIRMED = "CONFIRMED"
 INCOMPLETE = "INCOMPLETE"
 CONFLICTED = "CONFLICTED"
 QUARANTINED = "QUARANTINED"
+CORPORATE_ACTION_PRECLOSE_DIVERGENCE = "CORPORATE_ACTION_PRECLOSE_DIVERGENCE"
+CONFIRMED_SINGLE_SOURCE = "CONFIRMED_SINGLE_SOURCE"
 
 
 class ReconciliationPolicy(DomainModel):
@@ -77,6 +79,64 @@ def _prices_match(left: Mapping[str, Any], right: Mapping[str, Any], policy: Rec
     return True
 
 
+def _ohlc_volume_amount_match(
+    left: Mapping[str, Any],
+    right: Mapping[str, Any],
+    policy: ReconciliationPolicy,
+) -> bool:
+    """Agreement on OHLC/volume/amount only (preclose excluded)."""
+
+    for field in ("open", "high", "low", "close"):
+        if not _close(Decimal(left[field]), Decimal(right[field]), policy):
+            return False
+    for field in ("volume", "amount"):
+        if not _close_volume(Decimal(left[field]), Decimal(right[field]), policy):
+            return False
+    return True
+
+
+def _corporate_action_confirmed(
+    code: str,
+    trade_date: date,
+    adjustment_factor_rows: Sequence[Mapping[str, Any]],
+) -> bool:
+    """True when adjustment_factor changed between the previous date and T."""
+
+    rows = sorted(
+        (
+            row
+            for row in adjustment_factor_rows
+            if str(row.get("code")) == code
+            and row.get("trade_date") is not None
+        ),
+        key=lambda row: row["trade_date"],
+    )
+    dates = [row["trade_date"] for row in rows]
+    if trade_date not in dates:
+        return False
+    index = dates.index(trade_date)
+    if index == 0:
+        return False
+    previous = Decimal(rows[index - 1]["adj_factor"])
+    current = Decimal(rows[index]["adj_factor"])
+    return previous != current
+
+
+def _pct_change_consistent(row: Mapping[str, Any]) -> bool:
+    """Selected provider's pct_change must match its own close/preclose."""
+
+    pct_change = row.get("pct_change")
+    if pct_change is None:
+        return True
+    preclose = Decimal(row["preclose"])
+    if preclose <= 0:
+        return False
+    expected = (
+        (Decimal(row["close"]) - preclose) / preclose * Decimal("100")
+    )
+    return abs(Decimal(pct_change) - expected) <= Decimal("0.05")
+
+
 def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -87,6 +147,7 @@ def reconcile_daily_rows(
     policy: ReconciliationPolicy | None = None,
     snapshot_id: str | None = None,
     clock=None,
+    adjustment_factor_rows: Sequence[Mapping[str, Any]] = (),
 ) -> tuple[list[dict[str, Any]], list[ReconciliationRecord], list[QuarantineRecord]]:
     """Return (canonical rows, reconciliation records, quarantine records).
 
@@ -142,14 +203,35 @@ def reconcile_daily_rows(
             continue
 
         conflict: str | None = None
+        preclose_divergences: list[str] = []
         provider_list = list(usable)
         for index in range(len(provider_list)):
             for other in provider_list[index + 1 :]:
-                if not _prices_match(usable[provider_list[index]], usable[other], policy):
-                    conflict = f"OHLC_CONFLICT:{provider_list[index]}vs{other}"
-                    break
+                left = usable[provider_list[index]]
+                right = usable[other]
+                if not _prices_match(left, right, policy):
+                    if _ohlc_volume_amount_match(left, right, policy):
+                        preclose_divergences.append(
+                            f"{provider_list[index]}vs{other}"
+                        )
+                    else:
+                        conflict = f"OHLC_CONFLICT:{provider_list[index]}vs{other}"
+                        break
             if conflict:
                 break
+
+        corporate_action = False
+        if conflict is None and preclose_divergences:
+            tushare_row = usable.get("TUSHARE")
+            if tushare_row is not None:
+                corporate_action = (
+                    _corporate_action_confirmed(
+                        code, trade_date, adjustment_factor_rows
+                    )
+                    and _pct_change_consistent(tushare_row)
+                )
+            if not corporate_action:
+                conflict = "PRECLOSE_DIVERGENCE_UNCONFIRMED"
 
         if conflict is not None:
             payload = {provider: row for provider, row in usable.items()}
@@ -181,7 +263,16 @@ def reconcile_daily_rows(
             )
             continue
 
-        if "TUSHARE" in usable and "AKSHARE" in usable:
+        if corporate_action and "TUSHARE" in usable and "AKSHARE" in usable:
+            status = CONFIRMED
+            selected = "TUSHARE"
+            notes = [
+                "TUSHARE_AKSHARE_AGREEMENT",
+                CORPORATE_ACTION_PRECLOSE_DIVERGENCE,
+            ]
+            if "BAOSTOCK" not in usable:
+                notes.append("BAOSTOCK_LAGGING")
+        elif "TUSHARE" in usable and "AKSHARE" in usable:
             status = CONFIRMED
             selected = "TUSHARE"
             notes: list[str] = ["TUSHARE_AKSHARE_AGREEMENT"]
@@ -199,6 +290,27 @@ def reconcile_daily_rows(
             notes = ["PARTIAL_CROSS_VALIDATION"]
 
         source = usable[selected]
+        if source.get("preclose") is None:
+            # A daily bar must carry a usable preclose; rows without one are
+            # never published to the canonical layer (audited as PROVISIONAL).
+            status = PROVISIONAL
+            notes = ["MISSING_PRECLOSE_NOT_PUBLISHED"]
+            reconciliations.append(
+                ReconciliationRecord(
+                    reconciliation_id=_identifier(
+                        code, trade_date, providers, status, snapshot_id or ""
+                    ),
+                    code=code,
+                    trade_date=trade_date,
+                    providers=providers,
+                    status=status,
+                    selected_provider=selected,
+                    notes=";".join(notes),
+                    created_at=now,
+                    snapshot_id=snapshot_id,
+                )
+            )
+            continue
         canonical_row = dict(source)
         canonical_row["selected_provider"] = selected
         canonical_row["reconciliation_status"] = status
@@ -230,7 +342,9 @@ def reconcile_limit_up_pool(
     snapshot_id: str | None = None,
     clock=None,
 ) -> tuple[list[dict[str, Any]], list[ReconciliationRecord], list[QuarantineRecord]]:
-    """The limit-up pool is AKShare-owned; rows stay whole and PROVISIONAL.
+    """The limit-up pool is AKShare-owned; rows stay whole and are formally
+    published as ``CONFIRMED_SINGLE_SOURCE`` under the frozen single-source
+    publication policy.
 
     Distinct rows for the same (code, date) are a same-source conflict and go
     to quarantine instead of being silently resolved.
@@ -277,20 +391,20 @@ def reconcile_limit_up_pool(
         row = next(iter(unique.values()))
         canonical_row = dict(row)
         canonical_row["selected_provider"] = "AKSHARE"
-        canonical_row["reconciliation_status"] = PROVISIONAL
+        canonical_row["reconciliation_status"] = CONFIRMED_SINGLE_SOURCE
         canonical_row["source_row_hash"] = row["row_hash"]
         canonical.append(canonical_row)
         records.append(
             ReconciliationRecord(
                 reconciliation_id=_identifier(
-                    code, trade_date, "AKSHARE", PROVISIONAL, snapshot_id or ""
+                    code, trade_date, "AKSHARE", CONFIRMED_SINGLE_SOURCE, snapshot_id or ""
                 ),
                 code=code,
                 trade_date=trade_date,
                 providers=("AKSHARE",),
-                status=PROVISIONAL,
+                status=CONFIRMED_SINGLE_SOURCE,
                 selected_provider="AKSHARE",
-                notes="SINGLE_SOURCE_LIMIT_POOL",
+                notes="SINGLE_SOURCE_CONFIRMED_POLICY",
                 created_at=now,
                 snapshot_id=snapshot_id,
             )

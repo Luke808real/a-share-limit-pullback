@@ -36,7 +36,7 @@ def test_bootstrap_cli_outputs_json(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(
         cli.pipeline_mod if hasattr(cli, "pipeline_mod") else _pipeline_module(),
         "RealWarehouseProviderSet",
-        lambda: fake,
+        lambda **kwargs: fake,
     )
     status = main(
         [

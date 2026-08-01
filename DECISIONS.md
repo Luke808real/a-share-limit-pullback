@@ -88,14 +88,16 @@ AKShare/东方财富提供涨停池，BaoStock 负责历史补录与第三来源
 
 **状态：已采纳（Phase 2C.2B 修复）**
 
-涨停池目前是 AKShare/东方财富单源发布，canonical 状态恒为 `PROVISIONAL`。
+涨停池目前是 AKShare/东方财富单源发布。自 2C.2B 韧性修复起，单源涨停池以
+显式状态 `CONFIRMED_SINGLE_SOURCE` 正式发布（等价于“单一来源已确认”），
+正式 screen 可直接使用，无需 `--pool-debug`。
 
-- 正式 screen 不得把 `PROVISIONAL` 涨停池记录当作 OK Anchor 数据：锚点日
-  质量降为 `UNUSABLE` 并记录 `LIMIT_POOL_PROVISIONAL`，不生成正式入场候选；
+- `PROVISIONAL` 记录仍不得作为 OK Anchor：正式模式质量降为 `UNUSABLE` 并
+  记录 `LIMIT_POOL_PROVISIONAL`，不生成正式入场候选；
 - 调试模式（`--pool-debug`）才允许 `PROVISIONAL` 锚点，质量降为 `DEGRADED`
   并输出 `LIMIT_POOL_PROVISIONAL_WARNING` 警告；
 - 任何模式下都不得把 `PROVISIONAL` 静默改为 `DataQuality.OK`；
-- 涨停池取得第二来源并达成 `CONFIRMED` 后，正式模式自动放行。
+- 涨停池取得第二来源并达成 `CONFIRMED` 后，按 `CONFIRMED` 处理。
 
 ## D-029 NEW_ANCHOR 与状态失效门禁
 
