@@ -106,6 +106,31 @@ def _check_daily_row(
         )
 
 
+def _previous_close_index(
+    raw_rows_by_provider: dict[str, dict[tuple[str, date], dict[str, Any]]],
+) -> dict[str, dict[tuple[str, date], Any]]:
+    """Index the immediately preceding raw close for each provider/code/date.
+
+    This preserves the prior validation rule exactly: for a canonical row, the
+    comparable close is the latest earlier raw row from its selected provider,
+    even when that prior row has a null close.  The old implementation found
+    this by filtering and sorting every provider's rows for every canonical
+    row; constructing the index once changes that lookup from O(N) to O(1).
+    """
+
+    indexed: dict[str, dict[tuple[str, date], Any]] = {}
+    for provider, rows_by_key in raw_rows_by_provider.items():
+        previous_by_code: dict[str, dict[str, Any]] = {}
+        provider_index: dict[tuple[str, date], Any] = {}
+        for code, trade_date in sorted(rows_by_key):
+            previous = previous_by_code.get(code)
+            if previous is not None:
+                provider_index[(code, trade_date)] = previous.get("close")
+            previous_by_code[code] = rows_by_key[(code, trade_date)]
+        indexed[provider] = provider_index
+    return indexed
+
+
 def data_validate(
     layout: WarehouseLayout,
     *,
@@ -192,6 +217,8 @@ def data_validate(
                     (str(row["code"]), row["trade_date"])
                 ] = dict(row)
 
+        previous_closes_by_provider = _previous_close_index(raw_rows_by_provider)
+
         _check_unique(
             daily_rows,
             fields=("code", "trade_date"),
@@ -235,23 +262,17 @@ def data_validate(
         for row in daily_rows:
             code = str(row["code"])
             provider = str(row["selected_provider"])
-            provider_rows = raw_rows_by_provider.get(provider, {})
-            previous_dates = sorted(
-                trade_date
-                for (other_code, trade_date) in provider_rows
-                if other_code == code and trade_date < row["trade_date"]
+            previous_close = previous_closes_by_provider.get(provider, {}).get(
+                (code, row["trade_date"])
             )
-            if not previous_dates:
-                continue
-            previous_row = provider_rows[(code, previous_dates[-1])]
-            if previous_row.get("close") is None:
+            if previous_close is None:
                 continue
             difference = abs(
-                Decimal(row["preclose"]) - Decimal(previous_row["close"])
+                Decimal(row["preclose"]) - Decimal(previous_close)
             )
             scale = max(
                 abs(Decimal(row["preclose"])),
-                abs(Decimal(previous_row["close"])),
+                abs(Decimal(previous_close)),
             )
             if difference > max(PRICE_TOLERANCE, PRICE_RELATIVE * scale):
                 issues.append(
