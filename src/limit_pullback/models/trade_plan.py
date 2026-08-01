@@ -26,6 +26,8 @@ class TradePlan(DomainModel):
     execution_label: ExecutionLabel
     anchor_date: date | None = None
     anchor_price: PositiveDecimal | None = None
+    days_since_anchor: int | None = Field(default=None, ge=0)
+    current_close: PositiveDecimal | None = None
     buy_zone_low: PositiveDecimal | None = None
     buy_zone_high: PositiveDecimal | None = None
     preferred_entry: PositiveDecimal | None = None
@@ -35,6 +37,8 @@ class TradePlan(DomainModel):
     s1_price: PositiveDecimal | None = None
     s2_price: PositiveDecimal | None = None
     entry_room_state: EntryRoomState | None = None
+    distance_to_support_pct: DecimalValue | None = None
+    volume_contraction: DecimalValue | None = None
     risk_pct: DecimalValue | None = None
     reward_pct: DecimalValue | None = None
     rr: DecimalValue | None = None
@@ -58,6 +62,23 @@ class TradePlan(DomainModel):
             and self.buy_zone_low > self.buy_zone_high
         ):
             raise ValueError("buy zone is reversed")
+        if self.execution_label in {
+            ExecutionLabel.B1_PREP,
+            ExecutionLabel.B1_READY,
+        }:
+            if (
+                self.preferred_entry is not None
+                and self.buy_zone_low is not None
+                and self.buy_zone_high is not None
+                and not (
+                    self.buy_zone_low
+                    <= self.preferred_entry
+                    <= self.buy_zone_high
+                )
+            ):
+                raise ValueError(
+                    "B1 preferred_entry must be inside the buy zone"
+                )
         if self.execution_label is ExecutionLabel.B1_PREP and self.setup_stage not in {
             SetupStage.WATCH_PULLBACK,
             SetupStage.B1_READY,
@@ -89,8 +110,11 @@ class TradePlanOutput(DomainModel):
     actionable_count: int = Field(ge=0)
     entry_room_none_reject_count: int = Field(ge=0)
     invalid_reject_count: int = Field(ge=0)
+    price_above_buy_zone_reject_count: int = Field(ge=0)
     reject_counts: dict[str, int] = Field(default_factory=dict)
     plans: tuple[TradePlan, ...] = ()
+    ambush_watch_pool: tuple[TradePlan, ...] = ()
+    formed_b_point_pool: tuple[TradePlan, ...] = ()
     top_candidates: tuple[TradePlan, ...] = ()
 
     @model_validator(mode="after")

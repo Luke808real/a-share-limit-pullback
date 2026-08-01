@@ -175,6 +175,11 @@ class B1Config(DomainModel):
     recent_volume_days: int = Field(ge=1)
     recent_volume_to_post_anchor_max: PositiveDecimal
     minimum_condition_ratio: RatioDecimal
+    # Execution-layer observation thresholds. These do not participate in
+    # StrategySignal B1 structure qualification.
+    prep_support_distance_max: RatioDecimal
+    prep_volume_to_anchor_max: PositiveDecimal
+    prep_volume_to_post_anchor_max: PositiveDecimal
 
     @model_validator(mode="after")
     def validate_ranges(self) -> "B1Config":

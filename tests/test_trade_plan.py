@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from decimal import Decimal
 
 import pytest
 
 from limit_pullback.config import load_strategy_config
-from limit_pullback.models.enums import EntryRoomState, SetupStage
+from limit_pullback.models.enums import EntryRoomState, EventFlag, SetupStage
 from limit_pullback.strategy.engine import evaluate_strategy
 from limit_pullback.trade_plan import build_trade_plan
 from tests.synthetic_data import (
@@ -23,13 +24,16 @@ def config(project_root):
     return load_strategy_config(project_root / "config" / "strategy.yaml")
 
 
-def _watch_signal(config, *, close: str = "10.86", low: str = "10.78"):
+def _watch_signal(config, *, close: str = "10.74", low: str = "10.69"):
     bars = append_pullback_bars(base_setup_bars())
     current = bars[-1]
+    safe_low = Decimal(low)
+    safe_open = max(Decimal("10.86"), safe_low + Decimal("0.05"))
+    safe_high = max(Decimal("10.90"), Decimal(close) + Decimal("0.04"), safe_open)
     bars[-1] = make_bar(
         current.trade_date,
-        open_price="10.86",
-        high="10.90",
+        open_price=str(safe_open),
+        high=str(safe_high),
         low=low,
         close=close,
         preclose="10.96",
@@ -98,6 +102,48 @@ def test_b1_prep_positive(config):
     assert plan.cancel_conditions == ()
 
 
+def test_b1_prep_does_not_require_b1_ready(config):
+    bars, pool, signal = _watch_signal(config)
+
+    plan = _plan(signal=signal, bars=bars, pool=pool, config=config)
+
+    assert signal.setup_stage is SetupStage.WATCH_PULLBACK
+    assert plan.execution_label.value == "B1_PREP"
+    assert plan.setup_stage is SetupStage.WATCH_PULLBACK
+
+
+def test_b1_ready_preferred_entry_is_inside_buy_zone(config):
+    bars, pool, signal = _watch_signal(config, close="10.86", low="10.78")
+    b1 = evaluate_strategy(
+        bars=bars,
+        as_of=bars[-1].trade_date,
+        config=config,
+        generated_at=GENERATED_AT,
+        limit_pool=pool,
+    )
+
+    plan = _plan(signal=b1, bars=bars, pool=pool, config=config)
+
+    assert plan.execution_label.value == "B1_READY"
+    assert plan.buy_zone_low <= plan.preferred_entry <= plan.buy_zone_high
+    assert "PRICE_ABOVE_BUY_ZONE" in plan.cancel_conditions
+    assert not plan.is_actionable
+
+
+def test_b1_prep_far_from_support_is_watch_only(config):
+    bars, pool, signal = _watch_signal(
+        config,
+        close="11.60",
+        low="11.40",
+    )
+
+    plan = _plan(signal=signal, bars=bars, pool=pool, config=config)
+
+    assert plan.execution_label.value == "WATCH_ONLY"
+    assert not plan.is_actionable
+    assert "PRICE_NOT_NEAR_SUPPORT" in plan.cancel_conditions
+
+
 def test_b1_prep_rejected_by_invalid_setup(config):
     bars, pool, signal = _watch_signal(config)
     invalid = signal.model_copy(update={"setup_stage": SetupStage.INVALID})
@@ -125,6 +171,19 @@ def test_b1_prep_rejected_by_entry_room_none(config):
     assert plan.execution_label.value == "B1_READY"
     assert not plan.is_actionable
     assert "ENTRY_ROOM_NONE" in plan.cancel_conditions
+
+
+def test_b1_prep_rejected_by_s2_exhausted(config):
+    bars, pool, signal = _watch_signal(config)
+    exhausted = signal.model_copy(
+        update={"event_flags": frozenset({EventFlag.S2_EXHAUSTED})}
+    )
+
+    plan = _plan(signal=exhausted, bars=bars, pool=pool, config=config)
+
+    assert plan.execution_label.value == "WATCH_ONLY"
+    assert not plan.is_actionable
+    assert "S2_EXHAUSTED" in plan.cancel_conditions
 
 
 def test_b1_prep_rejected_by_volume_damage(config):
@@ -199,6 +258,23 @@ def test_b2_ready_can_exist_without_actionable_plan(config):
     assert plan.execution_label.value == "B2_READY"
     assert not plan.is_actionable
     assert plan.trigger_price == ready.b2_trigger.trigger_price
+
+
+def test_extreme_rr_does_not_change_setup_or_entry_scores(config):
+    bars, pool, signal = _watch_signal(config)
+    b1 = evaluate_strategy(
+        bars=bars,
+        as_of=bars[-1].trade_date,
+        config=config,
+        generated_at=GENERATED_AT,
+        limit_pool=pool,
+    )
+    plan = _plan(signal=b1, bars=bars, pool=pool, config=config)
+
+    assert plan.setup_quality_score == b1.setup_quality_score
+    assert plan.entry_quality_score == b1.entry_quality_score
+    assert plan.rr is not None
+    assert plan.preferred_entry <= plan.buy_zone_high
 
 
 def test_603918_b2_ready_semantics_do_not_imply_confirmation(config):
