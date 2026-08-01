@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import csv
 from collections import Counter, defaultdict
-from concurrent.futures import Future, ProcessPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, Future, ProcessPoolExecutor, wait
 from dataclasses import dataclass, replace
 from datetime import date, datetime, time, timezone
 from decimal import Decimal, ROUND_HALF_UP
@@ -19,6 +19,7 @@ import multiprocessing as mp
 import os
 from pathlib import Path
 import subprocess
+from time import perf_counter, process_time
 from typing import Iterable, Iterator, Sequence
 
 import pyarrow as pa
@@ -31,6 +32,7 @@ from limit_pullback.models.enums import (
     EventFlag,
     ExecutionLabel,
     FillStatus,
+    FillType,
     OutcomeStatus,
     PatternOutcome,
     SetupStage,
@@ -387,8 +389,6 @@ def _trigger_outcome(
     max_holding_sessions: int,
     s1: Decimal,
     invalid: Decimal,
-    fill_date: date,
-    fill_price: Decimal,
 ) -> tuple[OutcomeStatus, date | None, Decimal | None, int | None, Decimal | None, Decimal | None]:
     window = future[:max_holding_sessions]
     for index, bar in enumerate(window, start=1):
@@ -410,21 +410,56 @@ def _apply_mfe_mae(
     *,
     fill_price: Decimal,
     max_holding_sessions: int,
+    fill_type: FillType,
+    fill_date: date,
+    outcome: OutcomeStatus,
+    resolution_date: date | None,
 ) -> tuple[Decimal | None, Decimal | None]:
     window = future[:max_holding_sessions]
     if not window or fill_price <= ZERO:
         return None, None
-    max_high = max(bar.high for bar in window)
+    # Excursions describe the resolved trade, not bars after its first
+    # resolution.  TIMEOUT keeps the configured holding window.  For an
+    # intraday touch, the fill-day high is unknowable relative to the touch
+    # and is therefore excluded, while its low remains valid for MAE.
+    if (
+        outcome in {
+            OutcomeStatus.WIN_S1,
+            OutcomeStatus.LOSS_INVALID,
+            OutcomeStatus.AMBIGUOUS_INTRADAY,
+        }
+        and resolution_date is not None
+    ):
+        window = tuple(bar for bar in window if bar.trade_date <= resolution_date)
+    highs = (
+        bar.high
+        for bar in window
+        if not (
+            fill_type is FillType.INTRADAY_TOUCH_FILL
+            and bar.trade_date == fill_date
+        )
+    )
+    max_high = max(highs, default=None)
     min_low = min(bar.low for bar in window)
-    return _quantize(max_high / fill_price - ONE), _quantize(min_low / fill_price - ONE)
+    mfe = _quantize(max_high / fill_price - ONE) if max_high is not None else None
+    return mfe, _quantize(min_low / fill_price - ONE)
 
 
 def _complete_event(
     event: _FrozenEvent,
     bars: Sequence[DailyBar],
     config: OutcomeStudyConfig,
+    *,
+    date_index: dict[date, int] | None = None,
 ) -> OutcomeEpisode:
-    future = tuple(bar for bar in bars if bar.trade_date > event.signal_date)
+    if date_index is None:
+        date_index = {bar.trade_date: index for index, bar in enumerate(bars)}
+    signal_index = date_index.get(event.signal_date)
+    future = (
+        bars[signal_index + 1 :]
+        if signal_index is not None
+        else tuple(bar for bar in bars if bar.trade_date > event.signal_date)
+    )
     next_date = future[0].trade_date if future else None
     patterns: dict[int, PatternOutcome | None] = {h: None for h in config.forward_horizons}
     if event.s1_price is not None and event.invalid_price is not None:
@@ -483,6 +518,7 @@ def _complete_event(
         return OutcomeEpisode(
             **base,
             fill_status=FillStatus.NO_FILL,
+            fill_type=FillType.NONE,
             outcome=OutcomeStatus.NO_FILL,
             eligibility_reason="B1_PREP_CONVERSION_ONLY",
         )
@@ -490,13 +526,23 @@ def _complete_event(
         return OutcomeEpisode(
             **base,
             fill_status=FillStatus.NO_FILL,
+            fill_type=FillType.NONE,
             outcome=OutcomeStatus.NO_FILL,
             eligibility_reason="INCOMPLETE_FROZEN_TRADE_PLAN",
+        )
+    if event.preferred_entry <= event.invalid_price:
+        return OutcomeEpisode(
+            **base,
+            fill_status=FillStatus.NO_FILL,
+            fill_type=FillType.NONE,
+            outcome=OutcomeStatus.NO_FILL,
+            eligibility_reason="RISK_NON_POSITIVE",
         )
     if not future:
         return OutcomeEpisode(
             **base,
             fill_status=FillStatus.CENSORED,
+            fill_type=FillType.NONE,
             outcome=OutcomeStatus.CENSORED,
             eligibility_reason="NO_FUTURE_CONFIRMED_SESSION",
         )
@@ -506,29 +552,61 @@ def _complete_event(
         return OutcomeEpisode(
             **base,
             fill_status=FillStatus.CANCEL_GAP_INVALID,
+            fill_type=FillType.NONE,
             outcome=OutcomeStatus.CANCEL_GAP_INVALID,
             eligibility_reason="T_PLUS_1_OPEN_AT_OR_BELOW_INVALID",
         )
     if event.invalid_price < first.open <= event.preferred_entry:
         fill_price = first.open
+        fill_type = FillType.OPEN_FILL
     elif first.open > event.preferred_entry and first.low <= event.preferred_entry:
         fill_price = event.preferred_entry
+        fill_type = FillType.INTRADAY_TOUCH_FILL
     else:
         return OutcomeEpisode(
             **base,
             fill_status=FillStatus.NO_FILL,
+            fill_type=FillType.NONE,
             outcome=OutcomeStatus.NO_FILL,
             eligibility_reason="T_PLUS_1_ENTRY_NOT_TOUCHED",
         )
 
-    outcome, resolution_date, exit_price, holding, r_value, conservative_r = _trigger_outcome(
-        future,
-        max_holding_sessions=config.max_holding_sessions,
-        s1=event.s1_price,
-        invalid=event.invalid_price,
-        fill_date=first.trade_date,
-        fill_price=fill_price,
-    )
+    if fill_type is FillType.INTRADAY_TOUCH_FILL:
+        # The fill-day high may precede the preferred-entry touch.  Only a
+        # same-day invalidation is orderable from daily OHLC; a simultaneous
+        # target/invalid range remains conservative ambiguity.  Otherwise,
+        # target evaluation starts at the next trading session.
+        if first.low <= event.invalid_price:
+            if first.high >= event.s1_price:
+                outcome = OutcomeStatus.AMBIGUOUS_INTRADAY
+                resolution_date = first.trade_date
+                exit_price = None
+                holding = 1
+                r_value = None
+                conservative_r = Decimal("-1")
+            else:
+                outcome = OutcomeStatus.LOSS_INVALID
+                resolution_date = first.trade_date
+                exit_price = event.invalid_price
+                holding = 1
+                r_value = Decimal("-1")
+                conservative_r = Decimal("-1")
+        else:
+            outcome, resolution_date, exit_price, holding, r_value, conservative_r = _trigger_outcome(
+                future[1:],
+                max_holding_sessions=config.max_holding_sessions,
+                s1=event.s1_price,
+                invalid=event.invalid_price,
+            )
+            if holding is not None:
+                holding += 1
+    else:
+        outcome, resolution_date, exit_price, holding, r_value, conservative_r = _trigger_outcome(
+            future,
+            max_holding_sessions=config.max_holding_sessions,
+            s1=event.s1_price,
+            invalid=event.invalid_price,
+        )
     risk_abs = fill_price - event.invalid_price
     if outcome is OutcomeStatus.WIN_S1 and risk_abs > ZERO:
         r_value = _quantize((event.s1_price - fill_price) / risk_abs)
@@ -537,10 +615,15 @@ def _complete_event(
         future,
         fill_price=fill_price,
         max_holding_sessions=config.max_holding_sessions,
+        fill_type=fill_type,
+        fill_date=first.trade_date,
+        outcome=outcome,
+        resolution_date=resolution_date,
     )
     return OutcomeEpisode(
         **base,
         fill_status=FillStatus.FILLED,
+        fill_type=fill_type,
         fill_date=first.trade_date,
         fill_price=fill_price,
         outcome=outcome,
@@ -557,34 +640,44 @@ def _complete_event(
     )
 
 
-def _stats(events: Sequence[OutcomeEpisode]) -> OutcomeStats:
-    episodes = len(events)
-    raw_days = sum(event.raw_signal_days for event in events)
+def _stats(
+    events: Sequence[OutcomeEpisode],
+    *,
+    actionable_only: bool = False,
+) -> OutcomeStats:
+    cohort_events = [event for event in events if not actionable_only or event.is_entry_candidate]
+    episodes = len(cohort_events)
+    raw_days = sum(event.raw_signal_days for event in cohort_events)
     # Outcome episodes measure the frozen structural signal.  "Eligible"
     # means the frozen plan has all prices needed for an entry attempt; the
     # separate is_entry_candidate field remains available for later filtering.
     eligible_events = [
         event
-        for event in events
+        for event in cohort_events
         if event.preferred_entry is not None
         and event.invalid_price is not None
         and event.s1_price is not None
     ]
-    filled = [event for event in events if event.fill_status is FillStatus.FILLED]
-    wins = [event for event in events if event.outcome is OutcomeStatus.WIN_S1]
-    losses = [event for event in events if event.outcome is OutcomeStatus.LOSS_INVALID]
+    filled = [event for event in cohort_events if event.fill_status is FillStatus.FILLED]
+    wins = [event for event in cohort_events if event.outcome is OutcomeStatus.WIN_S1]
+    losses = [event for event in cohort_events if event.outcome is OutcomeStatus.LOSS_INVALID]
     ambiguous = [
-        event for event in events if event.outcome is OutcomeStatus.AMBIGUOUS_INTRADAY
+        event for event in cohort_events if event.outcome is OutcomeStatus.AMBIGUOUS_INTRADAY
     ]
-    timeout = [event for event in events if event.outcome is OutcomeStatus.TIMEOUT]
-    censored = [event for event in events if event.outcome is OutcomeStatus.CENSORED]
-    no_fill = [event for event in events if event.outcome is OutcomeStatus.NO_FILL]
+    timeout = [event for event in cohort_events if event.outcome is OutcomeStatus.TIMEOUT]
+    censored = [event for event in cohort_events if event.outcome is OutcomeStatus.CENSORED]
+    no_fill = [event for event in cohort_events if event.outcome is OutcomeStatus.NO_FILL]
     cancelled = [
-        event for event in events if event.outcome is OutcomeStatus.CANCEL_GAP_INVALID
+        event for event in cohort_events if event.outcome is OutcomeStatus.CANCEL_GAP_INVALID
     ]
     strict_r = [event.r_multiple for event in [*wins, *losses] if event.r_multiple is not None]
     win_r = [event.r_multiple for event in wins if event.r_multiple is not None]
     loss_r = [event.r_multiple for event in losses if event.r_multiple is not None]
+    conservative_r = [
+        event.conservative_r_multiple
+        for event in [*wins, *losses, *ambiguous]
+        if event.conservative_r_multiple is not None
+    ]
     conservative_denominator = len(wins) + len(losses) + len(ambiguous)
     strict_denominator = len(wins) + len(losses)
 
@@ -610,7 +703,8 @@ def _stats(events: Sequence[OutcomeEpisode]) -> OutcomeStats:
         for event in filled
         if event.holding_sessions_to_resolution is not None
     ]
-    average_r = mean(strict_r)
+    strict_expectancy = mean(strict_r)
+    conservative_expectancy = mean(conservative_r)
     return OutcomeStats(
         episodes=episodes,
         raw_signal_days=raw_days,
@@ -627,10 +721,16 @@ def _stats(events: Sequence[OutcomeEpisode]) -> OutcomeStats:
         fill_rate=ratio(len(filled), len(eligible_events)),
         strict_win_rate=ratio(len(wins), strict_denominator),
         conservative_win_rate=ratio(len(wins), conservative_denominator),
+        strict_resolved=strict_denominator,
+        conservative_resolved=conservative_denominator,
+        strict_resolved_expectancy_r=strict_expectancy,
+        conservative_resolved_expectancy_r=conservative_expectancy,
+        strict_average_r=strict_expectancy,
+        conservative_average_r=conservative_expectancy,
         average_win_r=mean(win_r),
         average_loss_r=mean(loss_r),
-        average_r=average_r,
-        expectancy_r=average_r,
+        average_r=strict_expectancy,
+        expectancy_r=strict_expectancy,
         median_r=median(strict_r),
         median_mfe=median(mfe),
         median_mae=median(mae),
@@ -672,20 +772,56 @@ def _summary_markdown(summary: OutcomeStudySummary) -> str:
         f"- raw signal days: {summary.raw_signal_days}",
         f"- episodes: {summary.episode_count}",
         "",
-        "## Stage outcomes",
-        "",
-        "| stage | episodes | raw days | eligible | filled | fill rate | strict win | conservative win | average R | median MFE | median MAE |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
-    for stage, stats in summary.stage_stats.items():
-        lines.append(
-            f"| {stage} | {stats.episodes} | {stats.raw_signal_days} | "
-            f"{stats.eligible} | {stats.filled} | {stats.fill_rate} | "
-            f"{stats.strict_win_rate} | "
-            f"{stats.conservative_win_rate} | {stats.average_r} | "
-            f"{stats.median_mfe} | {stats.median_mae} |"
+    def append_stats(title: str, stats_by_stage: dict[str, OutcomeStats]) -> None:
+        if lines and lines[-1] != "":
+            lines.append("")
+        lines.extend(
+            [
+                f"## {title}",
+                "",
+                "| stage | episodes | raw days | eligible | filled | fill rate | strict win | conservative win | strict resolved expectancy R | conservative resolved expectancy R | median MFE | median MAE |",
+                "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+            ]
         )
-    lines.extend(["", "## Pattern outcome", "", "```json", json.dumps(summary.pattern_success, ensure_ascii=False, indent=2, sort_keys=True), "```", "", "## Limitations", ""])
+        for stage, stats in stats_by_stage.items():
+            lines.append(
+                f"| {stage} | {stats.episodes} | {stats.raw_signal_days} | "
+                f"{stats.eligible} | {stats.filled} | {stats.fill_rate} | "
+                f"{stats.strict_win_rate} | {stats.conservative_win_rate} | "
+                f"{stats.strict_resolved_expectancy_r} | "
+                f"{stats.conservative_resolved_expectancy_r} | "
+                f"{stats.median_mfe} | {stats.median_mae} |"
+            )
+
+    append_stats("Actionable stage outcomes", summary.actionable_stage_stats)
+    append_stats("Structural stage outcomes", summary.structural_stage_stats)
+    lines.extend(
+        [
+            "",
+            "Strict expectancy excludes AMBIGUOUS_INTRADAY and TIMEOUT from its resolved denominator.",
+            "Conservative expectancy counts AMBIGUOUS_INTRADAY as -1R; TIMEOUT is excluded.",
+        ]
+    )
+    lines.extend(
+        [
+            "",
+            "## Performance",
+            "",
+            "```json",
+            json.dumps(summary.performance, ensure_ascii=False, indent=2, sort_keys=True, default=str),
+            "```",
+            "",
+            "## Pattern outcome",
+            "",
+            "```json",
+            json.dumps(summary.pattern_success, ensure_ascii=False, indent=2, sort_keys=True),
+            "```",
+            "",
+            "## Limitations",
+            "",
+        ]
+    )
     lines.extend(f"- {limitation}" for limitation in summary.limitations)
     lines.extend(["", "## Audit", "", "```json", json.dumps(summary.audit, ensure_ascii=False, indent=2, sort_keys=True, default=str), "```", ""])
     return "\n".join(lines)
@@ -734,10 +870,20 @@ def _replay_code(
     trade_plan_config_hash: str,
     outcome_config_hash: str,
     snapshot_created_at: datetime | None = None,
-) -> tuple[list[_FrozenEvent], Counter[tuple[str, ExecutionLabel]], dict[str, dict[SetupStage, list[date]]]]:
+) -> tuple[
+    list[_FrozenEvent],
+    Counter[tuple[str, ExecutionLabel]],
+    dict[str, dict[SetupStage, list[date]]],
+    dict[str, float],
+]:
+    replay_cpu_started = process_time()
     ordered = tuple(sorted((bar for bar in bars if bar.trade_date <= end), key=lambda item: item.trade_date))
     if not ordered:
-        return [], Counter(), {}
+        return [], Counter(), {}, {
+            "evaluate_strategy_calls": 0,
+            "trade_plan_calls": 0,
+            "process_cpu_seconds": process_time() - replay_cpu_started,
+        }
     pool_ordered = tuple(sorted((record for record in pool if record.trade_date <= end), key=lambda item: item.trade_date))
     pool_prefix: list[LimitUpRecord] = []
     pool_index = 0
@@ -747,13 +893,19 @@ def _replay_code(
     stage_dates: dict[str, dict[SetupStage, list[date]]] = defaultdict(lambda: defaultdict(list))
     events: list[_FrozenEvent] = []
     prefix: list[DailyBar] = []
+    metrics: dict[str, float] = {
+        "evaluate_strategy_calls": 0,
+        "trade_plan_calls": 0,
+    }
 
     for current in ordered:
         prefix.append(current)
         while pool_index < len(pool_ordered) and pool_ordered[pool_index].trade_date <= current.trade_date:
             pool_prefix.append(pool_ordered[pool_index])
             pool_index += 1
-        if max(bar.trade_date for bar in prefix) > current.trade_date or max((record.trade_date for record in pool_prefix), default=current.trade_date) > current.trade_date:
+        if prefix[-1].trade_date > current.trade_date or (
+            pool_prefix and pool_prefix[-1].trade_date > current.trade_date
+        ):
             raise ValueError("causal replay prefix contains a future row")
         signal = evaluate_strategy(
             bars=prefix,
@@ -763,6 +915,7 @@ def _replay_code(
             limit_pool=tuple(pool_prefix),
             previous_signal=previous_signal,
         )
+        metrics["evaluate_strategy_calls"] += 1
         signal = merge_signal_quality(
             signal,
             (DataQuality.OK,),
@@ -793,6 +946,7 @@ def _replay_code(
                 trade_plan_config=trade_plan_config,
                 execution_config_hash=trade_plan_config_hash,
             )
+            metrics["trade_plan_calls"] += 1
             if plan.execution_label in TARGET_LABELS:
                 key = (signal.setup_id, plan.execution_label)
                 raw_counts[key] += 1
@@ -811,15 +965,21 @@ def _replay_code(
                         )
                     )
         previous_signal = signal
-    return events, raw_counts, stage_dates
+    metrics["process_cpu_seconds"] = process_time() - replay_cpu_started
+    return events, raw_counts, stage_dates, metrics
 
 
 def _replay_code_worker(
     task: dict[str, object],
-) -> tuple[list[_FrozenEvent], Counter[tuple[str, ExecutionLabel]], dict[str, dict[SetupStage, list[date]]]]:
+) -> tuple[
+    list[_FrozenEvent],
+    Counter[tuple[str, ExecutionLabel]],
+    dict[str, dict[SetupStage, list[date]]],
+    dict[str, float],
+]:
     """Pickle-safe process worker; one code remains sequential inside it."""
 
-    events, raw_counts, stage_dates = _replay_code(**task)  # type: ignore[arg-type]
+    events, raw_counts, stage_dates, metrics = _replay_code(**task)  # type: ignore[arg-type]
     # `_replay_code` uses nested defaultdicts for the serial path.  Their
     # local lambda factories are not pickleable under macOS spawn, so return a
     # plain structure across the process boundary.
@@ -832,6 +992,7 @@ def _replay_code_worker(
             }
             for setup_id, by_stage in stage_dates.items()
         },
+        metrics,
     )
 
 
@@ -840,10 +1001,18 @@ def _update_prep_metrics(
     *,
     bars: Sequence[DailyBar],
     stage_dates: dict[SetupStage, list[date]],
+    date_index: dict[date, int] | None = None,
 ) -> OutcomeEpisode:
     if event.execution_label is not ExecutionLabel.B1_PREP:
         return event
-    future = tuple(bar for bar in bars if bar.trade_date > event.signal_date)
+    if date_index is None:
+        date_index = {bar.trade_date: index for index, bar in enumerate(bars)}
+    signal_index = date_index.get(event.signal_date)
+    future = (
+        bars[signal_index + 1 :]
+        if signal_index is not None
+        else tuple(bar for bar in bars if bar.trade_date > event.signal_date)
+    )
     b1_dates = set(stage_dates.get(SetupStage.B1_READY, ()))
     conversion = {}
     mfe_mae = {}
@@ -922,7 +1091,7 @@ def _audit_events(
     )[:sample_size]
     mismatches: list[str] = []
     for expected in candidates:
-        raw, _, _ = _replay_code(
+        raw, _, _, _ = _replay_code(
             code=expected.code,
             bars=bars_by_code[expected.code],
             pool=pool_by_code.get(expected.code, ()),
@@ -973,7 +1142,11 @@ def run_outcome_study(
     # concurrency so each code stays sequential and a 16GB workstation is not
     # swamped by one full DailyBar prefix per worker.
     worker_count = min(workers, os.cpu_count() or 1, 8)
+    total_started = perf_counter()
+    timing: dict[str, float] = {}
+    load_started = perf_counter()
     snapshot = _load_snapshot(layout, snapshot_id)
+    timing["load_snapshot_seconds"] = perf_counter() - load_started
     if snapshot.as_of < end:
         raise ValueError(f"SNAPSHOT_AS_OF_BEFORE_REQUESTED: {snapshot.as_of} < {end}")
     outcome_config = load_outcome_study_config(outcome_config_path)
@@ -984,14 +1157,24 @@ def run_outcome_study(
     commit = strategy_commit or _git_head()
     daily_path = _snapshot_file(layout, snapshot, "daily_bars")
     pool_path = _snapshot_file(layout, snapshot, "limit_up_pool")
+    pool_started = perf_counter()
     pool_by_code = _load_pool_by_code(pool_path)
+    timing["load_pool_seconds"] = perf_counter() - pool_started
 
     all_events: list[OutcomeEpisode] = []
     raw_counts: Counter[tuple[str, ExecutionLabel]] = Counter()
     bars_for_audit: dict[str, tuple[DailyBar, ...]] = {}
-    stage_dates_for_audit: dict[str, dict[SetupStage, list[date]]] = {}
+    audit_candidates: dict[str, tuple[str, tuple[DailyBar, ...]]] = {}
+    audit_candidate_limit = max(audit_sample_size * 2, audit_sample_size)
     code_count = 0
     confirmed_dates: set[date] = set()
+    counters: dict[str, float] = {
+        "bars_processed": 0,
+        "evaluate_strategy_calls": 0,
+        "trade_plan_calls": 0,
+        "episodes_generated": 0,
+        "total_child_cpu_seconds": 0,
+    }
 
     def consume_result(
         code: str,
@@ -1000,13 +1183,21 @@ def run_outcome_study(
             list[_FrozenEvent],
             Counter[tuple[str, ExecutionLabel]],
             dict[str, dict[SetupStage, list[date]]],
+            dict[str, float],
         ],
     ) -> None:
-        raw_events, code_counts, stage_dates = result
+        label_started = perf_counter()
+        raw_events, code_counts, stage_dates, replay_metrics = result
         raw_counts.update(code_counts)
         outcome_bars = tuple(bar for bar in bars if bar.trade_date <= end)
+        date_index = {bar.trade_date: index for index, bar in enumerate(outcome_bars)}
         code_events = [
-            _complete_event(event, outcome_bars, outcome_config)
+            _complete_event(
+                event,
+                outcome_bars,
+                outcome_config,
+                date_index=date_index,
+            )
             for event in raw_events
         ]
         for event in code_events:
@@ -1021,13 +1212,42 @@ def run_outcome_study(
                 event,
                 bars=outcome_bars,
                 stage_dates=stage_dates.get(event.setup_id, {}),
+                date_index=date_index,
             )
             all_events.append(event)
-        if len(bars_for_audit) < audit_sample_size * 2 and code_events:
-            bars_for_audit[code] = bars
-            stage_dates_for_audit[code] = stage_dates
+        counters["bars_processed"] += len(outcome_bars)
+        counters["evaluate_strategy_calls"] += replay_metrics.get(
+            "evaluate_strategy_calls", 0
+        )
+        counters["trade_plan_calls"] += replay_metrics.get("trade_plan_calls", 0)
+        counters["episodes_generated"] += len(code_events)
+        counters["total_child_cpu_seconds"] += replay_metrics.get(
+            "process_cpu_seconds", 0
+        )
+        if code_events:
+            candidate_key = min(
+                _hash_payload(
+                    (
+                        event.code,
+                        event.setup_id,
+                        event.execution_label.value,
+                        event.signal_date.isoformat(),
+                    )
+                )
+                for event in code_events
+            )
+            audit_candidates[code] = (candidate_key, bars)
+            if len(audit_candidates) > audit_candidate_limit:
+                drop_code = max(
+                    audit_candidates,
+                    key=lambda item: audit_candidates[item][0],
+                )
+                del audit_candidates[drop_code]
+        timing["outcome_label_seconds"] = timing.get(
+            "outcome_label_seconds", 0.0
+        ) + perf_counter() - label_started
 
-    pending: list[tuple[str, tuple[DailyBar, ...], Future]] = []
+    pending: dict[Future, tuple[str, tuple[DailyBar, ...]]] = {}
     context = mp.get_context("spawn")
     executor: ProcessPoolExecutor | None = None
     if worker_count > 1:
@@ -1036,6 +1256,7 @@ def run_outcome_study(
             mp_context=context,
         )
     try:
+        replay_started = perf_counter()
         for code, bars in _iter_confirmed_code_bars(daily_path):
             code_count += 1
             confirmed_dates.update(
@@ -1059,18 +1280,31 @@ def run_outcome_study(
             if executor is None:
                 consume_result(code, bars, _replay_code(**task))  # type: ignore[arg-type]
                 continue
-            pending.append((code, bars, executor.submit(_replay_code_worker, task)))
-            if len(pending) >= worker_count:
-                finished_code, finished_bars, future = pending.pop(0)
-                consume_result(finished_code, finished_bars, future.result())
+            future = executor.submit(_replay_code_worker, task)
+            pending[future] = (code, bars)
+            if len(pending) >= worker_count * 2:
+                done, _ = wait(tuple(pending), return_when=FIRST_COMPLETED)
+                for finished in done:
+                    finished_code, finished_bars = pending.pop(finished)
+                    consume_result(finished_code, finished_bars, finished.result())
         while pending:
-            finished_code, finished_bars, future = pending.pop(0)
-            consume_result(finished_code, finished_bars, future.result())
+            done, _ = wait(tuple(pending), return_when=FIRST_COMPLETED)
+            for finished in done:
+                finished_code, finished_bars = pending.pop(finished)
+                consume_result(finished_code, finished_bars, finished.result())
+        timing["replay_seconds"] = perf_counter() - replay_started
     finally:
         if executor is not None:
             executor.shutdown(wait=True, cancel_futures=True)
 
+    bars_for_audit = {
+        code: value[1]
+        for code, value in sorted(
+            audit_candidates.items(), key=lambda item: item[1][0]
+        )
+    }
     all_events.sort(key=lambda event: (event.code, event.signal_date, event.execution_label.value, event.setup_id))
+    audit_started = perf_counter()
     audit = _audit_events(
         all_events,
         bars_by_code=bars_for_audit,
@@ -1085,6 +1319,7 @@ def run_outcome_study(
         snapshot_created_at=snapshot.created_at,
         sample_size=min(audit_sample_size, len(bars_for_audit)),
     )
+    timing["audit_seconds"] = perf_counter() - audit_started
     if not audit["passed"]:
         raise ValueError(f"causal replay audit mismatch: {audit['mismatches']}")
 
@@ -1096,7 +1331,15 @@ def run_outcome_study(
             ExecutionLabel.B2_CONFIRMED,
         )
     }
-    stage_stats = {stage: _stats(events) for stage, events in stage_events.items()}
+    structural_stage_stats = {
+        stage: _stats(events) for stage, events in stage_events.items()
+    }
+    actionable_stage_stats = {
+        stage: _stats(events, actionable_only=True)
+        for stage, events in stage_events.items()
+    }
+    # Keep the historical stage_stats key as the primary/actionable view.
+    stage_stats = actionable_stage_stats
     target_events = [
         event
         for event in all_events
@@ -1122,6 +1365,7 @@ def run_outcome_study(
             groups[key_fn(event)].append(event)
         return {key: _stats(value) for key, value in sorted(groups.items())}
 
+    status_started = perf_counter()
     provisional_dates = 0
     with WarehouseMetadata(layout.duckdb_path, read_only=True) as metadata:
         # Canonical availability is the study universe; provisional-only days
@@ -1146,6 +1390,27 @@ def run_outcome_study(
         if "CONFIRMED" not in values and values
         and start <= trade_date <= end
     )
+    timing["status_scan_seconds"] = perf_counter() - status_started
+
+    for metric in (
+        "replay_seconds",
+        "outcome_label_seconds",
+        "audit_seconds",
+        "summary_write_seconds",
+    ):
+        timing.setdefault(metric, 0.0)
+    performance: dict[str, object] = {
+        **timing,
+        **counters,
+        "codes_processed": code_count,
+        "episodes_generated": len(all_events),
+        "worker_count": worker_count,
+        "python_architecture": os.uname().machine,
+    }
+    performance["total_seconds"] = perf_counter() - total_started
+    audit_with_metrics = {
+        "performance": performance,
+    }
 
     summary = OutcomeStudySummary(
         dataset_mode=DATASET_MODE,
@@ -1159,18 +1424,22 @@ def run_outcome_study(
         episode_count=len(all_events),
         b1_prep_episodes=sum(event.execution_label is ExecutionLabel.B1_PREP for event in all_events),
         stage_stats=stage_stats,
+        actionable_stage_stats=actionable_stage_stats,
+        structural_stage_stats=structural_stage_stats,
         setup_quality_groups=grouped(lambda event: _group_bucket(event.setup_quality_score)),
         entry_quality_groups=grouped(lambda event: _group_bucket(event.entry_quality_score)),
         days_since_anchor_groups=grouped(lambda event: _days_bucket(event.days_since_anchor)),
         pattern_success=pattern_success,
         audit={
             **audit,
+            **audit_with_metrics,
             "workers": worker_count,
             "future_bar_leakage": False,
             "future_pool_leakage": False,
             "future_state_leakage": False,
             "historical_vintage_authenticity": "UNAVAILABLE_FINAL_VINTAGE",
         },
+        performance=performance,
         limitations=(
             "current final-vintage canonical data",
             "historical revision authenticity unavailable",
@@ -1188,10 +1457,25 @@ def run_outcome_study(
     run_id = f"outcome-{snapshot_id}-{start.isoformat()}-{end.isoformat()}-{outcome_hash[:12]}"
     output_dir = layout.root / "outcome-study" / run_id
     output_dir.mkdir(parents=True, exist_ok=True)
+    write_started = perf_counter()
+    _write_episodes(output_dir / "episodes.parquet", all_events)
+    (output_dir / "summary.md").write_text(
+        _summary_markdown(summary), encoding="utf-8"
+    )
+    performance["summary_write_seconds"] = perf_counter() - write_started
+    performance["total_seconds"] = perf_counter() - total_started
+    summary = summary.model_copy(
+        update={
+            "performance": performance,
+            "audit": {
+                **summary.audit,
+                "performance": performance,
+            },
+        }
+    )
     (output_dir / "summary.json").write_text(
         summary.model_dump_json(indent=2), encoding="utf-8"
     )
-    _write_episodes(output_dir / "episodes.parquet", all_events)
     (output_dir / "summary.md").write_text(
         _summary_markdown(summary), encoding="utf-8"
     )

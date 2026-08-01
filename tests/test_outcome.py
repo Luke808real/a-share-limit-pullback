@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from concurrent.futures import ProcessPoolExecutor
 from datetime import date, timedelta
+from dataclasses import replace
 from decimal import Decimal
 import multiprocessing as mp
 from types import SimpleNamespace
@@ -15,6 +16,7 @@ from limit_pullback.models.enums import (
     EntryRoomState,
     ExecutionLabel,
     FillStatus,
+    FillType,
     OutcomeStatus,
     PatternOutcome,
     SetupStage,
@@ -104,6 +106,7 @@ def test_gap_below_invalid_cancels_entry():
     )
     result = outcome._complete_event(_event(signal_date=signal_date), bars, OutcomeStudyConfig())
     assert result.fill_status is FillStatus.CANCEL_GAP_INVALID
+    assert result.fill_type is FillType.NONE
     assert result.outcome is OutcomeStatus.CANCEL_GAP_INVALID
 
 
@@ -115,6 +118,7 @@ def test_target_first_is_win_and_r_mfe_mae_are_decimal():
     )
     result = outcome._complete_event(_event(signal_date=signal_date), bars, OutcomeStudyConfig())
     assert result.outcome is OutcomeStatus.WIN_S1
+    assert result.fill_type is FillType.OPEN_FILL
     assert result.r_multiple == Decimal("2.0000")
     assert isinstance(result.mfe_pct, Decimal)
     assert isinstance(result.mae_pct, Decimal)
@@ -132,6 +136,86 @@ def test_stats_fill_rate_is_bounded_for_complete_non_actionable_plan():
     stats = outcome._stats([result])
     assert stats.eligible == 1
     assert stats.fill_rate == Decimal("1.0000")
+
+
+def test_actionable_and_structural_cohorts_are_separate():
+    signal_date = date(2026, 7, 28)
+    bars = _bars(
+        ("2026-07-28", "10.00", "10.10", "9.90", "10.00", "10.00", "100"),
+        ("2026-07-29", "10.00", "11.10", "9.95", "10.80", "10.00", "100"),
+    )
+    actionable = outcome._complete_event(_event(signal_date=signal_date), bars, OutcomeStudyConfig())
+    structural_only = outcome._complete_event(
+        replace(_event(signal_date=signal_date), is_entry_candidate=False),
+        bars,
+        OutcomeStudyConfig(),
+    )
+    structural = outcome._stats([actionable, structural_only])
+    candidate = outcome._stats([actionable, structural_only], actionable_only=True)
+    assert structural.eligible == 2
+    assert structural.filled == 2
+    assert candidate.episodes == 1
+    assert candidate.eligible == 1
+    assert candidate.filled == 1
+
+
+def test_intraday_touch_excludes_fill_day_high_but_allows_fill_day_low():
+    signal_date = date(2026, 7, 28)
+    bars = _bars(
+        ("2026-07-28", "10.00", "10.10", "9.90", "10.00", "10.00", "100"),
+        ("2026-07-29", "10.50", "11.20", "10.00", "10.60", "10.00", "100"),
+        ("2026-07-30", "10.60", "11.10", "10.50", "10.90", "10.60", "100"),
+    )
+    result = outcome._complete_event(_event(signal_date=signal_date), bars, OutcomeStudyConfig())
+    assert result.fill_type is FillType.INTRADAY_TOUCH_FILL
+    assert result.outcome is OutcomeStatus.WIN_S1
+    assert result.mfe_pct == Decimal("0.1100")
+    assert result.mae_pct == Decimal("0.0000")
+
+
+def test_intraday_touch_same_day_invalid_and_target_is_ambiguous():
+    signal_date = date(2026, 7, 28)
+    bars = _bars(
+        ("2026-07-28", "10.00", "10.10", "9.90", "10.00", "10.00", "100"),
+        ("2026-07-29", "10.50", "11.20", "9.40", "10.00", "10.00", "100"),
+    )
+    result = outcome._complete_event(_event(signal_date=signal_date), bars, OutcomeStudyConfig())
+    assert result.fill_type is FillType.INTRADAY_TOUCH_FILL
+    assert result.outcome is OutcomeStatus.AMBIGUOUS_INTRADAY
+    assert result.conservative_r_multiple == Decimal("-1")
+
+
+def test_resolved_strict_and_conservative_expectancy_are_explicit():
+    signal_date = date(2026, 7, 28)
+    base = _bars(
+        ("2026-07-28", "10.00", "10.10", "9.90", "10.00", "10.00", "100"),
+    )
+    win = outcome._complete_event(
+        _event(signal_date=signal_date),
+        base + _bars(("2026-07-29", "10.00", "11.10", "9.95", "10.80", "10.00", "100")),
+        OutcomeStudyConfig(),
+    )
+    loss = outcome._complete_event(
+        _event(signal_date=signal_date),
+        base + _bars(("2026-07-29", "10.00", "10.10", "9.40", "9.60", "10.00", "100")),
+        OutcomeStudyConfig(),
+    )
+    ambiguous = outcome._complete_event(
+        _event(signal_date=signal_date),
+        base + _bars(("2026-07-29", "10.00", "11.10", "9.40", "10.00", "10.00", "100")),
+        OutcomeStudyConfig(),
+    )
+    timeout = outcome._complete_event(
+        _event(signal_date=signal_date),
+        base + _bars(("2026-07-29", "10.00", "10.30", "9.80", "10.00", "10.00", "100")),
+        OutcomeStudyConfig(forward_horizons=(1,), max_holding_sessions=1),
+    )
+    stats = outcome._stats([win, loss, ambiguous, timeout])
+    assert stats.strict_resolved == 2
+    assert stats.conservative_resolved == 3
+    assert stats.strict_resolved_expectancy_r == Decimal("0.5000")
+    assert stats.conservative_resolved_expectancy_r == Decimal("0.0000")
+    assert stats.timeout == 1
 
 
 def test_invalid_first_is_loss():
@@ -270,7 +354,7 @@ def test_causal_replay_deduplicates_stage_episode_and_preserves_future_prefix(mo
         trade_plan_config_hash="t",
         outcome_config_hash="o",
     )
-    events, raw_counts, _ = outcome._replay_code(**kwargs)
+    events, raw_counts, _, _ = outcome._replay_code(**kwargs)
     assert [event.execution_label for event in events] == [
         ExecutionLabel.B1_READY,
         ExecutionLabel.B2_READY,
@@ -279,10 +363,10 @@ def test_causal_replay_deduplicates_stage_episode_and_preserves_future_prefix(mo
     assert calls["count"] == len(bars)
 
     changed = [*bars, make_bar(date(2026, 8, 1), open_price="50", high="60", low="49", close="55", preclose="10", volume="999")]
-    changed_events, _, _ = outcome._replay_code(**{**kwargs, "bars": changed})
+    changed_events, _, _, _ = outcome._replay_code(**{**kwargs, "bars": changed})
     assert [event.frozen_event_hash for event in changed_events] == [event.frozen_event_hash for event in events]
     future_pool = (SimpleNamespace(trade_date=date(2026, 8, 1)),)
-    pool_events, _, _ = outcome._replay_code(**{**kwargs, "pool": future_pool})
+    pool_events, _, _, _ = outcome._replay_code(**{**kwargs, "pool": future_pool})
     assert [event.frozen_event_hash for event in pool_events] == [event.frozen_event_hash for event in events]
 
 
@@ -317,4 +401,43 @@ def test_spawn_worker_round_trip_is_equivalent_for_a_causal_prefix(project_root)
         mp_context=mp.get_context("spawn"),
     ) as executor:
         parallel = executor.submit(outcome._replay_code_worker, task).result(timeout=30)
-    assert parallel == serial
+    assert parallel[:3] == serial[:3]
+    assert parallel[3]["evaluate_strategy_calls"] == serial[3]["evaluate_strategy_calls"]
+    assert parallel[3]["trade_plan_calls"] == serial[3]["trade_plan_calls"]
+
+
+def test_worker_diagnostics_do_not_change_deterministic_replay_payload(project_root):
+    bars = tuple(
+        _bars(
+            ("2026-07-28", "10.00", "10.10", "9.90", "10.00", "10.00", "100"),
+            ("2026-07-29", "10.00", "10.20", "9.90", "10.10", "10.00", "100"),
+        )
+    )
+    task = {
+        "code": "603918",
+        "bars": bars,
+        "pool": (),
+        "start": date(2026, 7, 28),
+        "end": date(2026, 7, 29),
+        "config": load_strategy_config(project_root / "config" / "strategy.yaml"),
+        "trade_plan_config": load_trade_plan_config(project_root / "config" / "trade_plan.yaml"),
+        "snapshot_id": "snap-test",
+        "strategy_commit": "commit-test",
+        "strategy_config_hash": "strategy-hash",
+        "trade_plan_config_hash": "trade-plan-hash",
+        "outcome_config_hash": "outcome-hash",
+    }
+    tasks = [task, {**task, "code": "603919"}]
+    serial = [outcome._replay_code(**item) for item in tasks]
+    with ProcessPoolExecutor(
+        max_workers=2,
+        mp_context=mp.get_context("spawn"),
+    ) as executor:
+        parallel = [future.result(timeout=30) for future in [
+            executor.submit(outcome._replay_code_worker, item) for item in tasks
+        ]]
+    assert [item[:3] for item in parallel] == [item[:3] for item in serial]
+    assert [len(item[0]) for item in parallel] == [len(item[0]) for item in serial]
+    assert [item[3]["evaluate_strategy_calls"] for item in parallel] == [
+        item[3]["evaluate_strategy_calls"] for item in serial
+    ]

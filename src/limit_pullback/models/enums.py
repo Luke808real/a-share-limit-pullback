@@ -90,6 +90,14 @@ class FillStatus(StrEnum):
     CENSORED = "CENSORED"
 
 
+class FillType(StrEnum):
+    """Research-only first-session execution path."""
+
+    NONE = "NONE"
+    OPEN_FILL = "OPEN_FILL"
+    INTRADAY_TOUCH_FILL = "INTRADAY_TOUCH_FILL"
+
+
 class PatternOutcome(StrEnum):
     """Direction-only pattern result, separate from trade outcome."""
 

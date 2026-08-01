@@ -25,6 +25,7 @@ PLANNED_COMMANDS = (
     "run",
     "backtest",
 )
+OUTCOME_DEFAULT_WORKERS = 8
 
 
 class StructuredArgumentParser(argparse.ArgumentParser):
@@ -289,7 +290,7 @@ def build_parser() -> argparse.ArgumentParser:
     outcome_parser.add_argument(
         "--workers",
         type=_positive_integer,
-        default=min(os.cpu_count() or 1, 8),
+        default=min(OUTCOME_DEFAULT_WORKERS, os.cpu_count() or 1),
         help="按股票分片的进程数（每只股票内部仍按交易日顺序；上限8）",
     )
 

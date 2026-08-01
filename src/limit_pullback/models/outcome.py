@@ -12,6 +12,7 @@ from limit_pullback.models.enums import (
     EntryRoomState,
     ExecutionLabel,
     FillStatus,
+    FillType,
     OutcomeStatus,
     PatternOutcome,
     PatternType,
@@ -65,6 +66,7 @@ class OutcomeEpisode(DomainModel):
 
     next_trade_date: date | None = None
     fill_status: FillStatus
+    fill_type: FillType = FillType.NONE
     fill_date: date | None = None
     fill_price: PositiveDecimal | None = None
     outcome: OutcomeStatus
@@ -122,6 +124,12 @@ class OutcomeStats(DomainModel):
     fill_rate: DecimalValue
     strict_win_rate: DecimalValue
     conservative_win_rate: DecimalValue
+    strict_resolved: int = Field(ge=0)
+    conservative_resolved: int = Field(ge=0)
+    strict_resolved_expectancy_r: DecimalValue | None = None
+    conservative_resolved_expectancy_r: DecimalValue | None = None
+    strict_average_r: DecimalValue | None = None
+    conservative_average_r: DecimalValue | None = None
     average_win_r: DecimalValue | None = None
     average_loss_r: DecimalValue | None = None
     average_r: DecimalValue | None = None
@@ -144,10 +152,13 @@ class OutcomeStudySummary(DomainModel):
     episode_count: int = Field(ge=0)
     b1_prep_episodes: int = Field(ge=0)
     stage_stats: dict[str, OutcomeStats]
+    actionable_stage_stats: dict[str, OutcomeStats] = {}
+    structural_stage_stats: dict[str, OutcomeStats] = {}
     setup_quality_groups: dict[str, OutcomeStats] = {}
     entry_quality_groups: dict[str, OutcomeStats] = {}
     days_since_anchor_groups: dict[str, OutcomeStats] = {}
     pattern_success: dict[str, dict[str, int]] = {}
+    performance: dict[str, object] = {}
     audit: dict[str, object] = {}
     limitations: tuple[str, ...] = ()
     strategy_commit: str = Field(min_length=1)
