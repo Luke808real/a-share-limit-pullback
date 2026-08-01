@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import threading
+import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
@@ -13,6 +14,11 @@ from typing import Any, Callable, Mapping, Sequence
 from limit_pullback.warehouse.auth import redact
 from limit_pullback.warehouse.layout import WarehouseLayout
 from limit_pullback.warehouse.locking import WarehouseLock
+from limit_pullback.resources import (
+    PerformanceProfile,
+    available_memory_bytes,
+    peak_rss_bytes,
+)
 from limit_pullback.warehouse.metadata import WarehouseMetadata
 from limit_pullback.warehouse.models import (
     BootstrapResult,
@@ -161,10 +167,18 @@ class _Heartbeat:
             pass
 
 
-def _rate_limit_sink(layout: WarehouseLayout) -> Callable[[float], None]:
+def _rate_limit_sink(
+    layout: WarehouseLayout,
+    metrics: dict[str, Any] | None = None,
+) -> Callable[[float], None]:
     path = layout.root / ".rate_limit_wait.json"
 
     def sink(next_retry_at: float) -> None:
+        if metrics is not None:
+            metrics["rate_limit_waits"] = metrics.get("rate_limit_waits", 0) + 1
+            metrics["rate_limit_wait_seconds"] = metrics.get(
+                "rate_limit_wait_seconds", 0.0
+            ) + max(0.0, next_retry_at - _now_utc().timestamp())
         try:
             path.write_text(
                 json.dumps({"next_retry_at": next_retry_at}),
@@ -435,6 +449,7 @@ def bootstrap(
     snapshot_status: str = "CURRENT",
     aux_backfill: bool = False,
     listed_only: bool = False,
+    profile: PerformanceProfile | None = None,
 ) -> BootstrapResult:
     """Full historical bootstrap with an exclusive write lock."""
 
@@ -455,6 +470,7 @@ def bootstrap(
                 workers=workers,
                 bulk_threshold=bulk_threshold,
                 listed_only=listed_only,
+                profile=profile,
             )
         return _bootstrap_impl(
             layout=layout,
@@ -475,6 +491,7 @@ def bootstrap(
             akshare_worker_runner=akshare_worker_runner,
             snapshot_status=snapshot_status,
             listed_only=listed_only,
+            profile=profile,
         )
 
 
@@ -508,6 +525,7 @@ def _stream_reconcile_market(
     policy: ReconciliationPolicy,
     clock: Callable[[], datetime],
     adjustment_factor_rows: list[dict[str, Any]] = (),
+    profile: PerformanceProfile | None = None,
 ) -> tuple[Any, list[ReconciliationRecord], list[QuarantineRecord], list[ReconciliationRecord]]:
     """Reconcile the full market code-by-code with bounded memory.
 
@@ -516,9 +534,14 @@ def _stream_reconcile_market(
     """
 
     import pyarrow as pa
+    import pyarrow.parquet as pq
     import duckdb
+    import time
 
     from limit_pullback.warehouse.parquet import canonical_daily_schema
+    from limit_pullback.warehouse.parquet import write_table_atomic
+
+    profile = profile or PerformanceProfile.load()
 
     cursors: dict[str, Any] = {}
     connections: list[Any] = []
@@ -547,11 +570,32 @@ def _stream_reconcile_market(
     schema = canonical_daily_schema().remove(
         canonical_daily_schema().get_field_index("dataset_snapshot_id")
     )
-    chunks: list[Any] = []
+    canonical_parts: list[Path] = []
+    pending_canonical: list[dict[str, Any]] = []
+    part_directory = layout.root / "tmp" / "canonical"
+    part_directory.mkdir(parents=True, exist_ok=True)
     daily_records: list[ReconciliationRecord] = []
     quarantines: list[QuarantineRecord] = []
     missing_records: list[ReconciliationRecord] = []
+
+    def flush_canonical() -> None:
+        if not pending_canonical:
+            return
+        part_path = part_directory / f"part-{len(canonical_parts) + 1:05d}.parquet"
+        write_table_atomic(
+            pa.Table.from_pylist(pending_canonical, schema=schema),
+            part_path,
+        )
+        canonical_parts.append(part_path)
+        pending_canonical.clear()
+
     while any(value is not None for value in current.values()):
+        available_gb = available_memory_bytes() / (1024**3)
+        if available_gb < profile.pause_available_memory_gb:
+            flush_canonical()
+            time.sleep(2)
+        elif available_gb < profile.minimum_available_memory_gb:
+            time.sleep(0.5)
         active = [provider for provider, value in current.items() if value is not None]
         code = min(current[provider][0] for provider in active)
         rows_by_provider: dict[str, list[dict[str, Any]]] = {}
@@ -566,7 +610,9 @@ def _stream_reconcile_market(
             adjustment_factor_rows=adjustment_factor_rows,
         )
         if canonical:
-            chunks.append(pa.Table.from_pylist(canonical, schema=schema))
+            pending_canonical.extend(canonical)
+            if len(pending_canonical) >= profile.canonical_flush_rows:
+                flush_canonical()
         daily_records.extend(records)
         quarantines.extend(quarantined)
         missing_records.extend(
@@ -583,8 +629,13 @@ def _stream_reconcile_market(
                     current[provider] = next(iterators[provider])
                 except StopIteration:
                     current[provider] = None
-    if chunks:
-        daily_table = pa.concat_tables(chunks)
+    flush_canonical()
+    if canonical_parts:
+        tables = [
+            pq.read_table(str(path), schema=schema)
+            for path in canonical_parts
+        ]
+        daily_table = pa.concat_tables(tables)
     else:
         daily_table = pa.Table.from_pylist([], schema=canonical_daily_schema())
     for connection in connections:
@@ -612,6 +663,7 @@ def _bootstrap_impl(
     akshare_worker_runner=None,
     snapshot_status: str = "CURRENT",
     listed_only: bool = False,
+    profile: PerformanceProfile | None = None,
 ) -> BootstrapResult:
     """Full historical bootstrap with atomic snapshot publication."""
 
@@ -623,14 +675,21 @@ def _bootstrap_impl(
     provided_codes = tuple(sorted({code.zfill(6) for code in codes}))
 
     policy = policy or ReconciliationPolicy()
+    profile = profile or PerformanceProfile.load()
+    metrics: dict[str, Any] = {
+        "rate_limit_waits": 0,
+        "rate_limit_wait_seconds": 0.0,
+        "worker_restarts": 0,
+        "peak_rss_mb": 0,
+    }
     providers = provider_set or RealWarehouseProviderSet(
-        rate_limit_sink=_rate_limit_sink(layout)
+        rate_limit_sink=_rate_limit_sink(layout, metrics)
     )
     fetched_at = clock()
     layout.ensure_dirs()
     run_id: str | None = None
 
-    with WarehouseMetadata(layout.duckdb_path) as metadata:
+    with WarehouseMetadata(layout.duckdb_path, profile=profile) as metadata:
         try:
             notes, provider_versions, capability_status = _probe_and_record(
                 provider_set=providers, layout=layout, metadata=metadata, clock=clock
@@ -689,6 +748,7 @@ def _bootstrap_impl(
             )
             heartbeat = _Heartbeat(layout=layout, run_id=run_id, clock=clock)
             heartbeat.start()
+            start_wall = time.monotonic()
             existing = metadata.get_ingest_run(run_id)
             pending = metadata.pending_failures(run_id)
             if existing is not None and existing.status == "COMPLETED" and not pending:
@@ -911,6 +971,7 @@ def _bootstrap_impl(
                 policy=policy,
                 clock=clock,
                 adjustment_factor_rows=tushare_aux.get("adjustment_factor", []),
+                profile=profile,
             )
             canonical_pool, pool_records, pool_quarantines = reconcile_limit_up_pool(
                 akshare_pool, clock=clock
@@ -949,6 +1010,12 @@ def _bootstrap_impl(
                 finished_at=clock(),
                 error=None,
             )
+            metrics["worker_restarts"] = ctx.worker_restarts
+            metrics["rows_written"] = sum(
+                row_count for _, _, row_count in source_rows
+            )
+            metrics["peak_rss_mb"] = peak_rss_bytes() // (1024 * 1024)
+            metrics["wall_seconds"] = round(time.monotonic() - start_wall, 3)
             return BootstrapResult(
                 run_id=run_id,
                 snapshot_id=snapshot.snapshot_id,
@@ -976,6 +1043,7 @@ def _bootstrap_impl(
                 notes=tuple(notes),
                 failure_count=metadata.failure_count(run_id),
                 pending_failures=len(metadata.pending_failures(run_id)),
+                metrics=dict(metrics),
             )
         except BaseException as exc:
             if run_id is not None:
@@ -1108,6 +1176,7 @@ def _aux_backfill_impl(
     workers: int = 1,
     bulk_threshold: int = 200,
     listed_only: bool = False,
+    profile: PerformanceProfile | None = None,
 ) -> BootstrapResult:
     """Backfill Tushare auxiliary datasets under a dedicated run_id.
 
@@ -1123,14 +1192,21 @@ def _aux_backfill_impl(
         raise PipelineError("END_DATE_IN_FUTURE", "end must not be in the future")
     provided_codes = tuple(sorted({code.zfill(6) for code in codes}))
     policy = policy or ReconciliationPolicy()
+    profile = profile or PerformanceProfile.load()
+    metrics: dict[str, Any] = {
+        "rate_limit_waits": 0,
+        "rate_limit_wait_seconds": 0.0,
+        "worker_restarts": 0,
+        "peak_rss_mb": 0,
+    }
     providers = provider_set or RealWarehouseProviderSet(
-        rate_limit_sink=_rate_limit_sink(layout)
+        rate_limit_sink=_rate_limit_sink(layout, metrics)
     )
     fetched_at = clock()
     layout.ensure_dirs()
     run_id: str | None = None
 
-    with WarehouseMetadata(layout.duckdb_path) as metadata:
+    with WarehouseMetadata(layout.duckdb_path, profile=profile) as metadata:
         try:
             notes, provider_versions, capability_status = _probe_and_record(
                 provider_set=providers, layout=layout, metadata=metadata, clock=clock
@@ -1361,6 +1437,8 @@ def _aux_backfill_impl(
                 finished_at=clock(),
                 error=None,
             )
+            metrics["worker_restarts"] = ctx.worker_restarts
+            metrics["peak_rss_mb"] = peak_rss_bytes() // (1024 * 1024)
             return BootstrapResult(
                 run_id=run_id,
                 snapshot_id=snapshot.snapshot_id,
@@ -1373,6 +1451,7 @@ def _aux_backfill_impl(
                 notes=tuple(notes),
                 failure_count=metadata.failure_count(run_id),
                 pending_failures=len(metadata.pending_failures(run_id)),
+                metrics=dict(metrics),
             )
         except BaseException as exc:
             if run_id is not None:

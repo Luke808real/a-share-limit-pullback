@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, time
 from decimal import Decimal
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import Field, field_validator
 
@@ -213,6 +213,7 @@ class BootstrapResult(DomainModel):
     notes: tuple[str, ...] = ()
     failure_count: int = 0
     pending_failures: int = 0
+    metrics: dict[str, Any] = {}
 
 
 class UpdateResult(DomainModel):

@@ -35,7 +35,12 @@ def _aware(value: datetime | None) -> datetime | None:
 class WarehouseMetadata:
     """Owns the DuckDB file and exposes typed helpers."""
 
-    def __init__(self, duckdb_path: str | Path, read_only: bool = False) -> None:
+    def __init__(
+        self,
+        duckdb_path: str | Path,
+        read_only: bool = False,
+        profile=None,
+    ) -> None:
         self.duckdb_path = Path(duckdb_path)
         if read_only:
             self._connection = duckdb.connect(str(self.duckdb_path), read_only=True)
@@ -44,6 +49,16 @@ class WarehouseMetadata:
             self._connection = duckdb.connect(str(self.duckdb_path))
         if not read_only:
             self.init_schema()
+            if profile is not None:
+                from limit_pullback.resources import apply_duckdb_settings
+
+                temp_dir = self.duckdb_path.parent / "tmp" / "duckdb"
+                temp_dir.mkdir(parents=True, exist_ok=True)
+                apply_duckdb_settings(
+                    self._connection,
+                    profile,
+                    str(temp_dir),
+                )
 
     def close(self) -> None:
         self._connection.close()

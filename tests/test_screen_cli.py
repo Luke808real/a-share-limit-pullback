@@ -32,3 +32,14 @@ def test_screen_cli_on_empty_warehouse_is_structured_error(tmp_path, capsys):
     captured = capsys.readouterr()
     error = json.loads(captured.err)
     assert error["error"]["type"] in {"ValueError", "IOException"}
+
+
+def test_hardware_profile_cli(capsys):
+    status = main(["hardware-profile"])
+    captured = capsys.readouterr()
+    if status == 0:
+        payload = json.loads(captured.out)
+        assert "architecture" in payload
+    else:
+        assert status == 2
+        assert "native arm64" in captured.err

@@ -269,6 +269,7 @@ class FetchContext:
         self.backoff_seconds = backoff_seconds
         self.worker_runner = None
         self.phase = ""
+        self.worker_restarts = 0
         self.failures: list[dict[str, Any]] = []
 
     def completed(self, provider: str, dataset: str) -> set[str]:
@@ -501,6 +502,7 @@ def fetch_rows(
                     end=end_date,
                 )
             if rows is None:
+                ctx.worker_restarts += 1
                 for item in chunk:
                     ctx._fail(
                         provider,
