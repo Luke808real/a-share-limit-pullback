@@ -44,7 +44,9 @@ def create_snapshot(
     pool_path = layout.canonical_pool_dir / f"{snapshot_id}.parquet"
 
     daily_rows_with_id = [
-        {**dict(row), "dataset_snapshot_id": snapshot_id} for row in daily_rows
+        {**dict(row), "dataset_snapshot_id": snapshot_id}
+        for row in daily_rows
+        if row.get("preclose") is not None
     ]
     pool_rows_with_id = [
         {**dict(row), "dataset_snapshot_id": snapshot_id} for row in pool_rows
