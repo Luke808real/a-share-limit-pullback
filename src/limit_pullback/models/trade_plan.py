@@ -34,7 +34,7 @@ class TradePlan(DomainModel):
 
     code: str = Field(pattern=r"^\d{6}$")
     plan_date: date
-    for_trade_date: date
+    for_trade_date: date | None
     setup_stage: SetupStage
     execution_label: ExecutionLabel
     anchor_date: date | None = None
@@ -68,7 +68,10 @@ class TradePlan(DomainModel):
 
     @model_validator(mode="after")
     def validate_plan(self) -> "TradePlan":
-        if self.for_trade_date <= self.plan_date:
+        if (
+            self.for_trade_date is not None
+            and self.for_trade_date <= self.plan_date
+        ):
             raise ValueError("for_trade_date must be after plan_date")
         if (
             self.buy_zone_low is not None
@@ -111,7 +114,7 @@ class TradePlanOutput(DomainModel):
     """Latest cross-section and aggregate rejection counts."""
 
     plan_date: date
-    for_trade_date: date
+    for_trade_date: date | None
     snapshot_id: str = Field(min_length=1)
     strategy_commit: str = Field(min_length=1)
     config_hash: str = Field(min_length=1)

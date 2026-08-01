@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -11,6 +11,7 @@ from limit_pullback.strategy.engine import evaluate_strategy
 from limit_pullback.screen.models import ScreenState
 from limit_pullback.screen.runner import _pool_prefix_hash
 from limit_pullback.trade_plan import (
+    _next_open_session,
     _pool_prefix_hash_from_rows,
     _state_provenance_valid,
     build_trade_plan,
@@ -87,7 +88,7 @@ def _plan(*, signal, bars, pool, config, plan_date=None):
         limit_pool=pool,
         config=config,
         plan_date=effective_plan_date,
-        for_trade_date=effective_plan_date + timedelta(days=1),
+        for_trade_date=None,
         snapshot_id="snap-test",
         strategy_commit="commit-test",
         config_hash="config-test",
@@ -105,7 +106,54 @@ def test_b1_prep_positive(config):
     assert plan.preferred_entry is not None
     assert plan.invalid_price is not None
     assert plan.s1_price is None
+    assert plan.entry_room_state is None
     assert plan.cancel_conditions == ()
+
+
+def test_next_open_session_uses_known_calendar_not_weekday_guess():
+    friday = date(2026, 7, 31)
+    monday = date(2026, 8, 3)
+    assert _next_open_session(friday, (friday, monday)) == monday
+    # With no post-as-of calendar knowledge, do not manufacture a date.
+    assert _next_open_session(friday, (friday,)) is None
+    assert _next_open_session(friday, None) is None
+
+
+def test_trade_plan_can_resolve_known_next_session(config):
+    bars, pool, signal = _watch_signal(config)
+    plan = build_trade_plan(
+        signal=signal,
+        bars=bars,
+        limit_pool=pool,
+        config=config,
+        plan_date=bars[-1].trade_date,
+        snapshot_id="snap-test",
+        strategy_commit="commit-test",
+        config_hash="config-test",
+        trade_calendar=(bars[-1].trade_date, bars[-1].trade_date + timedelta(days=3)),
+    )
+    assert plan.for_trade_date == bars[-1].trade_date + timedelta(days=3)
+
+
+def test_b1_prep_preserves_non_none_entry_room(config):
+    bars, pool, signal = _watch_signal(config)
+    for entry_room in (EntryRoomState.THIN, EntryRoomState.SUFFICIENT):
+        prepared = signal.model_copy(update={"entry_room_state": entry_room})
+        plan = _plan(signal=prepared, bars=bars, pool=pool, config=config)
+        assert plan.execution_label.value == "B1_PREP"
+        assert plan.entry_room_state is entry_room
+        assert plan.is_actionable
+
+
+def test_b1_prep_explicit_none_entry_room_is_not_actionable(config):
+    bars, pool, signal = _watch_signal(config)
+    prepared = signal.model_copy(
+        update={"entry_room_state": EntryRoomState.NONE}
+    )
+    plan = _plan(signal=prepared, bars=bars, pool=pool, config=config)
+    assert not plan.is_actionable
+    assert plan.entry_room_state is EntryRoomState.NONE
+    assert "ENTRY_ROOM_NONE" in plan.cancel_conditions
 
 
 def test_b1_prep_does_not_require_b1_ready(config):

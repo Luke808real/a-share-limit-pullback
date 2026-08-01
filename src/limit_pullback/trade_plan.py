@@ -6,7 +6,7 @@ import json
 import subprocess
 from collections import Counter
 from collections.abc import Sequence
-from datetime import date, time, timedelta
+from datetime import date, time
 from decimal import Decimal, ROUND_HALF_UP
 from functools import lru_cache
 from pathlib import Path
@@ -100,6 +100,18 @@ def _pool_prefix_hash_from_rows(
         if row["trade_date"] <= up_to
     ]
     return _digest(json.dumps(prefix, sort_keys=True))
+
+
+def _next_open_session(
+    as_of: date,
+    trade_calendar: Sequence[date] | None,
+) -> date | None:
+    """Resolve a known next session without guessing weekends or holidays."""
+
+    if not trade_calendar:
+        return None
+    future_dates = sorted({value for value in trade_calendar if value > as_of})
+    return future_dates[0] if future_dates else None
 
 
 def _state_provenance_valid(
@@ -415,12 +427,13 @@ def build_trade_plan(
     limit_pool: Sequence[LimitUpRecord],
     config: StrategyConfig,
     plan_date: date,
-    for_trade_date: date,
+    for_trade_date: date | None = None,
     snapshot_id: str,
     strategy_commit: str,
     config_hash: str,
     trade_plan_config: TradePlanConfig | None = None,
     execution_config_hash: str | None = None,
+    trade_calendar: Sequence[date] | None = None,
 ) -> TradePlan:
     """Build one plan using only bars and pool records at or before T."""
 
@@ -431,6 +444,11 @@ def build_trade_plan(
     if not ordered or ordered[-1].trade_date != plan_date:
         raise ValueError("trade plan requires a bar exactly on plan_date")
     current = ordered[-1]
+    resolved_for_trade_date = (
+        for_trade_date
+        if for_trade_date is not None
+        else _next_open_session(plan_date, trade_calendar)
+    )
     execution_config = _execution_config(config, trade_plan_config)
     support = _computed_support(
         bars=ordered,
@@ -492,7 +510,7 @@ def build_trade_plan(
             if support is not None
             else None
         )
-        entry_room = EntryRoomState.OPEN_SPACE
+        entry_room = signal.entry_room_state
         s1 = None
         trigger = None
     elif signal.setup_stage is SetupStage.B1_READY:
@@ -530,7 +548,7 @@ def build_trade_plan(
         support_high = support.high if support is not None else None
         preferred = None
         invalid = signal.invalid_price
-        entry_room = None
+        entry_room = signal.entry_room_state
         s1 = signal.target_s1.s1_low if signal.target_s1 else None
         trigger = None
 
@@ -549,7 +567,7 @@ def build_trade_plan(
     return TradePlan(
         code=signal.code,
         plan_date=plan_date,
-        for_trade_date=for_trade_date,
+        for_trade_date=resolved_for_trade_date,
         setup_stage=signal.setup_stage,
         execution_label=label,
         anchor_date=signal.anchor.anchor_date if signal.anchor else None,
@@ -876,6 +894,7 @@ def build_trade_plan_output(
     strategy_commit: str | None = None,
     trade_plan_config: TradePlanConfig | None = None,
     execution_config_hash: str | None = None,
+    trade_calendar: Sequence[date] | None = None,
 ) -> TradePlanOutput:
     """Build the latest cross-section from persisted screen states.
 
@@ -897,6 +916,7 @@ def build_trade_plan_output(
         )
     commit = strategy_commit or _git_head()
     execution_config = _execution_config(config, trade_plan_config)
+    next_trade_date = _next_open_session(as_of, trade_calendar)
     plans: list[TradePlan] = []
     reject_counts: Counter[str] = Counter()
     watch_count = b1_prep_count = b1_ready_count = 0
@@ -994,7 +1014,7 @@ def build_trade_plan_output(
             limit_pool=pool_by_code.get(code, ()),
             config=config,
             plan_date=as_of,
-            for_trade_date=as_of + timedelta(days=1),
+            for_trade_date=next_trade_date,
             snapshot_id=snapshot_id,
             strategy_commit=commit,
             config_hash=config_hash,
@@ -1030,7 +1050,7 @@ def build_trade_plan_output(
     top_candidates = tuple(plans[:20])
     return TradePlanOutput(
         plan_date=as_of,
-        for_trade_date=as_of + timedelta(days=1),
+        for_trade_date=next_trade_date,
         snapshot_id=snapshot_id,
         strategy_commit=commit,
         config_hash=config_hash,
