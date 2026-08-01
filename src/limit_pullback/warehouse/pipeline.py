@@ -450,6 +450,7 @@ def bootstrap(
     aux_backfill: bool = False,
     listed_only: bool = False,
     profile: PerformanceProfile | None = None,
+    force_finalize: bool = False,
 ) -> BootstrapResult:
     """Full historical bootstrap with an exclusive write lock."""
 
@@ -471,6 +472,7 @@ def bootstrap(
                 bulk_threshold=bulk_threshold,
                 listed_only=listed_only,
                 profile=profile,
+                force_finalize=force_finalize,
             )
         return _bootstrap_impl(
             layout=layout,
@@ -492,6 +494,7 @@ def bootstrap(
             snapshot_status=snapshot_status,
             listed_only=listed_only,
             profile=profile,
+            force_finalize=force_finalize,
         )
 
 
@@ -543,29 +546,37 @@ def _stream_reconcile_market(
 
     profile = profile or PerformanceProfile.load()
 
-    cursors: dict[str, Any] = {}
-    connections: list[Any] = []
+    globs: dict[str, str] = {}
+    codes_by_provider: dict[str, list[str]] = {}
+    connection = duckdb.connect()
     for provider in ("TUSHARE", "AKSHARE", "BAOSTOCK"):
         directory = layout.raw_dataset_dir(provider, "daily_bars")
         files = sorted(directory.glob(f"{run_id}-*.parquet"))
         if not files:
             continue
         glob_expr = str(directory / f"{run_id}-*.parquet")
-        connection = duckdb.connect()
-        connections.append(connection)
-        cursors[provider] = connection.execute(
-            f"SELECT * FROM read_parquet('{glob_expr}') ORDER BY code, trade_date"
+        globs[provider] = glob_expr
+        codes_by_provider[provider] = [
+            str(row[0])
+            for row in connection.execute(
+                f"SELECT DISTINCT code FROM read_parquet('{glob_expr}') ORDER BY code"
+            ).fetchall()
+        ]
+    all_codes = sorted(
+        set().union(*codes_by_provider.values())
+        if codes_by_provider
+        else set()
+    )
+    columns_by_provider: dict[str, list[str]] = {}
+    for provider, glob_expr in globs.items():
+        cursor = connection.execute(
+            f"SELECT * FROM read_parquet('{glob_expr}') WHERE code = ? "
+            "ORDER BY trade_date",
+            [all_codes[0] if all_codes else ""],
         )
-    iterators = {
-        provider: _iter_code_groups(cursor)
-        for provider, cursor in cursors.items()
-    }
-    current: dict[str, tuple[str, list[dict[str, Any]]] | None] = {}
-    for provider, iterator in iterators.items():
-        try:
-            current[provider] = next(iterator)
-        except StopIteration:
-            current[provider] = None
+        columns_by_provider[provider] = [
+            description[0] for description in cursor.description
+        ]
 
     schema = canonical_daily_schema().remove(
         canonical_daily_schema().get_field_index("dataset_snapshot_id")
@@ -589,20 +600,28 @@ def _stream_reconcile_market(
         canonical_parts.append(part_path)
         pending_canonical.clear()
 
-    while any(value is not None for value in current.values()):
+    for code in all_codes:
         available_gb = available_memory_bytes() / (1024**3)
         if available_gb < profile.pause_available_memory_gb:
             flush_canonical()
             time.sleep(2)
         elif available_gb < profile.minimum_available_memory_gb:
             time.sleep(0.5)
-        active = [provider for provider, value in current.items() if value is not None]
-        code = min(current[provider][0] for provider in active)
         rows_by_provider: dict[str, list[dict[str, Any]]] = {}
-        for provider in active:
-            provider_code, provider_rows = current[provider]
-            if provider_code == code:
-                rows_by_provider[provider] = provider_rows
+        for provider, glob_expr in globs.items():
+            if code not in codes_by_provider.get(provider, []):
+                continue
+            cursor = connection.execute(
+                f"SELECT * FROM read_parquet('{glob_expr}') WHERE code = ? "
+                "ORDER BY trade_date",
+                [code],
+            )
+            columns = columns_by_provider[provider]
+            rows_by_provider[provider] = [
+                dict(zip(columns, row)) for row in cursor.fetchall()
+            ]
+        if not rows_by_provider:
+            continue
         canonical, records, quarantined = reconcile_daily_rows(
             rows_by_provider,
             policy=policy,
@@ -623,12 +642,6 @@ def _stream_reconcile_market(
                 clock=clock,
             )
         )
-        for provider in active:
-            if current[provider][0] == code:
-                try:
-                    current[provider] = next(iterators[provider])
-                except StopIteration:
-                    current[provider] = None
     flush_canonical()
     if canonical_parts:
         tables = [
@@ -638,8 +651,7 @@ def _stream_reconcile_market(
         daily_table = pa.concat_tables(tables)
     else:
         daily_table = pa.Table.from_pylist([], schema=canonical_daily_schema())
-    for connection in connections:
-        connection.close()
+    connection.close()
     return daily_table, daily_records, quarantines, missing_records
 
 
@@ -664,6 +676,7 @@ def _bootstrap_impl(
     snapshot_status: str = "CURRENT",
     listed_only: bool = False,
     profile: PerformanceProfile | None = None,
+    force_finalize: bool = False,
 ) -> BootstrapResult:
     """Full historical bootstrap with atomic snapshot publication."""
 
@@ -751,7 +764,12 @@ def _bootstrap_impl(
             start_wall = time.monotonic()
             existing = metadata.get_ingest_run(run_id)
             pending = metadata.pending_failures(run_id)
-            if existing is not None and existing.status == "COMPLETED" and not pending:
+            if (
+                existing is not None
+                and existing.status == "COMPLETED"
+                and not pending
+                and not force_finalize
+            ):
                 snapshot = metadata.latest_snapshot_for(end)
                 return BootstrapResult(
                     run_id=run_id,
@@ -1177,6 +1195,7 @@ def _aux_backfill_impl(
     bulk_threshold: int = 200,
     listed_only: bool = False,
     profile: PerformanceProfile | None = None,
+    force_finalize: bool = False,
 ) -> BootstrapResult:
     """Backfill Tushare auxiliary datasets under a dedicated run_id.
 
