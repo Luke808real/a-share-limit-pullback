@@ -1,0 +1,6 @@
+# Execution-only thresholds. This file is intentionally separate from the
+# frozen strategy config so screen-state provenance does not change when the
+# post-close TradePlan observation layer evolves.
+prep_support_distance_max: "0.04"
+prep_volume_to_anchor_max: "1.00"
+prep_volume_to_post_anchor_max: "0.90"
