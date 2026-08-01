@@ -49,6 +49,38 @@ def test_replay_help_is_available(capsys):
     assert "--lookback-calendar-days" in output
 
 
+def test_outcome_study_workers_are_bounded_by_cli_input():
+    args = build_parser().parse_args(
+        [
+            "outcome-study",
+            "--snapshot-id",
+            "snap-test",
+            "--start",
+            "2026-01-01",
+            "--end",
+            "2026-01-02",
+            "--workers",
+            "2",
+        ]
+    )
+    assert args.workers == 2
+    with pytest.raises(SystemExit) as exc_info:
+        build_parser().parse_args(
+            [
+                "outcome-study",
+                "--snapshot-id",
+                "snap-test",
+                "--start",
+                "2026-01-01",
+                "--end",
+                "2026-01-02",
+                "--workers",
+                "0",
+            ]
+        )
+    assert exc_info.value.code == 2
+
+
 @pytest.mark.parametrize("command", ("inspect", "replay"))
 @pytest.mark.parametrize("code", ("603318", "002640", "600199", "002891"))
 def test_arbitrary_supported_code_reaches_command_dispatch(

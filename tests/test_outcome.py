@@ -1,0 +1,320 @@
+from __future__ import annotations
+
+from concurrent.futures import ProcessPoolExecutor
+from datetime import date, timedelta
+from decimal import Decimal
+import multiprocessing as mp
+from types import SimpleNamespace
+
+import pytest
+
+from limit_pullback.config import load_strategy_config, load_trade_plan_config
+import limit_pullback.outcome as outcome
+from limit_pullback.models.enums import (
+    DataQuality,
+    EntryRoomState,
+    ExecutionLabel,
+    FillStatus,
+    OutcomeStatus,
+    PatternOutcome,
+    SetupStage,
+)
+from limit_pullback.models.outcome import OutcomeStudyConfig
+from tests.synthetic_data import make_bar
+
+
+def _bars(*rows: tuple[str, str, str, str, str, str]) -> list:
+    return [
+        make_bar(
+            date.fromisoformat(trade_date),
+            open_price=open_price,
+            high=high,
+            low=low,
+            close=close,
+            preclose=preclose,
+            volume=volume,
+        )
+        for trade_date, open_price, high, low, close, preclose, volume in rows
+    ]
+
+
+def _event(
+    *,
+    signal_date: date,
+    preferred: str = "10.00",
+    invalid: str = "9.50",
+    s1: str = "11.00",
+    label: ExecutionLabel = ExecutionLabel.B1_READY,
+) -> outcome._FrozenEvent:
+    return outcome._FrozenEvent(
+        code="603918",
+        setup_id="603918:20260728:1000",
+        execution_label=label,
+        setup_stage=(
+            SetupStage.WATCH_PULLBACK
+            if label is ExecutionLabel.B1_PREP
+            else SetupStage.B1_READY
+        ),
+        signal_date=signal_date,
+        anchor_date=signal_date - timedelta(days=2),
+        anchor_price=Decimal("10.00"),
+        support_low=Decimal("9.90"),
+        support_high=Decimal("10.10"),
+        support_center=Decimal("10.00"),
+        b2_trigger_price=None,
+        setup_quality_score=Decimal("70"),
+        entry_quality_score=Decimal("70"),
+        days_since_anchor=2,
+        entry_room_state=EntryRoomState.SUFFICIENT,
+        is_entry_candidate=True,
+        preferred_entry=Decimal(preferred) if preferred else None,
+        buy_zone_low=Decimal("9.90"),
+        buy_zone_high=Decimal("10.10"),
+        invalid_price=Decimal(invalid) if invalid else None,
+        s1_price=Decimal(s1) if s1 else None,
+        entry_reference_price=Decimal(preferred) if preferred else None,
+        data_quality=DataQuality.OK.value,
+        quality_flags=(),
+        snapshot_id="snap-test",
+        strategy_commit="commit-test",
+        strategy_config_hash="strategy-hash",
+        trade_plan_config_hash="trade-plan-hash",
+        outcome_config_hash="outcome-hash",
+        frozen_event_hash="frozen-hash",
+    )
+
+
+def test_no_fill_is_not_a_win_even_if_target_hits_later():
+    signal_date = date(2026, 7, 28)
+    bars = _bars(
+        ("2026-07-28", "10.00", "10.10", "9.90", "10.00", "10.00", "100"),
+        ("2026-07-29", "10.50", "10.60", "10.50", "10.55", "10.00", "100"),
+        ("2026-07-30", "10.60", "11.20", "10.55", "11.00", "10.55", "100"),
+    )
+    result = outcome._complete_event(_event(signal_date=signal_date), bars, OutcomeStudyConfig())
+    assert result.fill_status is FillStatus.NO_FILL
+    assert result.outcome is OutcomeStatus.NO_FILL
+
+
+def test_gap_below_invalid_cancels_entry():
+    signal_date = date(2026, 7, 28)
+    bars = _bars(
+        ("2026-07-28", "10.00", "10.10", "9.90", "10.00", "10.00", "100"),
+        ("2026-07-29", "9.40", "9.60", "9.30", "9.50", "10.00", "100"),
+    )
+    result = outcome._complete_event(_event(signal_date=signal_date), bars, OutcomeStudyConfig())
+    assert result.fill_status is FillStatus.CANCEL_GAP_INVALID
+    assert result.outcome is OutcomeStatus.CANCEL_GAP_INVALID
+
+
+def test_target_first_is_win_and_r_mfe_mae_are_decimal():
+    signal_date = date(2026, 7, 28)
+    bars = _bars(
+        ("2026-07-28", "10.00", "10.10", "9.90", "10.00", "10.00", "100"),
+        ("2026-07-29", "10.00", "11.10", "9.95", "10.80", "10.00", "100"),
+    )
+    result = outcome._complete_event(_event(signal_date=signal_date), bars, OutcomeStudyConfig())
+    assert result.outcome is OutcomeStatus.WIN_S1
+    assert result.r_multiple == Decimal("2.0000")
+    assert isinstance(result.mfe_pct, Decimal)
+    assert isinstance(result.mae_pct, Decimal)
+
+
+def test_stats_fill_rate_is_bounded_for_complete_non_actionable_plan():
+    signal_date = date(2026, 7, 28)
+    bars = _bars(
+        ("2026-07-28", "10.00", "10.10", "9.90", "10.00", "10.00", "100"),
+        ("2026-07-29", "10.00", "11.10", "9.95", "10.80", "10.00", "100"),
+    )
+    event = _event(signal_date=signal_date)
+    event = event.__class__(**{**event.__dict__, "is_entry_candidate": False})
+    result = outcome._complete_event(event, bars, OutcomeStudyConfig())
+    stats = outcome._stats([result])
+    assert stats.eligible == 1
+    assert stats.fill_rate == Decimal("1.0000")
+
+
+def test_invalid_first_is_loss():
+    signal_date = date(2026, 7, 28)
+    bars = _bars(
+        ("2026-07-28", "10.00", "10.10", "9.90", "10.00", "10.00", "100"),
+        ("2026-07-29", "10.00", "10.10", "9.40", "9.60", "10.00", "100"),
+    )
+    result = outcome._complete_event(_event(signal_date=signal_date), bars, OutcomeStudyConfig())
+    assert result.outcome is OutcomeStatus.LOSS_INVALID
+    assert result.r_multiple == Decimal("-1")
+
+
+def test_same_bar_target_and_invalid_is_ambiguous_and_conservative_loss():
+    signal_date = date(2026, 7, 28)
+    bars = _bars(
+        ("2026-07-28", "10.00", "10.10", "9.90", "10.00", "10.00", "100"),
+        ("2026-07-29", "10.00", "11.10", "9.40", "10.00", "10.00", "100"),
+    )
+    result = outcome._complete_event(_event(signal_date=signal_date), bars, OutcomeStudyConfig())
+    assert result.outcome is OutcomeStatus.AMBIGUOUS_INTRADAY
+    assert result.r_multiple is None
+    assert result.conservative_r_multiple == Decimal("-1")
+
+
+def test_timeout_and_censored_are_distinct():
+    signal_date = date(2026, 7, 28)
+    full = _bars(
+        ("2026-07-28", "10.00", "10.10", "9.90", "10.00", "10.00", "100"),
+        ("2026-07-29", "10.00", "10.30", "9.80", "10.00", "10.00", "100"),
+        ("2026-07-30", "10.00", "10.30", "9.80", "10.00", "10.00", "100"),
+    )
+    short_config = OutcomeStudyConfig(forward_horizons=(1,), max_holding_sessions=2)
+    timeout = outcome._complete_event(_event(signal_date=signal_date), full, short_config)
+    assert timeout.outcome is OutcomeStatus.TIMEOUT
+    censored = outcome._complete_event(_event(signal_date=signal_date), full[:2], short_config)
+    assert censored.outcome is OutcomeStatus.CENSORED
+
+
+def test_pattern_ambiguity_is_separate_from_trade_fill():
+    signal_date = date(2026, 7, 28)
+    bars = _bars(
+        ("2026-07-28", "10.00", "10.10", "9.90", "10.00", "10.00", "100"),
+        ("2026-07-29", "10.50", "11.10", "9.40", "10.50", "10.00", "100"),
+    )
+    event = _event(signal_date=signal_date, preferred="10.00")
+    # Fill and direction ambiguity are separate dimensions.
+    result = outcome._complete_event(event, bars, OutcomeStudyConfig())
+    assert result.fill_status is FillStatus.FILLED
+    assert result.outcome is OutcomeStatus.AMBIGUOUS_INTRADAY
+    assert result.pattern_1d is PatternOutcome.AMBIGUOUS
+
+
+def test_b1_prep_is_conversion_only():
+    signal_date = date(2026, 7, 28)
+    bars = _bars(
+        ("2026-07-28", "10.00", "10.10", "9.90", "10.00", "10.00", "100"),
+        ("2026-07-29", "10.00", "10.20", "9.90", "10.10", "10.00", "100"),
+    )
+    result = outcome._complete_event(
+        _event(signal_date=signal_date, label=ExecutionLabel.B1_PREP),
+        bars,
+        OutcomeStudyConfig(),
+    )
+    assert result.outcome is OutcomeStatus.NO_FILL
+    assert result.eligibility_reason == "B1_PREP_CONVERSION_ONLY"
+
+
+def test_causal_replay_deduplicates_stage_episode_and_preserves_future_prefix(monkeypatch):
+    signal_date = date(2026, 7, 29)
+    bars = _bars(
+        ("2026-07-28", "10.00", "10.10", "9.90", "10.00", "10.00", "100"),
+        ("2026-07-29", "10.00", "10.20", "9.90", "10.10", "10.00", "100"),
+        ("2026-07-30", "10.00", "10.20", "9.90", "10.10", "10.10", "100"),
+        ("2026-07-31", "10.20", "10.50", "10.10", "10.40", "10.10", "150"),
+    )
+    calls = {"count": 0}
+
+    def fake_signal(*, bars, as_of, **_):
+        calls["count"] += 1
+        if as_of == date(2026, 7, 28):
+            stage = SetupStage.NORMAL
+        elif as_of <= date(2026, 7, 30):
+            stage = SetupStage.B1_READY
+        else:
+            stage = SetupStage.B2_READY
+        return SimpleNamespace(
+            code="603918",
+            setup_id="603918:20260728:1000",
+            trade_date=as_of,
+            setup_stage=stage,
+            anchor=SimpleNamespace(
+                anchor_date=date(2026, 7, 28), anchor_price=Decimal("10.00")
+            ),
+            support=None,
+            b2_trigger=None,
+            setup_quality_score=Decimal("70"),
+            entry_quality_score=Decimal("70"),
+            entry_room_state=EntryRoomState.SUFFICIENT,
+            is_entry_candidate=True,
+            entry_reference_price=Decimal("10.10"),
+            data_quality=DataQuality.OK,
+            quality_flags=(),
+        )
+
+    def fake_plan(*, signal, **_):
+        return SimpleNamespace(
+            execution_label=(
+                ExecutionLabel.B1_READY
+                if signal.setup_stage is SetupStage.B1_READY
+                else ExecutionLabel.B2_READY
+            ),
+            days_since_anchor=1,
+            is_actionable=True,
+            preferred_entry=Decimal("10.10"),
+            buy_zone_low=Decimal("10.00"),
+            buy_zone_high=Decimal("10.20"),
+            invalid_price=Decimal("9.50"),
+            s1_price=Decimal("11.00"),
+        )
+
+    monkeypatch.setattr(outcome, "evaluate_strategy", fake_signal)
+    monkeypatch.setattr(outcome, "merge_signal_quality", lambda signal, *_args, **_kwargs: signal)
+    monkeypatch.setattr(outcome, "build_trade_plan", fake_plan)
+    kwargs = dict(
+        code="603918",
+        bars=bars,
+        pool=(),
+        start=date(2026, 7, 28),
+        end=date(2026, 7, 31),
+        config=SimpleNamespace(universe=SimpleNamespace(minimum_listing_trade_days=1)),
+        trade_plan_config=object(),
+        snapshot_id="snap",
+        strategy_commit="commit",
+        strategy_config_hash="s",
+        trade_plan_config_hash="t",
+        outcome_config_hash="o",
+    )
+    events, raw_counts, _ = outcome._replay_code(**kwargs)
+    assert [event.execution_label for event in events] == [
+        ExecutionLabel.B1_READY,
+        ExecutionLabel.B2_READY,
+    ]
+    assert raw_counts[("603918:20260728:1000", ExecutionLabel.B1_READY)] == 2
+    assert calls["count"] == len(bars)
+
+    changed = [*bars, make_bar(date(2026, 8, 1), open_price="50", high="60", low="49", close="55", preclose="10", volume="999")]
+    changed_events, _, _ = outcome._replay_code(**{**kwargs, "bars": changed})
+    assert [event.frozen_event_hash for event in changed_events] == [event.frozen_event_hash for event in events]
+    future_pool = (SimpleNamespace(trade_date=date(2026, 8, 1)),)
+    pool_events, _, _ = outcome._replay_code(**{**kwargs, "pool": future_pool})
+    assert [event.frozen_event_hash for event in pool_events] == [event.frozen_event_hash for event in events]
+
+
+def test_spawn_worker_round_trip_is_equivalent_for_a_causal_prefix(project_root):
+    """The process boundary must preserve the serial per-code replay result."""
+
+    bars = tuple(
+        _bars(
+            ("2026-07-28", "10.00", "10.10", "9.90", "10.00", "10.00", "100"),
+            ("2026-07-29", "10.00", "10.20", "9.90", "10.10", "10.00", "100"),
+        )
+    )
+    task = {
+        "code": "603918",
+        "bars": bars,
+        "pool": (),
+        "start": date(2026, 7, 28),
+        "end": date(2026, 7, 29),
+        "config": load_strategy_config(project_root / "config" / "strategy.yaml"),
+        "trade_plan_config": load_trade_plan_config(
+            project_root / "config" / "trade_plan.yaml"
+        ),
+        "snapshot_id": "snap-test",
+        "strategy_commit": "commit-test",
+        "strategy_config_hash": "strategy-hash",
+        "trade_plan_config_hash": "trade-plan-hash",
+        "outcome_config_hash": "outcome-hash",
+    }
+    serial = outcome._replay_code(**task)
+    with ProcessPoolExecutor(
+        max_workers=1,
+        mp_context=mp.get_context("spawn"),
+    ) as executor:
+        parallel = executor.submit(outcome._replay_code_worker, task).result(timeout=30)
+    assert parallel == serial

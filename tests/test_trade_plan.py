@@ -285,6 +285,18 @@ def test_plan_does_not_read_t_plus_one_data(config):
     assert changed == baseline
 
 
+def test_trade_plan_rejects_signal_from_another_date(config):
+    bars, pool, signal = _watch_signal(config)
+    with pytest.raises(ValueError, match="signal.trade_date must equal plan_date"):
+        _plan(
+            signal=signal,
+            bars=bars,
+            pool=pool,
+            config=config,
+            plan_date=bars[-1].trade_date + timedelta(days=1),
+        )
+
+
 def test_b2_ready_can_exist_without_actionable_plan(config):
     bars = append_pullback_bars(base_setup_bars())
     pool = full_limit_pool(bars)

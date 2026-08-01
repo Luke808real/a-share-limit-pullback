@@ -6,6 +6,7 @@ import argparse
 from collections.abc import Sequence
 from datetime import date
 import json
+import os
 from pathlib import Path
 import sys
 
@@ -66,6 +67,10 @@ def _default_config_path() -> Path:
 
 def _default_trade_plan_config_path() -> Path:
     return Path(__file__).resolve().parents[2] / "config" / "trade_plan.yaml"
+
+
+def _default_outcome_config_path() -> Path:
+    return Path(__file__).resolve().parents[2] / "config" / "outcome_study.yaml"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -255,6 +260,37 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=_default_trade_plan_config_path(),
         help="TradePlan execution-only config path",
+    )
+
+    outcome_parser = subparsers.add_parser(
+        "outcome-study",
+        help="对固定canonical快照做FINAL_VINTAGE_CAUSAL信号结果研究",
+    )
+    outcome_parser.add_argument("--snapshot-id", required=True)
+    outcome_parser.add_argument("--start", required=True, type=_iso_date)
+    outcome_parser.add_argument("--end", required=True, type=_iso_date)
+    outcome_parser.add_argument("--data-root", type=Path, default=None)
+    outcome_parser.add_argument(
+        "--config", type=Path, default=_default_config_path(), help="strategy.yaml路径"
+    )
+    outcome_parser.add_argument(
+        "--trade-plan-config",
+        type=Path,
+        default=_default_trade_plan_config_path(),
+    )
+    outcome_parser.add_argument(
+        "--outcome-config",
+        type=Path,
+        default=_default_outcome_config_path(),
+    )
+    outcome_parser.add_argument(
+        "--audit-sample-size", type=_positive_integer, default=20
+    )
+    outcome_parser.add_argument(
+        "--workers",
+        type=_positive_integer,
+        default=min(os.cpu_count() or 1, 8),
+        help="按股票分片的进程数（每只股票内部仍按交易日顺序；上限8）",
     )
 
     hardware_parser = subparsers.add_parser(
@@ -502,6 +538,32 @@ def _run_trade_plan(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_outcome_study(args: argparse.Namespace) -> int:
+    from limit_pullback.config import load_strategy_config
+    from limit_pullback.outcome import run_outcome_study
+    from limit_pullback.warehouse.parquet import sha256_file
+
+    layout = WarehouseLayout(resolve_data_root(args.data_root))
+    try:
+        summary = run_outcome_study(
+            layout=layout,
+            snapshot_id=args.snapshot_id,
+            start=args.start,
+            end=args.end,
+            strategy_config=load_strategy_config(args.config),
+            strategy_config_path=args.config,
+            trade_plan_config_path=args.trade_plan_config,
+            outcome_config_path=args.outcome_config,
+            audit_sample_size=args.audit_sample_size,
+            workers=getattr(args, "workers", 1),
+        )
+    except Exception as exc:
+        _print_error(exc)
+        return 1
+    print(summary.model_dump_json(indent=2))
+    return 0
+
+
 def _run_hardware_profile(args: argparse.Namespace) -> int:
     from limit_pullback.resources import detect_hardware
 
@@ -548,6 +610,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_screen(args)
     if args.command == "trade-plan":
         return _run_trade_plan(args)
+    if args.command == "outcome-study":
+        return _run_outcome_study(args)
     if args.command == "hardware-profile":
         return _run_hardware_profile(args)
     if args.command is None:

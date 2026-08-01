@@ -67,3 +67,34 @@ class ExecutionLabel(StrEnum):
     B2_READY = "B2_READY"
     B2_CONFIRMED = "B2_CONFIRMED"
     WATCH_ONLY = "WATCH_ONLY"
+
+
+class OutcomeStatus(StrEnum):
+    """Research-only outcome labels; they do not alter strategy semantics."""
+
+    NO_FILL = "NO_FILL"
+    CANCEL_GAP_INVALID = "CANCEL_GAP_INVALID"
+    WIN_S1 = "WIN_S1"
+    LOSS_INVALID = "LOSS_INVALID"
+    TIMEOUT = "TIMEOUT"
+    AMBIGUOUS_INTRADAY = "AMBIGUOUS_INTRADAY"
+    CENSORED = "CENSORED"
+
+
+class FillStatus(StrEnum):
+    """Research-only first-session fill status."""
+
+    NO_FILL = "NO_FILL"
+    CANCEL_GAP_INVALID = "CANCEL_GAP_INVALID"
+    FILLED = "FILLED"
+    CENSORED = "CENSORED"
+
+
+class PatternOutcome(StrEnum):
+    """Direction-only pattern result, separate from trade outcome."""
+
+    S1_BEFORE_INVALID = "S1_BEFORE_INVALID"
+    INVALID_BEFORE_S1 = "INVALID_BEFORE_S1"
+    NEITHER = "NEITHER"
+    AMBIGUOUS = "AMBIGUOUS"
+    CENSORED = "CENSORED"

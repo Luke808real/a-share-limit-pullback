@@ -237,6 +237,7 @@ def run_screen(
                 or state.config_hash != config_hash
                 or state.reconciliation_policy_version
                 != market.snapshot.reconciliation_policy_version
+                or state.last_processed_date > as_of
                 or state.bars_prefix_hash
                 != _bars_prefix_hash(bars, state.last_processed_date)
                 or state.limit_pool_prefix_hash
@@ -253,7 +254,15 @@ def run_screen(
                 previous_signal = StrategySignal.model_validate_json(
                     state.signal_json
                 )
-                last_processed = state.last_processed_date
+                if (
+                    previous_signal.trade_date != state.last_processed_date
+                    or previous_signal.trade_date > as_of
+                ):
+                    state = None
+                    previous_signal = None
+                    notes.append(f"STATE_INVALIDATED:{code}")
+                else:
+                    last_processed = state.last_processed_date
         rows, final_signal = screen_code(
             code=code,
             bars=bars,
