@@ -290,6 +290,27 @@ def reconcile_daily_rows(
             notes = ["PARTIAL_CROSS_VALIDATION"]
 
         source = usable[selected]
+        if source.get("preclose") is None:
+            # A daily bar must carry a usable preclose; rows without one are
+            # never published to the canonical layer (audited as PROVISIONAL).
+            status = PROVISIONAL
+            notes = ["MISSING_PRECLOSE_NOT_PUBLISHED"]
+            reconciliations.append(
+                ReconciliationRecord(
+                    reconciliation_id=_identifier(
+                        code, trade_date, providers, status, snapshot_id or ""
+                    ),
+                    code=code,
+                    trade_date=trade_date,
+                    providers=providers,
+                    status=status,
+                    selected_provider=selected,
+                    notes=";".join(notes),
+                    created_at=now,
+                    snapshot_id=snapshot_id,
+                )
+            )
+            continue
         canonical_row = dict(source)
         canonical_row["selected_provider"] = selected
         canonical_row["reconciliation_status"] = status

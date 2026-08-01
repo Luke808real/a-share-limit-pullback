@@ -94,3 +94,20 @@ def test_inconsistent_pct_change_blocks_publish():
     )
     assert canonical == []
     assert quarantines
+
+
+def test_missing_preclose_row_never_published():
+    day = date(2026, 7, 30)
+    tushare = daily_row("603318", day.isoformat())
+    tushare["preclose"] = None
+    akshare = dict(tushare)
+    akshare["row_hash"] = "hash-akshare"
+    tushare["row_hash"] = "hash-tushare"
+    canonical, records, _ = reconcile_daily_rows(
+        {"TUSHARE": [tushare], "AKSHARE": [akshare]}
+    )
+    assert canonical == []
+    assert any(
+        "MISSING_PRECLOSE_NOT_PUBLISHED" in (record.notes or "")
+        for record in records
+    )

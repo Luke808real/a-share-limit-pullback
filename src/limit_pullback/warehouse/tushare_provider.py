@@ -406,7 +406,11 @@ class TushareProProvider:
                     end_date=self._d(end),
                 ),
             )
-            rows.extend(normalize_tushare_daily(row) for row in frame_rows)
+            for row in frame_rows:
+                try:
+                    rows.append(normalize_tushare_daily(row))
+                except (KeyError, TypeError, ValueError):
+                    continue
         return rows
 
     def fetch_adj_factor(
@@ -490,7 +494,11 @@ class TushareProProvider:
                 capability,
                 lambda client, p=params: getattr(client, method_name)(**p),
             )
-            rows.extend(normalizer(row) for row in frame_rows)
+            for row in frame_rows:
+                try:
+                    rows.append(normalizer(row))
+                except (KeyError, TypeError, ValueError):
+                    continue
         return rows
 
     def fetch_daily_by_trade_date(self, dates: list[date]) -> list[dict[str, Any]]:
