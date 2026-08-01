@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 from collections import Counter
 from collections.abc import Sequence
 from datetime import date, time, timedelta
 from decimal import Decimal, ROUND_HALF_UP
+from functools import lru_cache
 from pathlib import Path
 
 from limit_pullback.models.market import DailyBar, LimitUpRecord
@@ -20,8 +22,14 @@ from limit_pullback.models.enums import (
 )
 from limit_pullback.models.signal import StrategySignal
 from limit_pullback.models.strategy import PriceCluster
-from limit_pullback.models.trade_plan import TradePlan, TradePlanOutput
+from limit_pullback.models.trade_plan import (
+    TradePlan,
+    TradePlanConfig,
+    TradePlanOutput,
+)
 from limit_pullback.screen.state import load_state, state_path
+from limit_pullback.screen.runner import _bars_prefix_hash, _digest
+from limit_pullback.screen.models import ScreenState
 from limit_pullback.strategy.math import calculate_indicators
 from limit_pullback.strategy.structure import (
     cluster_price_candidates,
@@ -51,6 +59,88 @@ def _git_head() -> str:
     except Exception:
         return "unknown"
     return result.stdout.strip()
+
+
+@lru_cache(maxsize=16)
+def _is_ancestor(candidate: str, current: str) -> bool:
+    """Accept state commits from this branch's existing history only."""
+
+    if candidate == current:
+        return True
+    if not candidate or not current or current == "unknown":
+        return False
+    try:
+        result = subprocess.run(
+            ["git", "merge-base", "--is-ancestor", candidate, current],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=5,
+        )
+    except Exception:
+        return False
+    return result.returncode == 0
+
+
+def _pool_prefix_hash_from_rows(
+    rows: Sequence[dict[str, object]],
+    up_to: date,
+) -> str:
+    """Match ``screen.runner._pool_prefix_hash`` without model materialization."""
+
+    prefix = [
+        (
+            str(row["code"]),
+            row["trade_date"].isoformat(),
+            str(row.get("reconciliation_status", "PROVISIONAL")),
+            str(row["limit_price"]),
+            str(row["name"]),
+        )
+        for row in rows
+        if row["trade_date"] <= up_to
+    ]
+    return _digest(json.dumps(prefix, sort_keys=True))
+
+
+def _state_provenance_valid(
+    *,
+    code: str,
+    state: ScreenState,
+    signal: StrategySignal,
+    snapshot_id: str,
+    as_of: date,
+    reconciliation_policy_version: str,
+    config_hash: str,
+    current_commit: str,
+) -> bool:
+    """Guard plan generation against stale, cross-code, or mixed states."""
+
+    return (
+        state.code == code
+        and state.snapshot_id == snapshot_id
+        and state.last_processed_date == as_of
+        and state.setup_id == signal.setup_id
+        and signal.code == code
+        and signal.trade_date == as_of
+        and state.reconciliation_policy_version == reconciliation_policy_version
+        and state.config_hash == config_hash
+        and _is_ancestor(state.strategy_commit, current_commit)
+    )
+
+
+def _execution_config(
+    strategy_config: StrategyConfig,
+    trade_plan_config: TradePlanConfig | None,
+) -> TradePlanConfig:
+    if trade_plan_config is not None:
+        return trade_plan_config
+    return TradePlanConfig(
+        prep_support_distance_max=strategy_config.b1.prep_support_distance_max,
+        prep_volume_to_anchor_max=strategy_config.b1.prep_volume_to_anchor_max,
+        prep_volume_to_post_anchor_max=(
+            strategy_config.b1.prep_volume_to_post_anchor_max
+        ),
+    )
 
 
 def _cluster_from_support(signal: StrategySignal) -> PriceCluster | None:
@@ -136,6 +226,7 @@ def _prep_volume_metrics(
     bars: Sequence[DailyBar],
     signal: StrategySignal,
     config: StrategyConfig,
+    trade_plan_config: TradePlanConfig,
 ) -> tuple[bool, Decimal | None]:
     """Return execution-layer contraction and recent-average/anchor ratio.
 
@@ -157,12 +248,12 @@ def _prep_volume_metrics(
         len(recent)
     )
     post_anchor_max = max(bar.volume for bar in post_anchor)
-    anchor_limit = anchor_bar.volume * config.b1.prep_volume_to_anchor_max
+    anchor_limit = anchor_bar.volume * trade_plan_config.prep_volume_to_anchor_max
     contracted = (
         bars[-1].volume <= anchor_limit
         and recent_average <= anchor_limit
         and recent_average
-        <= post_anchor_max * config.b1.prep_volume_to_post_anchor_max
+        <= post_anchor_max * trade_plan_config.prep_volume_to_post_anchor_max
     )
     return contracted, recent_average / anchor_bar.volume
 
@@ -170,12 +261,12 @@ def _prep_volume_metrics(
 def _near_support(
     current: DailyBar,
     support: PriceCluster | None,
-    config: StrategyConfig,
+    trade_plan_config: TradePlanConfig,
 ) -> bool:
     if support is None or current.close < support.low:
         return False
     distance = (current.close - support.low) / support.low
-    return distance <= config.b1.prep_support_distance_max
+    return distance <= trade_plan_config.prep_support_distance_max
 
 
 def _distance_to_support_pct(
@@ -239,6 +330,7 @@ def _prep_conditions(
     bars: Sequence[DailyBar],
     support: PriceCluster | None,
     config: StrategyConfig,
+    trade_plan_config: TradePlanConfig,
 ) -> tuple[bool, tuple[str, ...]]:
     reasons: list[str] = []
     if signal.anchor is None:
@@ -269,9 +361,9 @@ def _prep_conditions(
         reasons.append("ENTRY_ROOM_NONE")
     if support is None:
         reasons.append("NO_RELIABLE_SUPPORT")
-    elif not _near_support(bars[-1], support, config):
+    elif not _near_support(bars[-1], support, trade_plan_config):
         reasons.append("PRICE_NOT_NEAR_SUPPORT")
-    if not _prep_volume_metrics(bars, signal, config)[0]:
+    if not _prep_volume_metrics(bars, signal, config, trade_plan_config)[0]:
         reasons.append("VOLUME_NOT_CONTRACTED")
     if not _no_distribution_damage(bars, signal, config):
         reasons.append("BEARISH_VOLUME_DAMAGE")
@@ -327,6 +419,8 @@ def build_trade_plan(
     snapshot_id: str,
     strategy_commit: str,
     config_hash: str,
+    trade_plan_config: TradePlanConfig | None = None,
+    execution_config_hash: str | None = None,
 ) -> TradePlan:
     """Build one plan using only bars and pool records at or before T."""
 
@@ -337,6 +431,7 @@ def build_trade_plan(
     if not ordered or ordered[-1].trade_date != plan_date:
         raise ValueError("trade plan requires a bar exactly on plan_date")
     current = ordered[-1]
+    execution_config = _execution_config(config, trade_plan_config)
     support = _computed_support(
         bars=ordered,
         limit_pool=tuple(record for record in limit_pool if record.trade_date <= plan_date),
@@ -349,10 +444,13 @@ def build_trade_plan(
         bars=ordered,
         support=support,
         config=config,
+        trade_plan_config=execution_config,
     )
     days_since_anchor = _days_since_anchor(ordered, signal)
     distance_to_support_pct = _distance_to_support_pct(current, support)
-    _, volume_contraction = _prep_volume_metrics(ordered, signal, config)
+    _, volume_contraction = _prep_volume_metrics(
+        ordered, signal, config, execution_config
+    )
     price_above_buy_zone = False
 
     if signal.setup_stage is SetupStage.WATCH_PULLBACK:
@@ -494,6 +592,7 @@ def build_trade_plan(
         snapshot_id=snapshot_id,
         strategy_commit=strategy_commit,
         config_hash=config_hash,
+        execution_config_hash=execution_config_hash,
     )
 
 
@@ -619,8 +718,14 @@ def _load_plan_inputs(
     *,
     layout: WarehouseLayout,
     snapshot,
+    as_of: date,
     codes: set[str],
-) -> tuple[dict[str, tuple[DailyBar, ...]], dict[str, tuple[LimitUpRecord, ...]]]:
+) -> tuple[
+    dict[str, tuple[DailyBar, ...]],
+    dict[str, tuple[LimitUpRecord, ...]],
+    str,
+    int,
+]:
     """Load only plan-eligible codes, one parquet row group at a time.
 
     The published daily file is code-sorted and contains millions of rows. A
@@ -644,17 +749,64 @@ def _load_plan_inputs(
     )
 
     pool_by_code: dict[str, list[LimitUpRecord]] = {}
-    pool_table = pq.read_table(pool_path, use_threads=False)
-    for row in pool_table.to_pylist():
-        record = _pool_record_from_row(row)
-        pool_by_code.setdefault(record.code, []).append(record)
-    del pool_table
+    pool_hash_rows: list[dict[str, object]] = []
+    pool_parquet = pq.ParquetFile(pool_path)
+    pool_columns = (
+        "code",
+        "trade_date",
+        "name",
+        "limit_price",
+        "first_seal_time",
+        "last_seal_time",
+        "open_count",
+        "consecutive_count",
+        "turnover_rate",
+        "float_market_cap",
+        "total_market_cap",
+        "industry",
+        "reconciliation_status",
+    )
+    for batch in pool_parquet.iter_batches(
+        columns=list(pool_columns),
+        batch_size=65536,
+        use_threads=False,
+    ):
+        for row in batch.to_pylist():
+            pool_hash_rows.append(row)
+            if str(row["code"]) not in codes:
+                continue
+            record = _pool_record_from_row(row)
+            pool_by_code.setdefault(record.code, []).append(record)
+        del batch
+
+    pool_prefix_hash = _pool_prefix_hash_from_rows(
+        pool_hash_rows,
+        as_of,
+    )
+    del pool_hash_rows
+
+    canonical_codes: set[str] = set()
+    daily_parquet = pq.ParquetFile(daily_path)
+    for batch in daily_parquet.iter_batches(
+        columns=["code", "reconciliation_status"],
+        batch_size=65536,
+        use_threads=False,
+    ):
+        status_mask = pc.equal(
+            batch["reconciliation_status"], pa.scalar("CONFIRMED")
+        )
+        confirmed_codes = pc.unique(pc.filter(batch["code"], status_mask))
+        canonical_codes.update(str(value) for value in confirmed_codes.to_pylist())
+        del confirmed_codes, status_mask
+        del batch
 
     bars_by_code: dict[str, list[DailyBar]] = {code: [] for code in codes}
     if not codes:
-        return {}, {code: tuple(records) for code, records in pool_by_code.items()}
+        return {}, {
+            code: tuple(records) for code, records in pool_by_code.items()
+        }, pool_prefix_hash, len(canonical_codes)
 
-    parquet_file = pq.ParquetFile(daily_path)
+    parquet_file = daily_parquet
     code_column_index = parquet_file.schema_arrow.names.index("code")
     codes_by_group: dict[int, set[str]] = {}
     for code in sorted(codes):
@@ -709,6 +861,8 @@ def _load_plan_inputs(
             code: tuple(sorted(records, key=lambda record: record.trade_date))
             for code, records in pool_by_code.items()
         },
+        pool_prefix_hash,
+        len(canonical_codes),
     )
 
 
@@ -720,6 +874,8 @@ def build_trade_plan_output(
     config: StrategyConfig,
     config_hash: str,
     strategy_commit: str | None = None,
+    trade_plan_config: TradePlanConfig | None = None,
+    execution_config_hash: str | None = None,
 ) -> TradePlanOutput:
     """Build the latest cross-section from persisted screen states.
 
@@ -740,6 +896,7 @@ def build_trade_plan_output(
             f"SNAPSHOT_AS_OF_BEFORE_REQUESTED: {snapshot.as_of} < {as_of}"
         )
     commit = strategy_commit or _git_head()
+    execution_config = _execution_config(config, trade_plan_config)
     plans: list[TradePlan] = []
     reject_counts: Counter[str] = Counter()
     watch_count = b1_prep_count = b1_ready_count = 0
@@ -753,14 +910,39 @@ def build_trade_plan_output(
             if len(path.stem) == 6 and path.stem.isdigit()
         )
     )
-    eligible_entries: list[tuple[str, StrategySignal]] = []
+    eligible_entries: list[tuple[str, ScreenState, StrategySignal]] = []
     for path in state_paths:
         code = path.stem
-        state = load_state(state_path(layout.root, code))
-        if state is None or state.snapshot_id != snapshot_id or state.last_processed_date != as_of:
+        try:
+            state = load_state(state_path(layout.root, code))
+            signal = (
+                StrategySignal.model_validate_json(state.signal_json)
+                if state is not None
+                else None
+            )
+        except Exception:
+            state = None
+            signal = None
+        provenance_ok = (
+            state is not None
+            and signal is not None
+            and _state_provenance_valid(
+                code=code,
+                state=state,
+                signal=signal,
+                snapshot_id=snapshot_id,
+                as_of=as_of,
+                reconciliation_policy_version=(
+                    snapshot.reconciliation_policy_version
+                ),
+                config_hash=config_hash,
+                current_commit=commit,
+            )
+        )
+        if not provenance_ok:
             reject_counts["STALE_OR_MISSING_SCREEN_STATE"] += 1
             continue
-        signal = StrategySignal.model_validate_json(state.signal_json)
+        assert state is not None and signal is not None
         if signal.setup_stage is SetupStage.WATCH_PULLBACK:
             watch_count += 1
         elif signal.setup_stage is SetupStage.B1_READY:
@@ -787,17 +969,24 @@ def build_trade_plan_output(
             SetupStage.B2_READY,
             SetupStage.B2_CONFIRMED,
         }:
-            eligible_entries.append((code, signal))
+            eligible_entries.append((code, state, signal))
 
-    bars_by_code, pool_by_code = _load_plan_inputs(
+    bars_by_code, pool_by_code, pool_prefix_hash, canonical_universe = _load_plan_inputs(
         layout=layout,
         snapshot=snapshot,
-        codes={code for code, _ in eligible_entries},
+        as_of=as_of,
+        codes={code for code, _, _ in eligible_entries},
     )
-    for code, signal in eligible_entries:
+    for code, state, signal in eligible_entries:
         bars = bars_by_code.get(code, ())
         if not bars:
             reject_counts["MISSING_CANONICAL_BARS"] += 1
+            continue
+        if (
+            _bars_prefix_hash(bars, as_of) != state.bars_prefix_hash
+            or state.limit_pool_prefix_hash != pool_prefix_hash
+        ):
+            reject_counts["STALE_OR_MISSING_SCREEN_STATE"] += 1
             continue
         plan = build_trade_plan(
             signal=signal,
@@ -809,6 +998,8 @@ def build_trade_plan_output(
             snapshot_id=snapshot_id,
             strategy_commit=commit,
             config_hash=config_hash,
+            trade_plan_config=execution_config,
+            execution_config_hash=execution_config_hash,
         )
         if plan.execution_label is ExecutionLabel.B1_PREP:
             b1_prep_count += 1
@@ -843,7 +1034,8 @@ def build_trade_plan_output(
         snapshot_id=snapshot_id,
         strategy_commit=commit,
         config_hash=config_hash,
-        universe=len(state_paths),
+        execution_config_hash=execution_config_hash,
+        universe=canonical_universe,
         watch_count=watch_count,
         b1_prep_count=b1_prep_count,
         b1_ready_count=b1_ready_count,

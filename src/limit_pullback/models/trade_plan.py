@@ -7,13 +7,26 @@ from decimal import Decimal
 
 from pydantic import Field, model_validator
 
-from limit_pullback.models.base import DecimalValue, DomainModel, PositiveDecimal
+from limit_pullback.models.base import (
+    DecimalValue,
+    DomainModel,
+    PositiveDecimal,
+    RatioDecimal,
+)
 from limit_pullback.models.enums import (
     DataQuality,
     EntryRoomState,
     ExecutionLabel,
     SetupStage,
 )
+
+
+class TradePlanConfig(DomainModel):
+    """Execution-only thresholds kept outside the frozen strategy config."""
+
+    prep_support_distance_max: RatioDecimal
+    prep_volume_to_anchor_max: PositiveDecimal
+    prep_volume_to_post_anchor_max: PositiveDecimal
 
 
 class TradePlan(DomainModel):
@@ -51,6 +64,7 @@ class TradePlan(DomainModel):
     snapshot_id: str = Field(min_length=1)
     strategy_commit: str = Field(min_length=1)
     config_hash: str = Field(min_length=1)
+    execution_config_hash: str | None = None
 
     @model_validator(mode="after")
     def validate_plan(self) -> "TradePlan":
@@ -101,6 +115,7 @@ class TradePlanOutput(DomainModel):
     snapshot_id: str = Field(min_length=1)
     strategy_commit: str = Field(min_length=1)
     config_hash: str = Field(min_length=1)
+    execution_config_hash: str | None = None
     universe: int = Field(ge=0)
     watch_count: int = Field(ge=0)
     b1_prep_count: int = Field(ge=0)

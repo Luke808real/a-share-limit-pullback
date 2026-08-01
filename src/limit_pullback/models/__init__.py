@@ -49,7 +49,11 @@ from limit_pullback.models.strategy import (
     PriceCluster,
     PriceLevelCandidate,
 )
-from limit_pullback.models.trade_plan import TradePlan, TradePlanOutput
+from limit_pullback.models.trade_plan import (
+    TradePlan,
+    TradePlanConfig,
+    TradePlanOutput,
+)
 
 __all__ = [
     "AnchorSnapshot",
@@ -95,5 +99,6 @@ __all__ = [
     "StrategySignal",
     "SupportSnapshot",
     "TradePlan",
+    "TradePlanConfig",
     "TradePlanOutput",
 ]

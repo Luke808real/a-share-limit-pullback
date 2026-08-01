@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -8,7 +8,13 @@ import pytest
 from limit_pullback.config import load_strategy_config
 from limit_pullback.models.enums import EntryRoomState, EventFlag, SetupStage
 from limit_pullback.strategy.engine import evaluate_strategy
-from limit_pullback.trade_plan import build_trade_plan
+from limit_pullback.screen.models import ScreenState
+from limit_pullback.screen.runner import _pool_prefix_hash
+from limit_pullback.trade_plan import (
+    _pool_prefix_hash_from_rows,
+    _state_provenance_valid,
+    build_trade_plan,
+)
 from tests.synthetic_data import (
     append_b2_ready_bar,
     append_pullback_bars,
@@ -313,3 +319,58 @@ def test_same_inputs_are_deterministic(config):
     second = _plan(signal=signal, bars=bars, pool=pool, config=config)
 
     assert first.model_dump(mode="json") == second.model_dump(mode="json")
+
+
+def test_screen_state_provenance_rejects_cross_code_and_mixed_date(config):
+    bars, pool, signal = _watch_signal(config)
+    trade_date = signal.trade_date
+    state = ScreenState(
+        code=signal.code,
+        last_processed_date=trade_date,
+        signal_json=signal.model_dump_json(exclude_computed_fields=True),
+        setup_id=signal.setup_id,
+        snapshot_id="snap-test",
+        bars_prefix_hash="bars",
+        limit_pool_prefix_hash="pool",
+        strategy_commit="commit-test",
+        config_hash="config-test",
+        reconciliation_policy_version="policy-test",
+        processed_at=datetime.now(timezone.utc),
+    )
+    common = dict(
+        state=state,
+        signal=signal,
+        snapshot_id="snap-test",
+        as_of=trade_date,
+        reconciliation_policy_version="policy-test",
+        config_hash="config-test",
+        current_commit="commit-test",
+    )
+    assert _state_provenance_valid(code=signal.code, **common)
+    assert not _state_provenance_valid(code="603918", **common)
+    assert not _state_provenance_valid(
+        code=signal.code,
+        **{**common, "as_of": trade_date + timedelta(days=1)},
+    )
+    assert not _state_provenance_valid(
+        code=signal.code,
+        **{**common, "config_hash": "other-config"},
+    )
+
+
+def test_streamed_pool_prefix_hash_matches_screen_hash(config):
+    bars, pool, _ = _watch_signal(config)
+    record = pool[0]
+    row = {
+        "code": record.code,
+        "trade_date": record.trade_date,
+        "name": record.name,
+        "limit_price": record.limit_price,
+        "reconciliation_status": "CONFIRMED",
+    }
+    expected = _pool_prefix_hash(
+        [record],
+        {(record.code, record.trade_date): "CONFIRMED"},
+        record.trade_date,
+    )
+    assert _pool_prefix_hash_from_rows([row], record.trade_date) == expected

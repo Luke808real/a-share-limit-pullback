@@ -95,9 +95,6 @@ b1:
   recent_volume_days: 3
   recent_volume_to_post_anchor_max: "0.80"
   minimum_condition_ratio: "0.60"
-  prep_support_distance_max: "0.04"
-  prep_volume_to_anchor_max: "1.00"
-  prep_volume_to_post_anchor_max: "0.90"
 
 b2:
   daily_return_min: "0.02"

@@ -64,6 +64,10 @@ def _default_config_path() -> Path:
     return Path(__file__).resolve().parents[2] / "config" / "strategy.yaml"
 
 
+def _default_trade_plan_config_path() -> Path:
+    return Path(__file__).resolve().parents[2] / "config" / "trade_plan.yaml"
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = StructuredArgumentParser(
         prog="limit_pullback",
@@ -245,6 +249,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=_default_config_path(),
         help="strategy.yaml 路径",
+    )
+    trade_plan_parser.add_argument(
+        "--trade-plan-config",
+        type=Path,
+        default=_default_trade_plan_config_path(),
+        help="TradePlan execution-only config path",
     )
 
     hardware_parser = subparsers.add_parser(
@@ -466,7 +476,7 @@ def _run_screen(args: argparse.Namespace) -> int:
 
 
 def _run_trade_plan(args: argparse.Namespace) -> int:
-    from limit_pullback.config import load_strategy_config
+    from limit_pullback.config import load_strategy_config, load_trade_plan_config
     from limit_pullback.trade_plan import build_trade_plan_output
     from limit_pullback.warehouse.parquet import sha256_file
 
@@ -478,6 +488,12 @@ def _run_trade_plan(args: argparse.Namespace) -> int:
             snapshot_id=args.snapshot_id,
             config=load_strategy_config(args.config),
             config_hash=sha256_file(args.config),
+            trade_plan_config=load_trade_plan_config(
+                getattr(args, "trade_plan_config", _default_trade_plan_config_path())
+            ),
+            execution_config_hash=sha256_file(
+                getattr(args, "trade_plan_config", _default_trade_plan_config_path())
+            ),
         )
     except Exception as exc:
         _print_error(exc)

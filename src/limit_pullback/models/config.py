@@ -175,11 +175,12 @@ class B1Config(DomainModel):
     recent_volume_days: int = Field(ge=1)
     recent_volume_to_post_anchor_max: PositiveDecimal
     minimum_condition_ratio: RatioDecimal
-    # Execution-layer observation thresholds. These do not participate in
-    # StrategySignal B1 structure qualification.
-    prep_support_distance_max: RatioDecimal
-    prep_volume_to_anchor_max: PositiveDecimal
-    prep_volume_to_post_anchor_max: PositiveDecimal
+    # Kept as backward-compatible defaults for direct pure-function callers.
+    # The CLI loads execution-only thresholds from config/trade_plan.yaml so
+    # the frozen strategy file/hash remains unchanged.
+    prep_support_distance_max: RatioDecimal = Decimal("0.04")
+    prep_volume_to_anchor_max: PositiveDecimal = Decimal("1.00")
+    prep_volume_to_post_anchor_max: PositiveDecimal = Decimal("0.90")
 
     @model_validator(mode="after")
     def validate_ranges(self) -> "B1Config":
