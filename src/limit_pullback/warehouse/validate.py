@@ -262,6 +262,11 @@ def data_validate(
         for row in daily_rows:
             code = str(row["code"])
             provider = str(row["selected_provider"])
+            # Tushare daily.pre_close is adjusted for corporate actions, so it
+            # is not required to equal the preceding raw close.  The other
+            # daily providers retain the raw-close continuity check below.
+            if provider == "TUSHARE":
+                continue
             previous_close = previous_closes_by_provider.get(provider, {}).get(
                 (code, row["trade_date"])
             )

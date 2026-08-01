@@ -59,6 +59,56 @@ def test_validate_detects_tampered_canonical_file(tmp_path):
     assert "ROW_HASH" in checks
 
 
+def _bootstrap_with_provider_rows(tmp_path, *, provider: str):
+    first_day = date(2026, 7, 29)
+    second_day = date(2026, 7, 30)
+    rows = [
+        daily_row("603318", first_day.isoformat(), close="10.00"),
+        daily_row(
+            "603318",
+            second_day.isoformat(),
+            open_price="9.50",
+            high="10.00",
+            low="9.00",
+            close="9.50",
+            preclose="8.00",
+        ),
+    ]
+    provider_rows = {
+        "tushare_daily": rows if provider == "TUSHARE" else [],
+        "akshare_daily": rows if provider == "AKSHARE" else [],
+        "baostock_daily": rows if provider == "BAOSTOCK" else [],
+    }
+    layout = WarehouseLayout(tmp_path / "data")
+    bootstrap(
+        layout=layout,
+        start=first_day,
+        end=second_day,
+        codes=["603318"],
+        provider_set=FakeProviderSet(calendar=[first_day, second_day], **provider_rows),
+        today=second_day,
+    )
+    return layout
+
+
+def test_validate_allows_tushare_adjusted_preclose(tmp_path):
+    layout = _bootstrap_with_provider_rows(tmp_path, provider="TUSHARE")
+
+    validation = data_validate(layout)
+
+    assert validation.valid is True
+    assert validation.issues == ()
+
+
+def test_validate_keeps_akshare_preclose_continuity_check(tmp_path):
+    layout = _bootstrap_with_provider_rows(tmp_path, provider="AKSHARE")
+
+    validation = data_validate(layout)
+
+    assert validation.valid is False
+    assert {issue.check for issue in validation.issues} == {"PRECLOSE_CONTINUITY"}
+
+
 def test_previous_close_index_matches_legacy_scan_exactly():
     """The indexed lookup must select the identical predecessor as the old scan."""
 
