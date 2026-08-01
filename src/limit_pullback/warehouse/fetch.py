@@ -404,6 +404,7 @@ def fetch_rows(
     end_date: date | None = None,
     worker_codes: tuple[str, ...] = (),
     worker_mode: str = "daily",
+    return_rows: bool = True,
 ) -> list[dict[str, Any]]:
     """Fetch dataset rows with per-item failure isolation and resume.
 
@@ -458,7 +459,7 @@ def fetch_rows(
                         exc=exc,
                     )
             flush()
-        return ctx.read_all(provider, dataset)
+        return ctx.read_all(provider, dataset) if return_rows else []
 
     def fetch_one(item: Any) -> list[dict[str, Any]]:
         return fetch_with_retry(
@@ -514,7 +515,7 @@ def fetch_rows(
             if len(pending_rows) >= ctx.batch_rows:
                 flush()
         flush()
-        return ctx.read_all(provider, dataset)
+        return ctx.read_all(provider, dataset) if return_rows else []
 
     if workers > 1:
         chunk = max(workers * 8, 32)
@@ -543,7 +544,7 @@ def fetch_rows(
             if len(pending_rows) >= ctx.batch_rows:
                 flush()
     flush()
-    return ctx.read_all(provider, dataset)
+    return ctx.read_all(provider, dataset) if return_rows else []
 
 
 def _record_fetch_failure(

@@ -263,6 +263,22 @@ def write_rows_atomic(
         raise
 
 
+def write_table_atomic(
+    table: pa.Table,
+    path: Path,
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp-{uuid4().hex}")
+    try:
+        pq.write_table(table, temporary, compression="zstd")
+        _fsync_file(temporary)
+        os.replace(temporary, path)
+        _fsync_file(path)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+
+
 def quantize_row(row: Mapping[str, Any], schema: pa.Schema) -> dict[str, Any]:
     """Quantize Decimal values to the schema scale.
 

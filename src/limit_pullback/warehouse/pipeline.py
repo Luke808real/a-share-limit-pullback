@@ -478,6 +478,120 @@ def bootstrap(
         )
 
 
+def _iter_code_groups(cursor):
+    columns = [description[0] for description in cursor.description]
+    carry: dict[str, list[dict[str, Any]]] = {}
+    carry_order: list[str] = []
+    batch = cursor.fetchmany(20000)
+    while batch:
+        for raw_row in batch:
+            row = dict(zip(columns, raw_row))
+            code = str(row["code"])
+            if code not in carry:
+                carry[code] = []
+                carry_order.append(code)
+            carry[code].append(row)
+        for code in carry_order[:-1]:
+            yield code, carry.pop(code)
+        carry_order = carry_order[-1:]
+        batch = cursor.fetchmany(20000)
+    for code in carry_order:
+        yield code, carry.pop(code)
+
+
+def _stream_reconcile_market(
+    *,
+    layout: WarehouseLayout,
+    metadata: WarehouseMetadata,
+    run_id: str,
+    trading_dates: list[date],
+    policy: ReconciliationPolicy,
+    clock: Callable[[], datetime],
+    adjustment_factor_rows: list[dict[str, Any]] = (),
+) -> tuple[Any, list[ReconciliationRecord], list[QuarantineRecord], list[ReconciliationRecord]]:
+    """Reconcile the full market code-by-code with bounded memory.
+
+    Raw rows are streamed from Parquet through DuckDB cursors and canonical
+    rows accumulate in a columnar pyarrow table instead of Python dicts.
+    """
+
+    import pyarrow as pa
+    import duckdb
+
+    from limit_pullback.warehouse.parquet import canonical_daily_schema
+
+    cursors: dict[str, Any] = {}
+    connections: list[Any] = []
+    for provider in ("TUSHARE", "AKSHARE", "BAOSTOCK"):
+        directory = layout.raw_dataset_dir(provider, "daily_bars")
+        files = sorted(directory.glob(f"{run_id}-*.parquet"))
+        if not files:
+            continue
+        glob_expr = str(directory / f"{run_id}-*.parquet")
+        connection = duckdb.connect()
+        connections.append(connection)
+        cursors[provider] = connection.execute(
+            f"SELECT * FROM read_parquet('{glob_expr}') ORDER BY code, trade_date"
+        )
+    iterators = {
+        provider: _iter_code_groups(cursor)
+        for provider, cursor in cursors.items()
+    }
+    current: dict[str, tuple[str, list[dict[str, Any]]] | None] = {}
+    for provider, iterator in iterators.items():
+        try:
+            current[provider] = next(iterator)
+        except StopIteration:
+            current[provider] = None
+
+    schema = canonical_daily_schema().remove(
+        canonical_daily_schema().get_field_index("dataset_snapshot_id")
+    )
+    chunks: list[Any] = []
+    daily_records: list[ReconciliationRecord] = []
+    quarantines: list[QuarantineRecord] = []
+    missing_records: list[ReconciliationRecord] = []
+    while any(value is not None for value in current.values()):
+        active = [provider for provider, value in current.items() if value is not None]
+        code = min(current[provider][0] for provider in active)
+        rows_by_provider: dict[str, list[dict[str, Any]]] = {}
+        for provider in active:
+            provider_code, provider_rows = current[provider]
+            if provider_code == code:
+                rows_by_provider[provider] = provider_rows
+        canonical, records, quarantined = reconcile_daily_rows(
+            rows_by_provider,
+            policy=policy,
+            clock=clock,
+            adjustment_factor_rows=adjustment_factor_rows,
+        )
+        if canonical:
+            chunks.append(pa.Table.from_pylist(canonical, schema=schema))
+        daily_records.extend(records)
+        quarantines.extend(quarantined)
+        missing_records.extend(
+            _missing_records(
+                calendar=trading_dates,
+                rows_by_provider=rows_by_provider,
+                snapshot_id=None,
+                clock=clock,
+            )
+        )
+        for provider in active:
+            if current[provider][0] == code:
+                try:
+                    current[provider] = next(iterators[provider])
+                except StopIteration:
+                    current[provider] = None
+    if chunks:
+        daily_table = pa.concat_tables(chunks)
+    else:
+        daily_table = pa.Table.from_pylist([], schema=canonical_daily_schema())
+    for connection in connections:
+        connection.close()
+    return daily_table, daily_records, quarantines, missing_records
+
+
 def _bootstrap_impl(
     *,
     layout: WarehouseLayout,
@@ -708,6 +822,7 @@ def _bootstrap_impl(
                         use_bulk=True,
                         item_is_date=True,
                         batch_size=batch_size,
+                        return_rows=False,
                     )
                 else:
                     tushare_daily = fetch_rows(
@@ -721,6 +836,7 @@ def _bootstrap_impl(
                             stock_basic=stock_basic,
                         ),
                         workers=workers,
+                        return_rows=False,
                     )
             else:
                 tushare_daily = []
@@ -743,6 +859,7 @@ def _bootstrap_impl(
                     start_date=start,
                     end_date=end,
                     worker_codes=codes_tuple,
+                    return_rows=False,
                 )
                 akshare_pool = fetch_rows(
                     ctx,
@@ -780,30 +897,23 @@ def _bootstrap_impl(
                     end_date=end,
                     worker_codes=codes_tuple,
                     worker_mode="baostock",
+                    return_rows=False,
                 )
             else:
                 baostock_daily = []
                 notes.append("SKIPPED_DATASET:baostock_daily:INACTIVE")
 
-            rows_by_provider = {
-                "TUSHARE": tushare_daily,
-                "AKSHARE": akshare_daily,
-                "BAOSTOCK": baostock_daily,
-            }
-            canonical_daily, daily_records, quarantines = reconcile_daily_rows(
-                rows_by_provider,
+            daily_table, daily_records, quarantines, missing = _stream_reconcile_market(
+                layout=layout,
+                metadata=metadata,
+                run_id=run_id,
+                trading_dates=trading_dates,
                 policy=policy,
                 clock=clock,
                 adjustment_factor_rows=tushare_aux.get("adjustment_factor", []),
             )
             canonical_pool, pool_records, pool_quarantines = reconcile_limit_up_pool(
                 akshare_pool, clock=clock
-            )
-            missing = _missing_records(
-                calendar=trading_dates,
-                rows_by_provider=rows_by_provider,
-                snapshot_id=None,
-                clock=clock,
             )
             all_records = [*daily_records, *pool_records, *missing]
             source_rows = metadata._connection.execute(
@@ -819,7 +929,8 @@ def _bootstrap_impl(
                 metadata=metadata,
                 as_of=end,
                 provider_versions=dict(provider_versions),
-                daily_rows=canonical_daily,
+                daily_rows=[],
+                daily_table=daily_table,
                 pool_rows=canonical_pool,
                 source_file_hashes=source_file_hashes,
                 reconciliation_policy_version=policy.policy_version,
@@ -857,7 +968,7 @@ def _bootstrap_impl(
                     )
                     for path_value, sha, row_count in source_rows
                 ),
-                canonical_daily_rows=len(canonical_daily),
+                canonical_daily_rows=daily_table.num_rows,
                 canonical_pool_rows=len(canonical_pool),
                 reconciliation_rows=len(all_records),
                 quarantine_rows=len([*quarantines, *pool_quarantines]),
@@ -881,14 +992,12 @@ def _reprocess_preclose_divergences(
     *,
     layout: WarehouseLayout,
     metadata: WarehouseMetadata,
-    adjustment_factor_rows: list[dict[str, Any]],
     policy: ReconciliationPolicy,
     clock: Callable[[], datetime],
+    adj_run_id: str,
 ) -> tuple[list[dict[str, Any]], list[ReconciliationRecord]]:
     """Re-evaluate PRECLOSE_DIVERGENCE_UNCONFIRMED records with adj data."""
 
-    if not adjustment_factor_rows:
-        return [], []
     quarantines = metadata._connection.execute(
         """
         SELECT code, trade_date FROM quarantine_records
@@ -897,21 +1006,68 @@ def _reprocess_preclose_divergences(
     ).fetchall()
     if not quarantines:
         return [], []
-    raw: dict[tuple[str, str, date], dict[str, Any]] = {}
+
+    def query_rows(glob_expr: str, where: str, params: list[Any]) -> list[dict[str, Any]]:
+        cursor = metadata._connection.execute(
+            f"SELECT * FROM read_parquet('{glob_expr}') WHERE {where}",
+            params,
+        )
+        columns = [description[0] for description in cursor.description]
+        return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+    adj_glob = str(
+        layout.raw_dataset_dir("TUSHARE", "adjustment_factor")
+        / f"{adj_run_id}-*.parquet"
+    )
+    if not any(
+        layout.raw_dataset_dir("TUSHARE", "adjustment_factor").glob(
+            f"{adj_run_id}-*.parquet"
+        )
+    ):
+        return [], []
+    daily_globs = {
+        provider: str(layout.raw_dataset_dir(provider, "daily_bars") / "*.parquet")
+        for provider in ("TUSHARE", "AKSHARE", "BAOSTOCK")
+    }
+    daily_files_exist = {
+        provider: any(
+            layout.raw_dataset_dir(provider, "daily_bars").glob("*.parquet")
+        )
+        for provider in ("TUSHARE", "AKSHARE", "BAOSTOCK")
+    }
+    raw_cache: dict[tuple[str, str], dict[date, dict[str, Any]]] = {}
     for provider in ("TUSHARE", "AKSHARE", "BAOSTOCK"):
-        directory = layout.raw_dataset_dir(provider, "daily_bars")
-        for path in directory.glob("*.parquet"):
-            for row in read_rows(path):
-                raw[(provider, str(row["code"]), row["trade_date"])] = dict(row)
+        raw_cache[(provider, "")] = {}
+
     released: list[dict[str, Any]] = []
     records: list[ReconciliationRecord] = []
     for code, trade_date in quarantines:
         code = str(code)
+        adjustment_factor_rows = query_rows(
+            adj_glob,
+            "code = ?",
+            [code],
+        )
+        adjustment_factor_rows.sort(key=lambda row: row["trade_date"])
+        if not adjustment_factor_rows:
+            continue
         rows_by_provider: dict[str, list[dict[str, Any]]] = {}
         for provider in ("TUSHARE", "AKSHARE", "BAOSTOCK"):
-            key = (provider, code, trade_date)
-            if key in raw:
-                rows_by_provider[provider] = [raw[key]]
+            if not daily_files_exist[provider]:
+                continue
+            cache_key = (provider, code)
+            if cache_key not in raw_cache:
+                raw_cache[cache_key] = {
+                    row["trade_date"]: row
+                    for row in query_rows(
+                        daily_globs[provider],
+                        "code = ?",
+                        [code],
+                    )
+                }
+            row = raw_cache[cache_key].get(trade_date)
+            if row is not None:
+                rows_by_provider[provider] = [dict(row)]
         if "TUSHARE" not in rows_by_provider:
             continue
         canonical, reconciled, _ = reconcile_daily_rows(
@@ -1105,6 +1261,7 @@ def _aux_backfill_impl(
                         use_bulk=True,
                         item_is_date=True,
                         batch_size=batch_size,
+                        return_rows=False,
                     )
                 else:
                     aux_rows[dataset] = fetch_rows(
@@ -1114,6 +1271,7 @@ def _aux_backfill_impl(
                         items=codes_tuple,
                         per_item_fn=lambda c, d=dataset: _tushare_per_code(d, c),
                         workers=workers,
+                        return_rows=False,
                     )
 
             previous = metadata.latest_snapshot()
@@ -1122,15 +1280,50 @@ def _aux_backfill_impl(
                     "NO_BASELINE_SNAPSHOT",
                     "aux backfill requires a published core snapshot",
                 )
-            previous_daily = read_snapshot_daily(layout, previous)
+            import pyarrow as pa
+
+            from limit_pullback.warehouse.parquet import canonical_daily_schema
+            from limit_pullback.warehouse.snapshot import read_snapshot_daily_table
+
+            previous_daily_table = read_snapshot_daily_table(layout, previous)
             previous_pool = read_snapshot_pool(layout, previous)
             released, released_records = _reprocess_preclose_divergences(
                 layout=layout,
                 metadata=metadata,
-                adjustment_factor_rows=aux_rows.get("adjustment_factor", []),
                 policy=policy,
                 clock=clock,
+                adj_run_id=run_id,
             )
+            released_table = (
+                pa.Table.from_pylist(
+                    released,
+                    schema=canonical_daily_schema().remove(
+                        canonical_daily_schema().get_field_index(
+                            "dataset_snapshot_id"
+                        )
+                    ),
+                )
+                if released
+                else None
+            )
+            tables = [
+                table
+                for table in (previous_daily_table, released_table)
+                if table is not None
+            ]
+            tables = [
+                table.drop("dataset_snapshot_id")
+                if "dataset_snapshot_id" in table.column_names
+                else table
+                for table in tables
+            ]
+            if tables:
+                daily_table = pa.concat_tables(tables)
+            else:
+                daily_table = pa.Table.from_pylist(
+                    [],
+                    schema=canonical_daily_schema(),
+                )
             source_rows = metadata._connection.execute(
                 "SELECT path, sha256 FROM source_files WHERE ingest_run_id = ?",
                 [run_id],
@@ -1147,7 +1340,8 @@ def _aux_backfill_impl(
                 metadata=metadata,
                 as_of=end,
                 provider_versions=dict(provider_versions),
-                daily_rows=[*previous_daily, *released],
+                daily_rows=[],
+                daily_table=daily_table,
                 pool_rows=previous_pool,
                 source_file_hashes=source_file_hashes,
                 reconciliation_policy_version=policy.policy_version,
@@ -1173,7 +1367,7 @@ def _aux_backfill_impl(
                 start_date=start,
                 end_date=end,
                 codes=codes_tuple,
-                canonical_daily_rows=len([*previous_daily, *released]),
+                canonical_daily_rows=daily_table.num_rows,
                 reconciliation_rows=len(released_records),
                 reused=False,
                 notes=tuple(notes),
