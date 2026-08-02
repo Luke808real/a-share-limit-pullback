@@ -27,6 +27,7 @@ def _row(
     r: str = "2.00",
     conservative_r: str = "2.00",
     signal_days: int = 1,
+    eligibility_reason: str | None = None,
 ) -> dict[str, object]:
     return {
         "setup_stage": stage,
@@ -46,7 +47,7 @@ def _row(
         "mae_pct": "-0.0100",
         "raw_signal_days": signal_days,
         "quality_flags": json.dumps(["MISSING_SCORE_FIELD:test"]),
-        "eligibility_reason": None,
+        "eligibility_reason": eligibility_reason,
         "pattern_1d": "S1_BEFORE_INVALID",
         "pattern_3d": "S1_BEFORE_INVALID",
         "pattern_5d": "NEITHER",
@@ -68,6 +69,41 @@ def test_actionable_and_non_actionable_b2_ready_are_separate():
     assert split["NON_ACTIONABLE"]["stats"]["episodes"] == 2
     assert split["NON_ACTIONABLE"]["entry_room_distribution"]["NONE"] == 1
     assert result["b2_ready_structural_reference"]["episodes"] == 3
+
+
+def test_non_actionable_corrected_outcome_is_not_execution_eligible():
+    result = analyze_episodes(
+        [
+            _row(actionable=False, eligibility_reason="NON_ACTIONABLE_STRUCTURAL_EVENT"),
+            _row(actionable=False, eligibility_reason="REWARD_NON_POSITIVE_AT_TRIGGER"),
+        ]
+    )
+
+    assert result["b2_ready_actionable_vs_non_actionable"]["NON_ACTIONABLE"][
+        "stats"
+    ]["eligible"] == 0
+    assert result["b2_ready_actionable_vs_non_actionable"]["NON_ACTIONABLE"][
+        "stats"
+    ]["strict_resolved_expectancy_R"] is None
+
+
+def test_b2_ready_ambiguity_and_entry_room_diagnostics_are_deterministic():
+    rows = [
+        _row(outcome="WIN_S1", r="1.00", conservative_r="1.00"),
+        _row(outcome="AMBIGUOUS_INTRADAY", r=None, conservative_r="-1.00"),
+        _row(room="THIN", outcome="LOSS_INVALID", r="-1.00", conservative_r="-1.00"),
+    ]
+
+    result = analyze_episodes(rows)
+    ambiguity = result["b2_ready_ambiguity"]
+    assert ambiguity["filled"] == 3
+    assert ambiguity["resolved"] == 3
+    assert ambiguity["ambiguous"] == 1
+    assert ambiguity["ambiguous_rate"] == "0.3333"
+    assert ambiguity["conservative_minus_strict_R"] == "-0.3333"
+    assert result["b2_ready_entry_room"]["THIN"]["episodes"] == 1
+    assert result["b2_ready_entry_room"]["THIN"]["ambiguous_rate"] == "0.0000"
+    assert result["stage_days_since_anchor"]["B2_READY"]["D+2"]["episodes"] == 3
 
 
 def test_stage_bucket_counts_and_empty_bucket_are_deterministic():

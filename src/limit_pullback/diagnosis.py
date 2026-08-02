@@ -21,7 +21,7 @@ import pyarrow.parquet as pq
 
 
 BASELINE_EPISODES_SHA256 = (
-    "23d3ff935cb44d523288c744c39abc231ce2c19a486b56ddfe057aa0809130af"
+    "66d5943ffd4c83d8348d7b559ef9aa8ab9c041525471108a2f724fbedd84b093"
 )
 DIAGNOSIS_MODE = "DESCRIPTIVE DIAGNOSIS ONLY"
 GUARDRAIL = "NOT STRATEGY OPTIMIZATION"
@@ -32,6 +32,13 @@ ENTRY_ROOM_STATES = ("NONE", "THIN", "SUFFICIENT", "OPEN_SPACE", "UNKNOWN")
 PATTERN_HORIZONS = ("1d", "3d", "5d", "10d")
 RATIO_QUANTUM = Decimal("0.0001")
 ZERO = Decimal("0")
+INELIGIBLE_EXECUTION_REASONS = frozenset(
+    {
+        "NON_ACTIONABLE_STRUCTURAL_EVENT",
+        "REWARD_NON_POSITIVE_AT_TRIGGER",
+        "REWARD_NON_POSITIVE_AT_ENTRY",
+    }
+)
 
 
 def _quantize(value: Decimal) -> Decimal:
@@ -106,6 +113,13 @@ def _is_actionable(row: Mapping[str, Any]) -> bool:
     return str(value).strip().lower() == "true"
 
 
+def _execution_eligible(row: Mapping[str, Any]) -> bool:
+    return all(
+        row.get(field) not in (None, "")
+        for field in ("preferred_entry", "invalid_price", "s1_price")
+    ) and str(row.get("eligibility_reason") or "") not in INELIGIBLE_EXECUTION_REASONS
+
+
 def _parse_quality_flags(value: Any) -> list[str]:
     if value is None or value == "":
         return []
@@ -136,26 +150,24 @@ def _sample_flags(resolved: int) -> list[str]:
 
 
 def _stats(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
-    wins = [row for row in rows if row.get("outcome") == "WIN_S1"]
-    losses = [row for row in rows if row.get("outcome") == "LOSS_INVALID"]
-    ambiguous = [
-        row for row in rows if row.get("outcome") == "AMBIGUOUS_INTRADAY"
+    execution_rows = [row for row in rows if _execution_eligible(row)]
+    wins = [row for row in execution_rows if row.get("outcome") == "WIN_S1"]
+    losses = [
+        row for row in execution_rows if row.get("outcome") == "LOSS_INVALID"
     ]
-    timeout = [row for row in rows if row.get("outcome") == "TIMEOUT"]
-    censored = [row for row in rows if row.get("outcome") == "CENSORED"]
-    filled = [row for row in rows if row.get("fill_status") == "FILLED"]
+    ambiguous = [
+        row
+        for row in execution_rows
+        if row.get("outcome") == "AMBIGUOUS_INTRADAY"
+    ]
+    timeout = [row for row in execution_rows if row.get("outcome") == "TIMEOUT"]
+    censored = [row for row in execution_rows if row.get("outcome") == "CENSORED"]
+    filled = [row for row in execution_rows if row.get("fill_status") == "FILLED"]
     no_fill = [row for row in rows if row.get("outcome") == "NO_FILL"]
     cancelled = [
         row for row in rows if row.get("outcome") == "CANCEL_GAP_INVALID"
     ]
-    eligible = [
-        row
-        for row in rows
-        if all(
-            row.get(field) not in (None, "")
-            for field in ("preferred_entry", "invalid_price", "s1_price")
-        )
-    ]
+    eligible = [row for row in rows if _execution_eligible(row)]
     strict_r = [
         value
         for row in [*wins, *losses]
@@ -397,6 +409,96 @@ def _b2_ready_split(
     return result
 
 
+def _b2_ready_ambiguity(
+    rows: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    actionable = [
+        row
+        for row in rows
+        if row.get("setup_stage") == "B2_READY" and _is_actionable(row)
+    ]
+    stats = _stats(actionable)
+    strict = _decimal(stats.get("strict_resolved_expectancy_R"))
+    conservative = _decimal(stats.get("conservative_resolved_expectancy_R"))
+    return {
+        "episodes": len(actionable),
+        "filled": stats["filled"],
+        "resolved": stats["resolved"],
+        "ambiguous": stats["ambiguous"],
+        "ambiguous_rate": _fmt(
+            _ratio(stats["ambiguous"], stats["resolved"])
+        ),
+        "strict_resolved_expectancy_R": stats[
+            "strict_resolved_expectancy_R"
+        ],
+        "conservative_resolved_expectancy_R": stats[
+            "conservative_resolved_expectancy_R"
+        ],
+        "conservative_minus_strict_R": (
+            _fmt(conservative - strict)
+            if strict is not None and conservative is not None
+            else None
+        ),
+        "sample_flags": stats["sample_flags"],
+    }
+
+
+def _b2_ready_entry_room(
+    rows: Sequence[Mapping[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    actionable = [
+        row
+        for row in rows
+        if row.get("setup_stage") == "B2_READY" and _is_actionable(row)
+    ]
+    result: dict[str, dict[str, Any]] = {}
+    for state in ENTRY_ROOM_STATES:
+        cohort = [
+            row
+            for row in actionable
+            if _entry_room(row.get("entry_room_state")) == state
+        ]
+        stats = _stats(cohort)
+        result[state] = {
+            "episodes": stats["episodes"],
+            "filled": stats["filled"],
+            "strict_win_rate": stats["strict_win_rate"],
+            "strict_resolved_expectancy_R": stats[
+                "strict_resolved_expectancy_R"
+            ],
+            "conservative_resolved_expectancy_R": stats[
+                "conservative_resolved_expectancy_R"
+            ],
+            "ambiguous": stats["ambiguous"],
+            "resolved": stats["resolved"],
+            "ambiguous_rate": _fmt(
+                _ratio(stats["ambiguous"], stats["resolved"])
+            ),
+            "sample_flags": stats["sample_flags"],
+        }
+    return result
+
+
+def _stage_days_since_anchor(
+    rows: Sequence[Mapping[str, Any]],
+) -> dict[str, dict[str, dict[str, Any]]]:
+    actionable = [row for row in rows if _is_actionable(row)]
+    return {
+        stage: {
+            bucket: _cell(
+                [
+                    row
+                    for row in actionable
+                    if row.get("setup_stage") == stage
+                    and _days_bucket(row.get("days_since_anchor")) == bucket
+                ]
+            )
+            for bucket in DAYS_BUCKETS
+        }
+        for stage in STAGES
+    }
+
+
 def _decomposition_grid(
     grid: Mapping[str, Mapping[str, Mapping[str, Any]]],
 ) -> dict[str, dict[str, dict[str, Any]]]:
@@ -451,8 +553,11 @@ def analyze_episodes(
         "stage_setup_quality": setup_grid,
         "stage_entry_quality": entry_grid,
         "b2_ready_actionable_vs_non_actionable": _b2_ready_split(rows),
+        "b2_ready_ambiguity": _b2_ready_ambiguity(rows),
+        "b2_ready_entry_room": _b2_ready_entry_room(rows),
         "b2_ready_structural_reference": _cell(structural_b2_rows),
         "entry_room_by_stage": _entry_room_by_stage(rows),
+        "stage_days_since_anchor": _stage_days_since_anchor(rows),
         "expectancy_decomposition": {
             "stage": {
                 stage: {
@@ -611,6 +716,40 @@ def render_diagnosis_markdown(payload: Mapping[str, Any]) -> str:
                 f"- {key}: {json.dumps(split[cohort][key], ensure_ascii=False, sort_keys=True)}"
             )
 
+    ambiguity = payload["b2_ready_ambiguity"]
+    lines.extend(
+        [
+            "",
+            "## B2_READY AMBIGUITY (ACTIONABLE)",
+            "",
+            f"- episodes={ambiguity['episodes']}; filled={ambiguity['filled']}; "
+            f"resolved={ambiguity['resolved']}; ambiguous={ambiguity['ambiguous']}; "
+            f"ambiguous_rate={ambiguity['ambiguous_rate']}",
+            f"- strict E[R]={ambiguity['strict_resolved_expectancy_R']}; "
+            f"conservative E[R]={ambiguity['conservative_resolved_expectancy_R']}; "
+            f"conservative-minus-strict={ambiguity['conservative_minus_strict_R']}",
+            f"- sample={','.join(ambiguity['sample_flags']) or 'OK'}",
+        ]
+    )
+
+    lines.extend(
+        [
+            "",
+            "## B2_READY ENTRY ROOM (ACTIONABLE)",
+            "",
+            "| Entry Room | episodes | filled | strict win | strict E[R] | conservative E[R] | ambiguous rate | sample |",
+            "|---|---:|---:|---:|---:|---:|---:|---|",
+        ]
+    )
+    for state in ENTRY_ROOM_STATES:
+        cell = payload["b2_ready_entry_room"][state]
+        lines.append(
+            f"| {state} | {cell['episodes']} | {cell['filled']} | "
+            f"{cell['strict_win_rate']} | {cell['strict_resolved_expectancy_R']} | "
+            f"{cell['conservative_resolved_expectancy_R']} | {cell['ambiguous_rate']} | "
+            f"{','.join(cell['sample_flags']) or 'OK'} |"
+        )
+
     structural = payload["b2_ready_structural_reference"]
     lines.extend(
         [
@@ -660,6 +799,25 @@ def render_diagnosis_markdown(payload: Mapping[str, Any]) -> str:
             for state in ENTRY_ROOM_STATES
         }
         lines.append(f"- {stage}: {json.dumps(counts, ensure_ascii=False)}")
+
+    lines.extend(
+        [
+            "",
+            "## DAYS SINCE ANCHOR (ACTIONABLE)",
+            "",
+            "| stage | bucket | episodes | filled | strict E[R] | conservative E[R] | sample |",
+            "|---|---|---:|---:|---:|---:|---|",
+        ]
+    )
+    for stage in STAGES:
+        for bucket in DAYS_BUCKETS:
+            cell = payload["stage_days_since_anchor"][stage][bucket]
+            lines.append(
+                f"| {stage} | {bucket} | {cell['episodes']} | {cell['filled']} | "
+                f"{cell['strict_resolved_expectancy_R']} | "
+                f"{cell['conservative_resolved_expectancy_R']} | "
+                f"{','.join(cell['sample_flags']) or 'OK'} |"
+            )
 
     lines.extend(
         [
