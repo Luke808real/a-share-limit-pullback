@@ -336,6 +336,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="期望旧episodes SHA-256；默认使用冻结Phase 2D.0 hash",
     )
 
+    execution_reality_parser = subparsers.add_parser(
+        "execution-reality",
+        help="只读计算冻结episodes的Phase 2D.1A T+1执行结果",
+    )
+    execution_reality_parser.add_argument("--snapshot-id", required=True)
+    execution_reality_parser.add_argument("--episodes-path", required=True, type=Path)
+    execution_reality_parser.add_argument("--output-dir", type=Path, default=None)
+    execution_reality_parser.add_argument("--data-root", type=Path, default=None)
+    execution_reality_parser.add_argument(
+        "--expected-sha256",
+        default=None,
+        help="期望corrected episodes SHA-256",
+    )
+
     hardware_parser = subparsers.add_parser(
         "hardware-profile",
         help="探测本机硬件并校验原生 arm64（性能验收前置检查）",
@@ -673,6 +687,40 @@ def _run_outcome_relabel(args: argparse.Namespace) -> int:
     )
     return 0
 
+
+def _run_execution_reality(args: argparse.Namespace) -> int:
+    from limit_pullback.execution_reality import (
+        CORRECTED_EPISODES_SHA256,
+        run_execution_reality_check,
+    )
+
+    layout = WarehouseLayout(resolve_data_root(args.data_root))
+    try:
+        result = run_execution_reality_check(
+            layout=layout,
+            snapshot_id=args.snapshot_id,
+            episodes_path=args.episodes_path,
+            output_dir=args.output_dir,
+            expected_sha256=args.expected_sha256 or CORRECTED_EPISODES_SHA256,
+        )
+    except Exception as exc:
+        _print_error(exc)
+        return 1
+    print(
+        json.dumps(
+            {
+                "episodes_path": result["episodes_path"],
+                "summary_json": result["summary_json"],
+                "summary_md": result["summary_md"],
+                "performance": result["performance"],
+                "summary": result["summary"].model_dump(mode="json"),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
+
 def _run_hardware_profile(args: argparse.Namespace) -> int:
     from limit_pullback.resources import detect_hardware
 
@@ -725,6 +773,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_diagnosis(args)
     if args.command == "outcome-relabel":
         return _run_outcome_relabel(args)
+    if args.command == "execution-reality":
+        return _run_execution_reality(args)
     if args.command == "hardware-profile":
         return _run_hardware_profile(args)
     if args.command is None:

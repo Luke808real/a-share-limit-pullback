@@ -64,6 +64,10 @@ from limit_pullback.models.outcome import (
     OutcomeStudyConfig,
     OutcomeStudySummary,
 )
+from limit_pullback.models.execution_reality import (
+    ExecutionRealityEpisode,
+    ExecutionRealitySummary,
+)
 
 __all__ = [
     "AnchorSnapshot",
@@ -119,4 +123,6 @@ __all__ = [
     "OutcomeStatus",
     "OutcomeStudyConfig",
     "OutcomeStudySummary",
+    "ExecutionRealityEpisode",
+    "ExecutionRealitySummary",
 ]
