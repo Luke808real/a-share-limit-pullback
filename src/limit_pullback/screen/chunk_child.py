@@ -21,9 +21,10 @@ def main() -> None:
     as_of = date.fromisoformat(sys.argv[3])
     start = date.fromisoformat(sys.argv[4]) if sys.argv[4] != "None" else None
     config_path = Path(sys.argv[5])
-    chunk_index = int(sys.argv[6])
-    codes = json.loads(Path(sys.argv[7]).read_text(encoding="utf-8"))
-    manifest_path = Path(sys.argv[8])
+    strategy_commit = sys.argv[6]
+    chunk_index = int(sys.argv[7])
+    codes = json.loads(Path(sys.argv[8]).read_text(encoding="utf-8"))
+    manifest_path = Path(sys.argv[9])
     started = time.perf_counter()
     result = run_screen(
         layout=WarehouseLayout(data_root),
@@ -33,6 +34,7 @@ def main() -> None:
         rebuild=True,
         codes=codes,
         config_path=config_path,
+        strategy_commit=strategy_commit,
         manifest_path_override=manifest_path,
     )
     elapsed = time.perf_counter() - started

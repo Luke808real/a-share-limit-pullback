@@ -27,6 +27,25 @@ from limit_pullback.warehouse.parquet import sha256_file
 CHUNK_SIZE = 200
 
 
+def _chunked_run_id(
+    *,
+    as_of: date,
+    snapshot_id: str,
+    start: date | None,
+    commit: str,
+    config_hash: str,
+    pool_mode: str,
+    codes: Sequence[str] | None,
+) -> str:
+    """Logical run identity; chunk size / chunk count must not enter here."""
+
+    requested = tuple(sorted({code.zfill(6) for code in (codes or ())}))
+    return (
+        f"screen-rebuild-{as_of.isoformat()}-{snapshot_id[:12]}-"
+        f"{_digest(start, requested, commit, config_hash, pool_mode)[:12]}"
+    )
+
+
 def chunk_codes(universe, chunk_size: int):
     return [
         list(universe[index : index + chunk_size])
@@ -39,9 +58,9 @@ def rss_bytes() -> int:
     return value if os.uname().sysname == "Darwin" else value * 1024
 
 
-def _parent_peak_sampler(peak: dict[str, int]) -> None:
+def _parent_peak_sampler(peak: dict[str, int], stop: threading.Event) -> None:
     pid = os.getpid()
-    while True:
+    while not stop.is_set():
         try:
             out = subprocess.run(
                 ["ps", "-o", "rss=", "-p", str(pid)],
@@ -75,7 +94,7 @@ def run_chunked_screen(
     *,
     layout: WarehouseLayout,
     as_of: date,
-    snapshot_id: str,
+    snapshot_id: str | None = None,
     start: date,
     config_path: Path,
     chunk_size: int = CHUNK_SIZE,
@@ -85,7 +104,9 @@ def run_chunked_screen(
     snapshot, _, _ = load_canonical_metadata(
         layout,
         snapshot_id=snapshot_id,
+        as_of=None if snapshot_id else as_of,
     )
+    resolved_snapshot_id = snapshot.snapshot_id
     universe = (
         tuple(sorted(codes))
         if codes is not None
@@ -96,9 +117,14 @@ def run_chunked_screen(
     chunks = chunk_codes(universe, chunk_size)
     config_hash = sha256_file(config_path)
     commit = _git_head()
-    run_id = (
-        f"screen-rebuild-{as_of.isoformat()}-{snapshot_id[:12]}-"
-        f"{_digest(start, tuple(universe), commit, config_hash, pool_mode)[:12]}"
+    run_id = _chunked_run_id(
+        as_of=as_of,
+        snapshot_id=resolved_snapshot_id,
+        start=start,
+        commit=commit,
+        config_hash=config_hash,
+        pool_mode=pool_mode,
+        codes=codes,
     )
     temp_root = layout.root / "tmp" / "screen-chunks" / run_id
     temp_root.mkdir(parents=True, exist_ok=True)
@@ -114,7 +140,12 @@ def run_chunked_screen(
     hash_obj = hashlib.sha256()
     first_row = True
     parent_peak: dict[str, int] = {"value": 0}
-    sampler = threading.Thread(target=_parent_peak_sampler, args=(parent_peak,), daemon=True)
+    sampler_stop = threading.Event()
+    sampler = threading.Thread(
+        target=_parent_peak_sampler,
+        args=(parent_peak, sampler_stop),
+        daemon=True,
+    )
     sampler.start()
     try:
         with spool_path.open("w", encoding="utf-8") as spool:
@@ -129,17 +160,23 @@ def run_chunked_screen(
                         "-m",
                         "limit_pullback.screen.chunk_child",
                         str(layout.root),
-                        snapshot_id,
+                        resolved_snapshot_id,
                         as_of.isoformat(),
                         start.isoformat(),
                         str(config_path),
+                        str(commit),
                         str(index),
                         str(codes_path),
                         str(manifest_path),
                     ],
                     capture_output=True,
                     text=True,
-                    env={"PYTHONPATH": str(Path(__file__).resolve().parents[2] / "src")},
+                    env={
+                        **os.environ,
+                        "PYTHONPATH": str(
+                            Path(__file__).resolve().parents[2] / "src"
+                        ),
+                    },
                     check=False,
                 )
                 elapsed = time.perf_counter() - started
@@ -190,10 +227,10 @@ def run_chunked_screen(
             "kind": "rebuild",
             "as_of": as_of.isoformat(),
             "start": start.isoformat(),
-            "snapshot_id": snapshot_id,
+            "snapshot_id": resolved_snapshot_id,
             "strategy_commit": commit,
             "config_hash": config_hash,
-            "dataset_snapshot_id": snapshot_id,
+            "dataset_snapshot_id": resolved_snapshot_id,
             "output_hash": output_hash,
             "rows_count": rows_count,
             "created_at": datetime.now(timezone.utc).isoformat(),
@@ -234,4 +271,6 @@ def run_chunked_screen(
     finally:
         import shutil
 
+        sampler_stop.set()
+        sampler.join(timeout=1)
         shutil.rmtree(temp_root, ignore_errors=True)

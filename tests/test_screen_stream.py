@@ -23,3 +23,14 @@ def test_stream_hash_matches_list_hash():
         h.update(text.encode("utf-8"))
     h.update(b"]")
     assert h.hexdigest() == old
+
+
+def test_stream_hash_zero_rows_is_sha256_empty_list():
+    old = _digest(json.dumps([], sort_keys=True, ensure_ascii=False))
+    assert old == hashlib.sha256(b"[]").hexdigest()
+    h = hashlib.sha256()
+    first = True
+    h.update(b"[")
+    # no rows
+    h.update(b"]")
+    assert h.hexdigest() == old
