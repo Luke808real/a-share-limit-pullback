@@ -419,6 +419,34 @@ def iter_canonical_code_bars(
     yield from flush()
 
 
+def canonical_universe_codes(
+    layout: WarehouseLayout,
+    snapshot: SnapshotRecord,
+) -> tuple[str, ...]:
+    """Sorted CONFIRMED universe codes from canonical daily Parquet."""
+
+    import duckdb
+
+    daily_rel = next(
+        (
+            key
+            for key in snapshot.canonical_file_hashes
+            if key.endswith("/daily_bars/" + snapshot.snapshot_id + ".parquet")
+        ),
+        None,
+    )
+    if daily_rel is None:
+        return ()
+    con = duckdb.connect()
+    con.execute("SET threads=4")
+    con.execute("SET memory_limit='2GB'")
+    rows = con.execute(
+        f"SELECT DISTINCT code FROM read_parquet('{layout.root / daily_rel}') "
+        "WHERE reconciliation_status='CONFIRMED' ORDER BY code"
+    ).fetchall()
+    return tuple(str(row[0]) for row in rows)
+
+
 def _load_daily_bars_stream(
     layout: WarehouseLayout,
     snapshot: SnapshotRecord,

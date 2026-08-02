@@ -154,20 +154,33 @@ def _write_streaming_manifest(
     import os
 
     meta = dict(metadata_with_rows)
-    meta["rows"] = []
-    rendered = json.dumps(meta, ensure_ascii=False, indent=2, sort_keys=True)
-    placeholder = '"rows": []'
-    lines = []
-    with spool_path.open("r", encoding="utf-8") as stream:
-        for line in stream:
-            line = line.strip()
-            if line:
-                lines.append("    " + line)
-    rows_block = '"rows": [\n' + ",\n".join(lines) + "\n  ]"
-    rendered = rendered.replace(placeholder, rows_block, 1) + "\n"
+    meta.setdefault("rows", None)
     temporary = output_path.with_name(f".{output_path.name}.tmp-stream")
     with temporary.open("w", encoding="utf-8") as stream:
-        stream.write(rendered)
+        keys = sorted(meta)
+        stream.write("{\n")
+        with spool_path.open("r", encoding="utf-8") as spool:
+            first_row = True
+            for key_index, key in enumerate(keys):
+                stream.write(f"  {json.dumps(key)}: ")
+                if key == "rows":
+                    stream.write("[\n")
+                    for line in spool:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        if not first_row:
+                            stream.write(",\n")
+                        stream.write("    " + line)
+                        first_row = False
+                    stream.write("\n  ]")
+                else:
+                    stream.write(json.dumps(meta[key], ensure_ascii=False))
+                if key_index < len(keys) - 1:
+                    stream.write(",\n")
+                else:
+                    stream.write("\n")
+        stream.write("}\n")
         stream.flush()
         os.fsync(stream.fileno())
     os.replace(temporary, output_path)
@@ -187,7 +200,7 @@ def run_screen(
     pool_debug: bool = False,
     clock: Callable[[], datetime] = _now_utc,
     strategy_commit: str | None = None,
-    progress_callback: Callable[[int], None] | None = None,
+    manifest_path_override: Path | None = None,
 ) -> ScreenRunResult:
     """Run the offline screen over one canonical snapshot."""
 
@@ -219,13 +232,17 @@ def run_screen(
         f"{resolved_snapshot_id[:12]}-"
         f"{_digest(start, requested, commit, config_hash, pool_mode)[:12]}"
     )
-    output_path = layout.root / "screen" / "runs" / f"{run_id}.json"
+    output_path = (
+        manifest_path_override
+        or layout.root / "screen" / "runs" / f"{run_id}.json"
+    )
     cached_exists = output_path.exists()
     states_root = layout.root / "screen" / "states"
     states_root.mkdir(parents=True, exist_ok=True)
     layout.root.joinpath("screen", "runs").mkdir(parents=True, exist_ok=True)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    if output_path.exists():
+    if output_path.exists() and manifest_path_override is None:
         cached = json.loads(output_path.read_text(encoding="utf-8"))
         cached_codes = tuple(cached.get("codes", ()))
         if verify_replay and cached.get("verify_replay_matched") is not True:
@@ -425,8 +442,6 @@ def run_screen(
                     hash_obj.update(b", ")
                 hash_obj.update(row_text.encode("utf-8"))
                 rows_count += 1
-            if progress_callback is not None:
-                progress_callback(len(universe))
     except Exception:
         spool_path.unlink(missing_ok=True)
         raise
