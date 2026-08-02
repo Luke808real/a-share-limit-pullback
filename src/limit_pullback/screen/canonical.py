@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import date, datetime, time, timezone
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 from limit_pullback.models.enums import DataQuality
 from limit_pullback.models.market import (
@@ -159,6 +159,8 @@ def load_canonical_market(
     *,
     snapshot_id: str | None = None,
     as_of: date | None = None,
+    codes: Sequence[str] | None = None,
+    stats: dict[str, Any] | None = None,
 ) -> CanonicalMarketData:
     """Load one immutable canonical snapshot; no network access."""
 
@@ -180,44 +182,18 @@ def load_canonical_market(
             snapshot = metadata.latest_snapshot()
             if snapshot is None:
                 raise ValueError("no dataset snapshot published")
-        daily_rows = read_snapshot_daily(layout, snapshot)
         pool_rows = read_snapshot_pool(layout, snapshot)
 
     fetched_at = FIXED_FETCHED_AT
-    bars_by_code: dict[str, list[DailyBar]] = {}
-    for row in daily_rows:
-        if str(row.get("reconciliation_status")) != "CONFIRMED":
-            continue
-        code = str(row["code"])
-        bars_by_code.setdefault(code, []).append(
-            DailyBar(
-                trade_date=row["trade_date"],
-                code=code,
-                open=Decimal(row["open"]),
-                high=Decimal(row["high"]),
-                low=Decimal(row["low"]),
-                close=Decimal(row["close"]),
-                preclose=Decimal(row["preclose"]),
-                volume=Decimal(row["volume"]),
-                amount=Decimal(row["amount"]),
-                turnover_rate=(
-                    Decimal(row["turnover_rate"])
-                    if row.get("turnover_rate") is not None
-                    else None
-                ),
-                pct_change=(
-                    Decimal(row["pct_change"])
-                    if row.get("pct_change") is not None
-                    else None
-                ),
-                trade_status=bool(row.get("trade_status", True)),
-                is_st=(
-                    bool(row["is_st"]) if row.get("is_st") is not None else None
-                ),
-                source="CANONICAL_SCREEN",
-                fetched_at=fetched_at,
-            )
-        )
+    requested_codes = tuple(sorted(set(codes))) if codes else None
+    bars_by_code = _load_daily_bars_stream(
+        layout,
+        snapshot,
+        codes=requested_codes,
+        as_of=as_of,
+        fetched_at=fetched_at,
+        stats=stats,
+    )
     pool_records = tuple(
         LimitUpRecord(
             trade_date=row["trade_date"],
@@ -264,3 +240,121 @@ def load_canonical_market(
         pool_records=pool_records,
         pool_status=pool_status,
     )
+
+
+def _load_daily_bars_stream(
+    layout: WarehouseLayout,
+    snapshot: SnapshotRecord,
+    *,
+    codes: tuple[str, ...] | None,
+    as_of: date | None,
+    fetched_at: datetime,
+    stats: dict[str, Any] | None,
+) -> dict[str, tuple[DailyBar, ...]]:
+    import pyarrow as pa
+    import pyarrow.compute as pc
+    import pyarrow.parquet as pq
+
+    daily_rel = next(
+        (
+            key
+            for key in snapshot.canonical_file_hashes
+            if key.endswith("/daily_bars/" + snapshot.snapshot_id + ".parquet")
+        ),
+        None,
+    )
+    if daily_rel is None:
+        return {}
+    path = layout.root / daily_rel
+    pf = pq.ParquetFile(path)
+    code_index = pf.schema_arrow.names.index("code")
+    columns = [
+        "code",
+        "trade_date",
+        "open",
+        "high",
+        "low",
+        "close",
+        "preclose",
+        "volume",
+        "amount",
+        "turnover_rate",
+        "pct_change",
+        "trade_status",
+        "is_st",
+        "reconciliation_status",
+    ]
+    row_groups = list(range(pf.metadata.num_row_groups))
+    if codes is not None:
+        selected: list[int] = []
+        for index in row_groups:
+            row_group = pf.metadata.row_group(index)
+            column_stats = row_group.column(code_index).statistics
+            if column_stats is None or column_stats.min is None or column_stats.max is None:
+                selected.append(index)
+                continue
+            lo = str(column_stats.min)
+            hi = str(column_stats.max)
+            if any(lo <= code <= hi for code in codes):
+                selected.append(index)
+        row_groups = selected
+    value_set = pa.array(sorted(codes)) if codes is not None else None
+    bars_by_code: dict[str, list[DailyBar]] = {}
+    rows_read = 0
+    rows_materialized = 0
+    for group in row_groups:
+        for batch in pf.iter_batches(
+            row_groups=[group],
+            columns=columns,
+            batch_size=4096,
+            use_threads=False,
+        ):
+            rows_read += batch.num_rows
+            if value_set is not None:
+                batch = batch.filter(pc.is_in(batch["code"], value_set=value_set))
+            batch = batch.filter(
+                pc.equal(batch["reconciliation_status"], pa.scalar("CONFIRMED"))
+            )
+            if as_of is not None:
+                batch = batch.filter(pc.less_equal(batch["trade_date"], pa.scalar(as_of)))
+            for row in batch.to_pylist():
+                rows_materialized += 1
+                code = str(row["code"])
+                bars_by_code.setdefault(code, []).append(
+                    DailyBar(
+                        trade_date=row["trade_date"],
+                        code=code,
+                        open=Decimal(row["open"]),
+                        high=Decimal(row["high"]),
+                        low=Decimal(row["low"]),
+                        close=Decimal(row["close"]),
+                        preclose=Decimal(row["preclose"]),
+                        volume=Decimal(row["volume"]),
+                        amount=Decimal(row["amount"]),
+                        turnover_rate=(
+                            Decimal(row["turnover_rate"])
+                            if row.get("turnover_rate") is not None
+                            else None
+                        ),
+                        pct_change=(
+                            Decimal(row["pct_change"])
+                            if row.get("pct_change") is not None
+                            else None
+                        ),
+                        trade_status=bool(row.get("trade_status", True)),
+                        is_st=(
+                            bool(row["is_st"])
+                            if row.get("is_st") is not None
+                            else None
+                        ),
+                        source="CANONICAL_SCREEN",
+                        fetched_at=fetched_at,
+                    )
+                )
+    if stats is not None:
+        stats["rows_read"] = rows_read
+        stats["rows_materialized"] = rows_materialized
+    return {
+        code: tuple(sorted(bars, key=lambda bar: bar.trade_date))
+        for code, bars in bars_by_code.items()
+    }
