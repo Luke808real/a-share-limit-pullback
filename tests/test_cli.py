@@ -81,6 +81,29 @@ def test_outcome_study_workers_are_bounded_by_cli_input():
     assert exc_info.value.code == 2
 
 
+def test_diagnosis_arguments_reach_read_only_dispatch(monkeypatch, tmp_path):
+    received = []
+
+    def fake_run(args):
+        received.append((args.episodes_path, args.output_dir))
+        return 0
+
+    monkeypatch.setattr(cli, "_run_diagnosis", fake_run)
+    episodes = tmp_path / "episodes.parquet"
+    output = tmp_path / "diagnosis"
+
+    assert main(
+        [
+            "diagnosis",
+            "--episodes-path",
+            str(episodes),
+            "--output-dir",
+            str(output),
+        ]
+    ) == 0
+    assert received == [(episodes, output)]
+
+
 @pytest.mark.parametrize("command", ("inspect", "replay"))
 @pytest.mark.parametrize("code", ("603318", "002640", "600199", "002891"))
 def test_arbitrary_supported_code_reaches_command_dispatch(

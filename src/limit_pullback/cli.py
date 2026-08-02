@@ -294,6 +294,28 @@ def build_parser() -> argparse.ArgumentParser:
         help="按股票分片的进程数（每只股票内部仍按交易日顺序；上限8）",
     )
 
+    diagnosis_parser = subparsers.add_parser(
+        "diagnosis",
+        help="只读诊断已生成的Phase 2D.0 episodes.parquet",
+    )
+    diagnosis_parser.add_argument(
+        "--episodes-path",
+        required=True,
+        type=Path,
+        help="现有episodes.parquet路径；不会重新回放或下载数据",
+    )
+    diagnosis_parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=None,
+        help="diagnosis.json/diagnosis.md输出目录（默认使用episodes父目录）",
+    )
+    diagnosis_parser.add_argument(
+        "--expected-sha256",
+        default=None,
+        help="期望episodes SHA-256；默认使用冻结Phase 2D.0 hash",
+    )
+
     hardware_parser = subparsers.add_parser(
         "hardware-profile",
         help="探测本机硬件并校验原生 arm64（性能验收前置检查）",
@@ -565,6 +587,35 @@ def _run_outcome_study(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_diagnosis(args: argparse.Namespace) -> int:
+    from limit_pullback.diagnosis import run_diagnosis
+
+    try:
+        payload = run_diagnosis(
+            args.episodes_path,
+            output_dir=args.output_dir,
+            expected_sha256=args.expected_sha256
+            if args.expected_sha256 is not None
+            else None,
+        )
+    except Exception as exc:
+        _print_error(exc)
+        return 1
+    print(
+        json.dumps(
+            {
+                "diagnosis_mode": payload["diagnosis_mode"],
+                "artifact": payload["artifact"],
+                "timing": payload["timing"],
+                "output_files": payload["output_files"],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
+
+
 def _run_hardware_profile(args: argparse.Namespace) -> int:
     from limit_pullback.resources import detect_hardware
 
@@ -613,6 +664,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_trade_plan(args)
     if args.command == "outcome-study":
         return _run_outcome_study(args)
+    if args.command == "diagnosis":
+        return _run_diagnosis(args)
     if args.command == "hardware-profile":
         return _run_hardware_profile(args)
     if args.command is None:
