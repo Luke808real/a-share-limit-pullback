@@ -68,6 +68,7 @@ FILL_DAY_STOP_T1_BLOCKED = "STOP_TRIGGERED_T1_BLOCKED"
 FILL_DAY_STOP_AMBIGUOUS = "AMBIGUOUS_FILL_DAY_STOP_ORDER"
 FILL_DAY_TARGET_NONE = "NONE"
 FILL_DAY_TARGET_MISSED = "MISSED_SAME_DAY_TARGET_T1"
+FILL_DAY_TARGET_ORDER_UNKNOWN = "FILL_DAY_TARGET_ORDER_UNKNOWN"
 PRICE_LIMIT_NOT_MODELED = "PRICE_LIMIT_EXECUTION_NOT_MODELED"
 PRICE_LIMIT_MODELED = "MODELED"
 PRICE_LIMIT_LOCKED = "LOCKED_LIMIT_DOWN_NO_EXIT"
@@ -145,11 +146,15 @@ def _fill_day_states(event, fill_bar: DailyBar) -> tuple[str, str]:
             if fill_bar.low <= event.invalid_price
             else FILL_DAY_STOP_NONE
         )
-    target_state = (
-        FILL_DAY_TARGET_MISSED
-        if fill_bar.high >= event.s1_price
-        else FILL_DAY_TARGET_NONE
-    )
+    if fill_bar.high < event.s1_price:
+        target_state = FILL_DAY_TARGET_NONE
+    elif event.fill_type is FillType.INTRADAY_TOUCH_FILL:
+        # Daily OHLC cannot establish whether an intraday-touch fill happened
+        # before or after a same-day target high.  Keep this informational
+        # state separate from the known post-entry cases.
+        target_state = FILL_DAY_TARGET_ORDER_UNKNOWN
+    else:
+        target_state = FILL_DAY_TARGET_MISSED
     return stop_state, target_state
 
 
@@ -507,6 +512,7 @@ def _stats(rows: Sequence[ExecutionRealityEpisode]) -> dict[str, object]:
         "conservative_loss_R_lt_minus_2": sum(value < Decimal("-2") for value in conservative_r),
         "conservative_loss_R_lt_minus_3": sum(value < Decimal("-3") for value in conservative_r),
         "MISSED_SAME_DAY_TARGET_T1": sum(row.fill_day_target_state == FILL_DAY_TARGET_MISSED for row in filled),
+        "FILL_DAY_TARGET_ORDER_UNKNOWN": sum(row.fill_day_target_state == FILL_DAY_TARGET_ORDER_UNKNOWN for row in filled),
         "STOP_TRIGGERED_T1_BLOCKED": sum(row.fill_day_stop_state == FILL_DAY_STOP_T1_BLOCKED for row in filled),
         "AMBIGUOUS_FILL_DAY_STOP_ORDER": sum(row.fill_day_stop_state == FILL_DAY_STOP_AMBIGUOUS for row in filled),
         "TIMEOUT": sum(row.strict_execution_status == STATUS_TIMEOUT for row in filled),
@@ -537,7 +543,17 @@ def _cohort_rows(rows: Sequence[ExecutionRealityEpisode], name: str) -> list[Exe
 def _tail_summary(rows: Sequence[ExecutionRealityEpisode], name: str) -> dict[str, object]:
     cohort = _cohort_rows(rows, name)
     original_winners = [row for row in cohort if row.outcome is OutcomeStatus.WIN_S1]
-    touched = [row for row in original_winners if row.fill_day_target_state == FILL_DAY_TARGET_MISSED]
+    known_post_entry = [
+        row
+        for row in original_winners
+        if row.fill_day_target_state == FILL_DAY_TARGET_MISSED
+    ]
+    target_order_unknown = [
+        row
+        for row in original_winners
+        if row.fill_day_target_state == FILL_DAY_TARGET_ORDER_UNKNOWN
+    ]
+    touched = known_post_entry
     final = {
         "WIN": sum(row.strict_execution_status == STATUS_RESOLVED and _is_target_exit(row.execution_exit_type) for row in touched),
         "LOSS": sum(row.strict_execution_status == STATUS_RESOLVED and _is_stop_exit(row.execution_exit_type) for row in touched),
@@ -550,8 +566,13 @@ def _tail_summary(rows: Sequence[ExecutionRealityEpisode], name: str) -> dict[st
     final_10bp = _metric_values(large, "net_execution_R_10bp")
     return {
         "original_WIN_count": len(original_winners),
+        "KNOWN_POST_ENTRY_FILL_DAY_TARGET": len(known_post_entry),
+        "TARGET_ORDER_UNKNOWN": len(target_order_unknown),
+        "known_post_entry_fill_day_target_share": _quantize_pct(Decimal(len(known_post_entry)) / Decimal(len(original_winners))) if original_winners else ZERO,
+        "target_order_unknown_share": _quantize_pct(Decimal(len(target_order_unknown)) / Decimal(len(original_winners))) if original_winners else ZERO,
         "fill_day_target_touched_count": len(touched),
         "fill_day_target_touched_share": _quantize_pct(Decimal(len(touched)) / Decimal(len(original_winners))) if original_winners else ZERO,
+        "fill_day_target_touched_definition": "KNOWN_POST_ENTRY_FILL_DAY_TARGET only; TARGET_ORDER_UNKNOWN is excluded",
         "share_denominator": "original_WIN_count",
         "fill_day_target_final_status": final,
         "original_R_ge_10_winner_count": len(large),
@@ -654,7 +675,7 @@ def _render_markdown(summary: ExecutionRealitySummary) -> str:
             "",
             "## Summary JSON",
             "",
-            "```json",
+            "```",
             payload,
             "```",
             "",
@@ -754,6 +775,7 @@ __all__ = [
     "CORRECTED_EPISODES_SHA256",
     "ExecutionRealityEpisode",
     "ExecutionRealitySummary",
+    "FILL_DAY_TARGET_ORDER_UNKNOWN",
     "relabel_execution_episode",
     "run_execution_reality_check",
 ]

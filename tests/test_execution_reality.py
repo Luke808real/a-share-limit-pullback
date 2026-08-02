@@ -7,12 +7,15 @@ from limit_pullback.execution_reality import (
     FILL_DAY_STOP_AMBIGUOUS,
     FILL_DAY_STOP_T1_BLOCKED,
     FILL_DAY_TARGET_MISSED,
+    FILL_DAY_TARGET_ORDER_UNKNOWN,
     PRICE_LIMIT_LOCKED,
     PRICE_LIMIT_NOT_MODELED,
     STATUS_AMBIGUOUS,
     STATUS_CENSORED,
     STATUS_RESOLVED,
     STATUS_TIMEOUT,
+    _tail_summary,
+    _render_markdown,
     relabel_execution_episode,
 )
 from limit_pullback.models.enums import (
@@ -25,6 +28,7 @@ from limit_pullback.models.enums import (
 )
 from limit_pullback.models.market import DailyBar
 from limit_pullback.models.outcome import OutcomeEpisode
+from limit_pullback.models.execution_reality import ExecutionRealitySummary
 
 
 UTC = timezone.utc
@@ -155,6 +159,72 @@ def test_fill_day_target_is_missed_and_cannot_be_same_day_win():
     assert result.fill_day_target_state == FILL_DAY_TARGET_MISSED
     assert result.execution_exit_date != date(2026, 1, 5)
     assert result.strict_execution_status == STATUS_TIMEOUT
+
+
+def test_intraday_touch_fill_day_target_order_is_unknown_not_known_missed():
+    bars = _bars(
+        ("10.50", "11.20", "10.10", "10.80"),
+        *[("10.20", "10.50", "9.90", "10.10")] * 9,
+    )
+    intraday = relabel_execution_episode(
+        _event(fill_type=FillType.INTRADAY_TOUCH_FILL),
+        bars,
+    )
+    open_fill = relabel_execution_episode(_event(fill_type=FillType.OPEN_FILL), bars)
+
+    assert intraday.fill_day_target_state == FILL_DAY_TARGET_ORDER_UNKNOWN
+    assert intraday.fill_day_target_state != FILL_DAY_TARGET_MISSED
+    assert open_fill.fill_day_target_state == FILL_DAY_TARGET_MISSED
+    # The reporting state is informational only; execution outcomes remain
+    # identical for the same daily bars.
+    for field in (
+        "strict_execution_status",
+        "conservative_execution_status",
+        "execution_exit_type",
+        "execution_exit_date",
+        "execution_exit_price",
+        "gross_execution_R",
+        "conservative_gross_execution_R",
+    ):
+        assert getattr(intraday, field) == getattr(open_fill, field)
+
+
+def test_b1_tail_reports_known_and_unknown_fill_day_targets_separately():
+    bars = _bars(
+        ("10.50", "11.20", "10.10", "10.80"),
+        *[("10.20", "10.50", "9.90", "10.10")] * 9,
+    )
+    known = relabel_execution_episode(
+        _event(fill_type=FillType.OPEN_FILL).model_copy(
+            update={"outcome": OutcomeStatus.WIN_S1}
+        ),
+        bars,
+    )
+    unknown = relabel_execution_episode(
+        _event(fill_type=FillType.INTRADAY_TOUCH_FILL).model_copy(
+            update={"outcome": OutcomeStatus.WIN_S1}
+        ),
+        bars,
+    )
+    summary = _tail_summary([known, unknown], "B1_READY_SETUP_GE_80")
+
+    assert summary["KNOWN_POST_ENTRY_FILL_DAY_TARGET"] == 1
+    assert summary["TARGET_ORDER_UNKNOWN"] == 1
+    assert summary["fill_day_target_touched_count"] == 1
+
+
+def test_summary_markdown_uses_plain_fence():
+    summary = ExecutionRealitySummary(
+        snapshot_id="snap-test",
+        source_episodes_sha256="episodes-test",
+        episode_count=0,
+        code_count=0,
+        max_holding_sessions=1,
+        price_limit_execution_model=PRICE_LIMIT_NOT_MODELED,
+    )
+    rendered = _render_markdown(summary)
+    assert "```json" not in rendered
+    assert "```\n" in rendered
 
 
 def test_next_day_gap_below_invalid_allows_loss_less_than_minus_one_r():
