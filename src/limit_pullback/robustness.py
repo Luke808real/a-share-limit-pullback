@@ -79,12 +79,14 @@ def _summary(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
 
 def _temporal_cohorts(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     definitions = {
-        "B1_READY_ALL": "setup_stage == B1_READY",
+        "B1_READY_ALL": (
+            "setup_stage == B1_READY and is_entry_candidate == true"
+        ),
         "B1_READY_SETUP_GE_80": (
-            "setup_stage == B1_READY and setup_quality_score >= 80"
+            "setup_stage == B1_READY and is_entry_candidate == true and setup_quality_score >= 80"
         ),
         "B1_READY_ENTRY_GE_80": (
-            "setup_stage == B1_READY and entry_quality_score >= 80"
+            "setup_stage == B1_READY and is_entry_candidate == true and entry_quality_score >= 80"
         ),
         "B2_READY_ALL": "setup_stage == B2_READY",
         "B2_READY_SETUP_70_80": (
@@ -94,14 +96,25 @@ def _temporal_cohorts(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
 
     def matches(row: Mapping[str, Any], name: str) -> bool:
         stage = row.get("setup_stage")
+        actionable = _is_actionable(row)
         setup = _decimal(row.get("setup_quality_score"))
         entry = _decimal(row.get("entry_quality_score"))
         if name == "B1_READY_ALL":
-            return stage == "B1_READY"
+            return stage == "B1_READY" and actionable
         if name == "B1_READY_SETUP_GE_80":
-            return stage == "B1_READY" and setup is not None and setup >= 80
+            return (
+                stage == "B1_READY"
+                and actionable
+                and setup is not None
+                and setup >= 80
+            )
         if name == "B1_READY_ENTRY_GE_80":
-            return stage == "B1_READY" and entry is not None and entry >= 80
+            return (
+                stage == "B1_READY"
+                and actionable
+                and entry is not None
+                and entry >= 80
+            )
         if name == "B2_READY_ALL":
             return stage == "B2_READY"
         if name == "B2_READY_SETUP_70_80":
@@ -203,7 +216,7 @@ def _concentration(
 ) -> dict[str, Any]:
     cohort = []
     for row in rows:
-        if row.get("setup_stage") != "B1_READY":
+        if row.get("setup_stage") != "B1_READY" or not _is_actionable(row):
             continue
         score = _decimal(row.get(score_field))
         if score is not None and score >= Decimal("80"):
@@ -269,7 +282,7 @@ def _concentration(
     ]
     return {
         "score_field": score_field,
-        "scope": "B1_READY rows with score >= 80",
+        "scope": "actionable B1_READY rows with score >= 80",
         "episodes": len(cohort),
         "unique_codes": len(grouped),
         "resolved_unique_codes": sum(

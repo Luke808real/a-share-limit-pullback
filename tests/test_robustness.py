@@ -67,6 +67,20 @@ def test_fixed_temporal_cohorts_and_score_buckets_are_deterministic():
     assert result["evaluate_strategy_calls"] == 0
 
 
+def test_b1_research_cohorts_require_actionable_flag():
+    rows = [
+        _row(code="000001", actionable=True),
+        _row(code="000002", actionable=False),
+    ]
+    result = analyze_robustness(rows)
+    b1 = result["temporal_stability"]["years"]["2024"]["B1_READY_ALL"]
+    assert b1["episodes"] == 1
+    assert b1["unique_codes"] == 1
+    concentration = result["concentration"]["B1_READY_SETUP_GE_80"]
+    assert concentration["episodes"] == 1
+    assert concentration["unique_codes"] == 1
+
+
 def test_ambiguity_break_even_and_fill_types():
     rows = [
         _row(stage="B2_READY", fill_type="BREAKOUT_GAP_FILL", outcome="WIN_S1", r="1.00"),

@@ -79,6 +79,21 @@ def test_b1_tail_quantiles_caps_and_risk_geometry():
     assert geometry["normal_winners_R_LT_10"]["median_risk_pct"] == "0.1000"
 
 
+def test_non_actionable_b1_is_excluded_from_tail_and_concentration():
+    rows = [
+        _row(code="000001", actionable=True),
+        _row(code="000002", actionable=False),
+    ]
+    result = analyze_tail_gap(rows)
+    tail = result["b1_r_tail_sanity"]["cohorts"]["B1_READY_ALL"]["overall"]
+    assert tail["episodes"] == 1
+    assert tail["risk_geometry"]["episodes"] == 1
+    assert result["b1_exploratory_setup_and_entry_ge_80"]["overall"]["episodes"] == 1
+    concentration = result["concentration"]["B1_SETUP_GE_80"]
+    assert concentration["episodes"] == 1
+    assert concentration["unique_codes"] == 1
+
+
 def test_gap_temporal_trigger_and_concentration():
     rows = [
         _row(stage="B2_READY", setup="75", entry="70", fill_type="BREAKOUT_GAP_FILL", year=2024, r="1.00"),

@@ -45,12 +45,12 @@ QUANTILES = (
 )
 CAPS = (Decimal("3"), Decimal("5"), Decimal("10"))
 TAIL_COHORTS = {
-    "B1_READY_ALL": "setup_stage == B1_READY",
+    "B1_READY_ALL": "setup_stage == B1_READY and is_entry_candidate == true",
     "B1_READY_SETUP_GE_80": (
-        "setup_stage == B1_READY and setup_quality_score >= 80"
+        "setup_stage == B1_READY and is_entry_candidate == true and setup_quality_score >= 80"
     ),
     "B1_READY_ENTRY_GE_80": (
-        "setup_stage == B1_READY and entry_quality_score >= 80"
+        "setup_stage == B1_READY and is_entry_candidate == true and entry_quality_score >= 80"
     ),
 }
 
@@ -66,7 +66,7 @@ def _year(row: Mapping[str, Any]) -> int | None:
 
 
 def _cohort_matches(row: Mapping[str, Any], name: str) -> bool:
-    if row.get("setup_stage") != "B1_READY":
+    if row.get("setup_stage") != "B1_READY" or not _is_actionable(row):
         return False
     if name == "B1_READY_ALL":
         return True
@@ -206,11 +206,12 @@ def _exploratory_b1(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         row
         for row in rows
         if row.get("setup_stage") == "B1_READY"
+        and _is_actionable(row)
         and (_decimal(row.get("setup_quality_score")) or Decimal("-1")) >= Decimal("80")
         and (_decimal(row.get("entry_quality_score")) or Decimal("-1")) >= Decimal("80")
     ]
     return {
-        "definition": "setup_stage == B1_READY and setup_quality_score >= 80 and entry_quality_score >= 80",
+        "definition": "setup_stage == B1_READY and is_entry_candidate == true and setup_quality_score >= 80 and entry_quality_score >= 80",
         "overall": _tail_metrics(cohort),
         "years": {str(year): _tail_metrics([row for row in cohort if _year(row) == year]) for year in YEARS},
     }
@@ -277,6 +278,7 @@ def _code_concentration(rows: Sequence[Mapping[str, Any]], score_field: str) -> 
         row
         for row in rows
         if row.get("setup_stage") == "B1_READY"
+        and _is_actionable(row)
         and (_decimal(row.get(score_field)) or Decimal("-1")) >= Decimal("80")
     ]
     grouped: dict[str, list[Mapping[str, Any]]] = {}
