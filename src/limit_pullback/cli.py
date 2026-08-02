@@ -214,6 +214,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     validate_parser.add_argument("--data-root", type=Path, default=None)
     validate_parser.add_argument("--snapshot", default=None)
+    validate_parser.add_argument(
+        "--workers",
+        type=int,
+        choices=(1, 3, 4),
+        default=3,
+        help="受控校验进程数（默认3；仅允许1/3/4）",
+    )
 
     screen_parser = subparsers.add_parser(
         "screen",
@@ -535,7 +542,11 @@ def _run_data_validate(args: argparse.Namespace) -> int:
 
     layout = WarehouseLayout(resolve_data_root(args.data_root))
     try:
-        result = data_validate(layout, snapshot_id=args.snapshot)
+        result = data_validate(
+            layout,
+            snapshot_id=args.snapshot,
+            workers=args.workers,
+        )
     except Exception as exc:
         _print_error(exc)
         return 1

@@ -195,6 +195,13 @@ class ValidationResult(DomainModel):
     valid: bool
     snapshot_id: str | None = None
     issues: tuple[ValidationIssue, ...] = ()
+    issue_artifact_path: str | None = None
+    issue_count: int = 0
+    check_counts: dict[str, int] = {}
+    output_hash: str | None = None
+    workers: int = 1
+    peak_rss_bytes: int | None = None
+    notes: tuple[str, ...] = ()
 
 
 class BootstrapResult(DomainModel):

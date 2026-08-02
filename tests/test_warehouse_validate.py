@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
+from pathlib import Path
 
 import pyarrow.parquet as pq
 
@@ -178,3 +179,41 @@ def test_previous_close_index_matches_legacy_scan_exactly():
     ) == continuity_issues(
         lambda provider, code, trade_date: indexed[provider].get((code, trade_date))
     )
+
+
+def test_validate_workers_are_deterministic(tmp_path):
+    layout, _ = _bootstrap(tmp_path)
+
+    single = data_validate(layout, workers=1)
+    parallel = data_validate(layout, workers=3)
+
+    assert single.valid is True
+    assert parallel.valid is True
+    assert single.issues == parallel.issues
+    assert single.check_counts == parallel.check_counts
+    assert single.output_hash == parallel.output_hash
+    assert parallel.workers == 3
+    assert parallel.issue_artifact_path is not None
+    assert Path(parallel.issue_artifact_path).exists()
+
+
+def test_validate_workers_deterministic_with_issues(tmp_path):
+    layout, result = _bootstrap(tmp_path)
+    path = layout.canonical_daily_dir / f"{result.snapshot_id}.parquet"
+    table = pq.read_table(path)
+    rows = table.to_pylist()
+    rows[0]["close"] = Decimal("99.99")
+    from limit_pullback.warehouse.parquet import write_rows_atomic
+
+    write_rows_atomic(rows, table.schema, path)
+
+    single = data_validate(layout, workers=1)
+    parallel = data_validate(layout, workers=3)
+
+    assert single.valid is False
+    assert parallel.valid is False
+    assert single.issues == parallel.issues
+    assert single.check_counts == parallel.check_counts
+    assert single.output_hash == parallel.output_hash
+    assert "ROW_HASH" in {issue.check for issue in single.issues}
+    assert "CANONICAL_FILE_HASH" in {issue.check for issue in single.issues}
