@@ -187,6 +187,7 @@ def run_screen(
     pool_debug: bool = False,
     clock: Callable[[], datetime] = _now_utc,
     strategy_commit: str | None = None,
+    progress_callback: Callable[[int], None] | None = None,
 ) -> ScreenRunResult:
     """Run the offline screen over one canonical snapshot."""
 
@@ -424,6 +425,8 @@ def run_screen(
                     hash_obj.update(b", ")
                 hash_obj.update(row_text.encode("utf-8"))
                 rows_count += 1
+            if progress_callback is not None:
+                progress_callback(len(universe))
     except Exception:
         spool_path.unlink(missing_ok=True)
         raise

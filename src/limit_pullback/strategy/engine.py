@@ -34,7 +34,7 @@ from limit_pullback.models.strategy import (
     PriceCluster,
 )
 from limit_pullback.strategy.math import calculate_indicators
-from limit_pullback.strategy.indicators import IndicatorPrefixView
+from limit_pullback.strategy.indicators import IndicatorPrefixView, SequencePrefixView
 from limit_pullback.strategy.patterns import evaluate_patterns
 from limit_pullback.strategy.scoring import build_score
 from limit_pullback.strategy.structure import (
@@ -612,10 +612,13 @@ def evaluate_strategy(
 ) -> StrategySignal:
     """Evaluate one code as of one close, using only supplied data at or before T."""
 
-    ordered = tuple(sorted(
-        (bar for bar in bars if bar.trade_date <= as_of),
-        key=lambda bar: bar.trade_date,
-    ))
+    if isinstance(bars, SequencePrefixView):
+        ordered = bars
+    else:
+        ordered = tuple(sorted(
+            (bar for bar in bars if bar.trade_date <= as_of),
+            key=lambda bar: bar.trade_date,
+        ))
     if not ordered or ordered[-1].trade_date != as_of:
         raise ValueError("bars must contain an observation exactly on as_of")
     if len({bar.code for bar in ordered}) != 1:

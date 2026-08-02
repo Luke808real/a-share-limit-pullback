@@ -4,7 +4,7 @@ from datetime import date
 
 import pytest
 
-from limit_pullback.strategy.indicators import IndicatorPrefixView
+from limit_pullback.strategy.indicators import IndicatorPrefixView, SequencePrefixView
 
 
 def _points(count: int):
@@ -36,3 +36,19 @@ def test_prefix_view_rejects_bad_end():
         IndicatorPrefixView(points, 11)
     with pytest.raises(ValueError):
         IndicatorPrefixView(points, -1)
+
+
+def test_sequence_prefix_view_zero_copy_slices():
+    values = list(range(120))
+    view = SequencePrefixView(values, 0, 100)
+    assert len(view) == 100
+    assert view[-1] == 99
+    assert list(view[:]) == list(range(100))
+    nested = view[10:90]
+    assert isinstance(nested, SequencePrefixView)
+    assert len(nested) == 80
+    assert nested[0] == 10
+    assert nested[-1] == 89
+    assert list(view[-20:]) == list(range(80, 100))
+    assert list(view[90:200]) == list(range(90, 100))
+    assert list(view[10:20:2]) == list(range(10, 20, 2))

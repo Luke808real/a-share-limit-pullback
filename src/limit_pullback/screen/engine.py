@@ -18,6 +18,7 @@ from limit_pullback.models.replay import ReplayTimelineItem
 from limit_pullback.models.signal import StrategySignal
 from limit_pullback.quality import merge_signal_quality, timeline_item
 from limit_pullback.strategy.engine import evaluate_strategy
+from limit_pullback.strategy.indicators import SequencePrefixView
 from limit_pullback.strategy.math import calculate_indicators
 
 POOL_STATUS_CONFIRMED = "CONFIRMED"
@@ -81,7 +82,7 @@ def screen_code(
             break
         if last_processed is not None and current.trade_date <= last_processed:
             continue
-        bars_up_to_date = ordered[: index + 1]
+        bars_up_to_date = SequencePrefixView(ordered, 0, index + 1)
         pool_up_to_date = tuple(
             record
             for record in code_pool
