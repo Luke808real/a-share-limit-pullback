@@ -21,7 +21,7 @@ from limit_pullback.models.enums import (
     PatternOutcome,
     SetupStage,
 )
-from limit_pullback.models.outcome import OutcomeStudyConfig
+from limit_pullback.models.outcome import OutcomeStudyConfig, OutcomeStudySummary
 from tests.synthetic_data import make_bar
 
 
@@ -183,6 +183,170 @@ def test_intraday_touch_same_day_invalid_and_target_is_ambiguous():
     assert result.fill_type is FillType.INTRADAY_TOUCH_FILL
     assert result.outcome is OutcomeStatus.AMBIGUOUS_INTRADAY
     assert result.conservative_r_multiple == Decimal("-1")
+
+
+def test_open_fill_holding_window_includes_fill_session_only():
+    signal_date = date(2026, 7, 28)
+    bars = _bars(
+        ("2026-07-28", "10.00", "10.10", "9.90", "10.00", "10.00", "100"),
+        ("2026-07-29", "10.00", "10.20", "9.90", "10.00", "10.00", "100"),
+        ("2026-07-30", "10.00", "10.30", "9.90", "10.00", "10.00", "100"),
+        ("2026-07-31", "10.00", "10.30", "9.90", "10.00", "10.00", "100"),
+        ("2026-08-03", "10.00", "11.20", "9.90", "11.00", "10.00", "100"),
+    )
+    result = outcome._complete_event(
+        _event(signal_date=signal_date),
+        bars,
+        OutcomeStudyConfig(forward_horizons=(1,), max_holding_sessions=3),
+    )
+    assert result.outcome is OutcomeStatus.TIMEOUT
+    assert result.holding_sessions_to_resolution == 3
+    assert result.holding_sessions_to_resolution <= 3
+    assert result.mfe_pct == Decimal("0.0300")
+
+
+def test_intraday_touch_holding_window_does_not_gain_an_extra_session():
+    signal_date = date(2026, 7, 28)
+    bars = _bars(
+        ("2026-07-28", "10.00", "10.10", "9.90", "10.00", "10.00", "100"),
+        ("2026-07-29", "10.50", "10.80", "10.00", "10.60", "10.00", "100"),
+        ("2026-07-30", "10.60", "10.70", "10.00", "10.60", "10.60", "100"),
+        ("2026-07-31", "10.60", "10.80", "10.00", "10.60", "10.60", "100"),
+        ("2026-08-03", "10.60", "11.20", "10.00", "11.00", "10.60", "100"),
+    )
+    result = outcome._complete_event(
+        _event(signal_date=signal_date),
+        bars,
+        OutcomeStudyConfig(forward_horizons=(1,), max_holding_sessions=3),
+    )
+    assert result.fill_type is FillType.INTRADAY_TOUCH_FILL
+    assert result.outcome is OutcomeStatus.TIMEOUT
+    assert result.holding_sessions_to_resolution == 3
+    assert result.holding_sessions_to_resolution <= 3
+    # Outcome and excursion windows stop at 2026-07-31; 2026-08-03 is absent.
+    assert result.mfe_pct == Decimal("0.0800")
+    assert result.mae_pct == Decimal("0.0000")
+
+
+def test_intraday_touch_target_on_last_allowed_session_wins():
+    signal_date = date(2026, 7, 28)
+    bars = _bars(
+        ("2026-07-28", "10.00", "10.10", "9.90", "10.00", "10.00", "100"),
+        ("2026-07-29", "10.50", "10.80", "10.00", "10.60", "10.00", "100"),
+        ("2026-07-30", "10.60", "10.70", "10.00", "10.60", "10.60", "100"),
+        ("2026-07-31", "10.60", "11.20", "10.00", "11.00", "10.60", "100"),
+        ("2026-08-03", "10.60", "11.30", "10.00", "11.10", "10.60", "100"),
+    )
+    result = outcome._complete_event(
+        _event(signal_date=signal_date),
+        bars,
+        OutcomeStudyConfig(forward_horizons=(1,), max_holding_sessions=3),
+    )
+    assert result.outcome is OutcomeStatus.WIN_S1
+    assert result.holding_sessions_to_resolution == 3
+    assert result.holding_sessions_to_resolution <= 3
+
+
+def test_intraday_touch_max_one_ends_on_fill_session():
+    signal_date = date(2026, 7, 28)
+    bars = _bars(
+        ("2026-07-28", "10.00", "10.10", "9.90", "10.00", "10.00", "100"),
+        ("2026-07-29", "10.50", "10.80", "10.00", "10.60", "10.00", "100"),
+        ("2026-07-30", "10.60", "11.20", "10.00", "11.00", "10.60", "100"),
+    )
+    result = outcome._complete_event(
+        _event(signal_date=signal_date),
+        bars,
+        OutcomeStudyConfig(forward_horizons=(1,), max_holding_sessions=1),
+    )
+    assert result.outcome is OutcomeStatus.TIMEOUT
+    assert result.holding_sessions_to_resolution == 1
+
+
+def test_group_stats_keep_actionable_and_structural_cohorts_separate():
+    signal_date = date(2026, 7, 28)
+    bars = _bars(
+        ("2026-07-28", "10.00", "10.10", "9.90", "10.00", "10.00", "100"),
+        ("2026-07-29", "10.00", "11.10", "9.95", "10.80", "10.00", "100"),
+    )
+    actionable = outcome._complete_event(_event(signal_date=signal_date), bars, OutcomeStudyConfig())
+    structural_only = outcome._complete_event(
+        replace(
+            _event(signal_date=signal_date),
+            is_entry_candidate=False,
+            setup_quality_score=Decimal("85"),
+        ),
+        bars,
+        OutcomeStudyConfig(),
+    )
+    events = [actionable, structural_only]
+    actionable_groups = outcome._group_stats(
+        events,
+        lambda event: outcome._group_bucket(event.setup_quality_score),
+        actionable_only=True,
+        expected_keys=outcome.QUALITY_GROUP_KEYS,
+    )
+    structural_groups = outcome._group_stats(
+        events,
+        lambda event: outcome._group_bucket(event.setup_quality_score),
+        expected_keys=outcome.QUALITY_GROUP_KEYS,
+    )
+    assert tuple(actionable_groups) == outcome.QUALITY_GROUP_KEYS
+    assert actionable_groups["70-80"].episodes == 1
+    assert actionable_groups[">=80"].episodes == 0
+    assert structural_groups["70-80"].episodes == 1
+    assert structural_groups[">=80"].episodes == 1
+    days_groups = outcome._group_stats(
+        events,
+        lambda event: outcome._days_bucket(event.days_since_anchor),
+        actionable_only=True,
+        expected_keys=outcome.DAYS_GROUP_KEYS,
+    )
+    assert tuple(days_groups) == outcome.DAYS_GROUP_KEYS
+    assert days_groups["D+2"].episodes == 1
+
+
+def test_summary_legacy_groups_are_actionable_and_markdown_orders_cohorts():
+    empty = outcome._stats([])
+    stage = {"B1_READY": empty}
+    quality = {key: empty for key in outcome.QUALITY_GROUP_KEYS}
+    days = {key: empty for key in outcome.DAYS_GROUP_KEYS}
+    summary = OutcomeStudySummary(
+        snapshot_id="snap-test",
+        start=date(2026, 1, 1),
+        end=date(2026, 1, 2),
+        confirmed_date_count=0,
+        confirmed_code_count=0,
+        provisional_only_date_count=0,
+        raw_signal_days=0,
+        episode_count=0,
+        b1_prep_episodes=0,
+        stage_stats=stage,
+        actionable_stage_stats=stage,
+        structural_stage_stats=stage,
+        actionable_setup_quality_groups=quality,
+        actionable_entry_quality_groups=quality,
+        actionable_days_since_anchor_groups=days,
+        structural_setup_quality_groups=quality,
+        structural_entry_quality_groups=quality,
+        structural_days_since_anchor_groups=days,
+        setup_quality_groups=quality,
+        entry_quality_groups=quality,
+        days_since_anchor_groups=days,
+        strategy_commit="commit",
+        strategy_config_hash="strategy",
+        trade_plan_config_hash="trade",
+        outcome_config_hash="outcome",
+    )
+    assert summary.setup_quality_groups == summary.actionable_setup_quality_groups
+    assert summary.entry_quality_groups == summary.actionable_entry_quality_groups
+    assert summary.days_since_anchor_groups == summary.actionable_days_since_anchor_groups
+    markdown = outcome._summary_markdown(summary)
+    assert markdown.index("ACTIONABLE setup_quality groups") < markdown.index(
+        "STRUCTURAL setup_quality groups"
+    )
+    assert "strict resolved expectancy R" in markdown
+    assert "conservative resolved expectancy R" in markdown
 
 
 def test_resolved_strict_and_conservative_expectancy_are_explicit():
@@ -430,7 +594,7 @@ def test_worker_diagnostics_do_not_change_deterministic_replay_payload(project_r
     tasks = [task, {**task, "code": "603919"}]
     serial = [outcome._replay_code(**item) for item in tasks]
     with ProcessPoolExecutor(
-        max_workers=2,
+        max_workers=8,
         mp_context=mp.get_context("spawn"),
     ) as executor:
         parallel = [future.result(timeout=30) for future in [

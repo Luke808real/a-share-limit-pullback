@@ -154,6 +154,12 @@ class OutcomeStudySummary(DomainModel):
     stage_stats: dict[str, OutcomeStats]
     actionable_stage_stats: dict[str, OutcomeStats] = {}
     structural_stage_stats: dict[str, OutcomeStats] = {}
+    actionable_setup_quality_groups: dict[str, OutcomeStats] = {}
+    actionable_entry_quality_groups: dict[str, OutcomeStats] = {}
+    actionable_days_since_anchor_groups: dict[str, OutcomeStats] = {}
+    structural_setup_quality_groups: dict[str, OutcomeStats] = {}
+    structural_entry_quality_groups: dict[str, OutcomeStats] = {}
+    structural_days_since_anchor_groups: dict[str, OutcomeStats] = {}
     setup_quality_groups: dict[str, OutcomeStats] = {}
     entry_quality_groups: dict[str, OutcomeStats] = {}
     days_since_anchor_groups: dict[str, OutcomeStats] = {}

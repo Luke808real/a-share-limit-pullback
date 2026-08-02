@@ -67,6 +67,8 @@ TARGET_LABELS = frozenset(
         ExecutionLabel.B2_CONFIRMED,
     }
 )
+QUALITY_GROUP_KEYS = ("<60", "60-70", "70-80", ">=80")
+DAYS_GROUP_KEYS = ("D+1", "D+2", "D+3", "D+4", "D+5+")
 
 
 def _git_head() -> str:
@@ -592,14 +594,26 @@ def _complete_event(
                 r_value = Decimal("-1")
                 conservative_r = Decimal("-1")
         else:
-            outcome, resolution_date, exit_price, holding, r_value, conservative_r = _trigger_outcome(
-                future[1:],
-                max_holding_sessions=config.max_holding_sessions,
-                s1=event.s1_price,
-                invalid=event.invalid_price,
-            )
-            if holding is not None:
-                holding += 1
+            remaining_sessions = config.max_holding_sessions - 1
+            if remaining_sessions == 0:
+                # The fill session is the complete holding window.  Its high
+                # is intentionally unusable for an intraday touch, so with
+                # no later session there is no target/invalid resolution.
+                outcome = OutcomeStatus.TIMEOUT
+                resolution_date = first.trade_date
+                exit_price = None
+                holding = 1
+                r_value = None
+                conservative_r = None
+            else:
+                outcome, resolution_date, exit_price, holding, r_value, conservative_r = _trigger_outcome(
+                    future[1:],
+                    max_holding_sessions=remaining_sessions,
+                    s1=event.s1_price,
+                    invalid=event.invalid_price,
+                )
+                if holding is not None:
+                    holding += 1
     else:
         outcome, resolution_date, exit_price, holding, r_value, conservative_r = _trigger_outcome(
             future,
@@ -756,6 +770,27 @@ def _days_bucket(days: int | None) -> str:
     return f"D+{days}" if days <= 4 else "D+5+"
 
 
+def _group_stats(
+    events: Sequence[OutcomeEpisode],
+    key_fn,
+    *,
+    actionable_only: bool = False,
+    expected_keys: Sequence[str] = (),
+) -> dict[str, OutcomeStats]:
+    """Aggregate one diagnostic dimension without mixing cohorts."""
+
+    groups: dict[str, list[OutcomeEpisode]] = {
+        key: [] for key in expected_keys
+    }
+    for event in events:
+        if actionable_only and not event.is_entry_candidate:
+            continue
+        groups.setdefault(key_fn(event), []).append(event)
+    ordered_keys = [key for key in expected_keys if key in groups]
+    ordered_keys.extend(sorted(key for key in groups if key not in expected_keys))
+    return {key: _stats(groups[key]) for key in ordered_keys}
+
+
 def _summary_markdown(summary: OutcomeStudySummary) -> str:
     lines = [
         "# Phase 2D.0 Signal Outcome Study",
@@ -796,8 +831,55 @@ def _summary_markdown(summary: OutcomeStudySummary) -> str:
 
     append_stats("Actionable stage outcomes", summary.actionable_stage_stats)
     append_stats("Structural stage outcomes", summary.structural_stage_stats)
+
+    def append_group(title: str, groups: dict[str, OutcomeStats]) -> None:
+        if lines and lines[-1] != "":
+            lines.append("")
+        lines.extend(
+            [
+                f"## {title}",
+                "",
+                "| group | episodes | eligible | filled | fill rate | strict win | conservative win | strict resolved expectancy R | conservative resolved expectancy R |",
+                "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+            ]
+        )
+        for group, stats in groups.items():
+            lines.append(
+                f"| {group} | {stats.episodes} | {stats.eligible} | "
+                f"{stats.filled} | {stats.fill_rate} | "
+                f"{stats.strict_win_rate} | {stats.conservative_win_rate} | "
+                f"{stats.strict_resolved_expectancy_r} | "
+                f"{stats.conservative_resolved_expectancy_r} |"
+            )
+
+    append_group(
+        "ACTIONABLE setup_quality groups",
+        summary.actionable_setup_quality_groups,
+    )
+    append_group(
+        "ACTIONABLE entry_quality groups",
+        summary.actionable_entry_quality_groups,
+    )
+    append_group(
+        "ACTIONABLE days_since_anchor groups",
+        summary.actionable_days_since_anchor_groups,
+    )
+    append_group(
+        "STRUCTURAL setup_quality groups",
+        summary.structural_setup_quality_groups,
+    )
+    append_group(
+        "STRUCTURAL entry_quality groups",
+        summary.structural_entry_quality_groups,
+    )
+    append_group(
+        "STRUCTURAL days_since_anchor groups",
+        summary.structural_days_since_anchor_groups,
+    )
     lines.extend(
         [
+            "",
+            "Legacy setup_quality_groups/entry_quality_groups/days_since_anchor_groups are ACTIONABLE aliases.",
             "",
             "Strict expectancy excludes AMBIGUOUS_INTRADAY and TIMEOUT from its resolved denominator.",
             "Conservative expectancy counts AMBIGUOUS_INTRADAY as -1R; TIMEOUT is excluded.",
@@ -1359,11 +1441,39 @@ def run_outcome_study(
         )
         pattern_success[f"{horizon}d"] = dict(sorted(counts.items()))
 
-    def grouped(key_fn) -> dict[str, OutcomeStats]:
-        groups: dict[str, list[OutcomeEpisode]] = defaultdict(list)
-        for event in target_events:
-            groups[key_fn(event)].append(event)
-        return {key: _stats(value) for key, value in sorted(groups.items())}
+    actionable_setup_quality_groups = _group_stats(
+        target_events,
+        lambda event: _group_bucket(event.setup_quality_score),
+        actionable_only=True,
+        expected_keys=QUALITY_GROUP_KEYS,
+    )
+    actionable_entry_quality_groups = _group_stats(
+        target_events,
+        lambda event: _group_bucket(event.entry_quality_score),
+        actionable_only=True,
+        expected_keys=QUALITY_GROUP_KEYS,
+    )
+    actionable_days_since_anchor_groups = _group_stats(
+        target_events,
+        lambda event: _days_bucket(event.days_since_anchor),
+        actionable_only=True,
+        expected_keys=DAYS_GROUP_KEYS,
+    )
+    structural_setup_quality_groups = _group_stats(
+        target_events,
+        lambda event: _group_bucket(event.setup_quality_score),
+        expected_keys=QUALITY_GROUP_KEYS,
+    )
+    structural_entry_quality_groups = _group_stats(
+        target_events,
+        lambda event: _group_bucket(event.entry_quality_score),
+        expected_keys=QUALITY_GROUP_KEYS,
+    )
+    structural_days_since_anchor_groups = _group_stats(
+        target_events,
+        lambda event: _days_bucket(event.days_since_anchor),
+        expected_keys=DAYS_GROUP_KEYS,
+    )
 
     status_started = perf_counter()
     provisional_dates = 0
@@ -1426,9 +1536,17 @@ def run_outcome_study(
         stage_stats=stage_stats,
         actionable_stage_stats=actionable_stage_stats,
         structural_stage_stats=structural_stage_stats,
-        setup_quality_groups=grouped(lambda event: _group_bucket(event.setup_quality_score)),
-        entry_quality_groups=grouped(lambda event: _group_bucket(event.entry_quality_score)),
-        days_since_anchor_groups=grouped(lambda event: _days_bucket(event.days_since_anchor)),
+        actionable_setup_quality_groups=actionable_setup_quality_groups,
+        actionable_entry_quality_groups=actionable_entry_quality_groups,
+        actionable_days_since_anchor_groups=actionable_days_since_anchor_groups,
+        structural_setup_quality_groups=structural_setup_quality_groups,
+        structural_entry_quality_groups=structural_entry_quality_groups,
+        structural_days_since_anchor_groups=structural_days_since_anchor_groups,
+        # Legacy names are intentionally aliases of the primary actionable
+        # cohort, never the mixed structural population.
+        setup_quality_groups=actionable_setup_quality_groups,
+        entry_quality_groups=actionable_entry_quality_groups,
+        days_since_anchor_groups=actionable_days_since_anchor_groups,
         pattern_success=pattern_success,
         audit={
             **audit,
