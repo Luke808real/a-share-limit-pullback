@@ -2038,6 +2038,7 @@ def run_outcome_relabel(
             "frozen_field_differences": 0,
             "old_episodes_sha256": actual_sha256,
             "new_episodes_sha256": corrected_sha256,
+            "old_baseline_status": "SUPERSEDED_FOR_B2_EXECUTION_OUTCOME",
             "future_bar_leakage": False,
         }
     )
