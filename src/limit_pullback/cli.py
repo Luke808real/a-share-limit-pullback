@@ -545,27 +545,52 @@ def _run_data_validate(args: argparse.Namespace) -> int:
 
 def _run_screen(args: argparse.Namespace) -> int:
     from limit_pullback.screen.runner import run_screen
+    from limit_pullback.screen.chunks import run_chunked_screen
     from limit_pullback.warehouse.layout import WarehouseLayout
 
     layout = WarehouseLayout(resolve_data_root(args.data_root))
     try:
-        result = run_screen(
-            layout=layout,
-            as_of=args.as_of,
-            snapshot_id=args.snapshot_id,
-            start=args.start,
-            rebuild=args.rebuild,
-            codes=args.codes or (),
-            config_path=args.config,
-            lookback_calendar_days=args.lookback_calendar_days,
-            verify_replay=args.verify_replay,
-            pool_debug=args.pool_debug,
-        )
+        if _use_chunked_path(args):
+            result = run_chunked_screen(
+                layout=layout,
+                as_of=args.as_of,
+                snapshot_id=args.snapshot_id,
+                start=args.start,
+                config_path=args.config,
+                pool_mode="debug" if args.pool_debug else "formal",
+            )
+        else:
+            result = run_screen(
+                layout=layout,
+                as_of=args.as_of,
+                snapshot_id=args.snapshot_id,
+                start=args.start,
+                rebuild=args.rebuild,
+                codes=args.codes or (),
+                config_path=args.config,
+                lookback_calendar_days=args.lookback_calendar_days,
+                verify_replay=args.verify_replay,
+                pool_debug=args.pool_debug,
+            )
     except Exception as exc:
         _print_error(exc)
         return 1
-    print(result.model_dump_json(indent=2))
+    if isinstance(result, dict):
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+    else:
+        print(result.model_dump_json(indent=2))
     return 0
+
+
+def _use_chunked_path(args: argparse.Namespace) -> bool:
+    """Auto-route full-market cold rebuilds through the process-isolated path."""
+
+    return (
+        args.rebuild
+        and not args.codes
+        and not args.verify_replay
+        and args.lookback_calendar_days == 400
+    )
 
 
 def _run_trade_plan(args: argparse.Namespace) -> int:

@@ -39,6 +39,8 @@ from limit_pullback.quality import (
     worst_quality as _worst_quality,
 )
 from limit_pullback.strategy.engine import evaluate_strategy
+from limit_pullback.strategy.indicators import SequencePrefixView
+from limit_pullback.strategy.math import calculate_indicators
 from limit_pullback.strategy.structure import is_limit_close
 
 
@@ -217,6 +219,7 @@ def replay_stock(
         raise ValueError(f"daily source returned no usable bars for {code}")
     if len({bar.trade_date for bar in bars}) != len(bars):
         raise ValueError("daily source returned duplicate trade dates")
+    full_indicators = calculate_indicators(bars, config.indicators)
 
     candidate_pool_dates = tuple(sorted({
         bar.trade_date
@@ -263,7 +266,7 @@ def replay_stock(
     timeline: list[ReplayTimelineItem] = []
     all_timeline: list[ReplayTimelineItem] = []
     for index, current in enumerate(bars):
-        bars_up_to_trade_date = bars[: index + 1]
+        bars_up_to_trade_date = SequencePrefixView(bars, 0, index + 1)
         pool_up_to_trade_date = tuple(
             record
             for record in pool_records
@@ -276,6 +279,8 @@ def replay_stock(
             generated_at=clock(),
             limit_pool=pool_up_to_trade_date,
             previous_signal=previous_signal,
+            precomputed_indicators=full_indicators,
+            indicator_end_index=index + 1,
         )
         daily_prefix_flags = tuple(
             flag
