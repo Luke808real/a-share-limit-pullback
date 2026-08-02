@@ -1,0 +1,17 @@
+sandbox_mode = "danger-full-access"
+
+[agents]
+max_threads = 4
+max_depth = 1
+
+[agents.code-reader]
+description = "Read-only code and test inspection."
+config_file = "agents/code-reader.toml"
+
+[agents.data-reader]
+description = "Read-only data, fixture, and provenance inspection."
+config_file = "agents/data-reader.toml"
+
+[agents.adversarial-reviewer]
+description = "Read-only adversarial review before final validation."
+config_file = "agents/adversarial-reviewer.toml"

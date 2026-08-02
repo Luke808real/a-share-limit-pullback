@@ -18,8 +18,14 @@ htmlcov/
 build/
 dist/
 
-# Local Codex desktop environment metadata.
+# Local Codex desktop environment metadata. Keep the project-scoped workflow
+# contract below versioned; leave session handoffs and other local state ignored.
 .codex/
+!.codex/
+.codex/*
+!.codex/config.toml
+!.codex/agents/
+!.codex/agents/*.toml
 
 # Phase 2C.2A local market-data warehouse (real data never committed).
 data/
