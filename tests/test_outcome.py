@@ -86,6 +86,262 @@ def _event(
     )
 
 
+def _b2_event(
+    *,
+    signal_date: date,
+    trigger: str = "11.51",
+    invalid: str = "10.37",
+    s1: str = "12.00",
+    actionable: bool = True,
+) -> outcome._FrozenEvent:
+    trigger_price = Decimal(trigger)
+    return replace(
+        _event(
+            signal_date=signal_date,
+            preferred=trigger,
+            invalid=invalid,
+            s1=s1,
+            label=ExecutionLabel.B2_READY,
+        ),
+        setup_stage=SetupStage.B2_READY,
+        b2_trigger_price=trigger_price,
+        is_entry_candidate=actionable,
+    )
+
+
+def test_b2_ready_breakout_without_trigger_is_no_fill():
+    signal_date = date(2026, 7, 30)
+    bars = _bars(
+        ("2026-07-30", "10.00", "10.10", "9.90", "10.00", "10.00", "100"),
+        ("2026-07-31", "10.68", "11.40", "10.50", "11.00", "10.00", "100"),
+    )
+    result = outcome._complete_event(
+        _b2_event(signal_date=signal_date), bars, OutcomeStudyConfig()
+    )
+    assert result.fill_status is FillStatus.NO_FILL
+    assert result.fill_type is FillType.NONE
+    assert result.outcome is OutcomeStatus.NO_FILL
+
+
+def test_b2_ready_breakout_trigger_fills_at_trigger_not_open():
+    signal_date = date(2026, 7, 30)
+    bars = _bars(
+        ("2026-07-30", "10.00", "10.10", "9.90", "10.00", "10.00", "100"),
+        ("2026-07-31", "10.68", "12.20", "10.50", "11.80", "10.00", "100"),
+    )
+    result = outcome._complete_event(
+        _b2_event(signal_date=signal_date), bars, OutcomeStudyConfig()
+    )
+    assert result.fill_type is FillType.BREAKOUT_TRIGGER_FILL
+    assert result.fill_price == Decimal("11.51")
+    assert result.outcome is OutcomeStatus.WIN_S1
+    assert result.fill_price != Decimal("10.68")
+
+
+def test_b2_ready_gap_breakout_fills_at_open():
+    signal_date = date(2026, 7, 30)
+    bars = _bars(
+        ("2026-07-30", "10.00", "10.10", "9.90", "10.00", "10.00", "100"),
+        ("2026-07-31", "11.60", "12.20", "11.50", "12.00", "10.00", "100"),
+    )
+    result = outcome._complete_event(
+        _b2_event(signal_date=signal_date), bars, OutcomeStudyConfig()
+    )
+    assert result.fill_type is FillType.BREAKOUT_GAP_FILL
+    assert result.fill_price == Decimal("11.60")
+    assert result.outcome is OutcomeStatus.WIN_S1
+
+
+def test_b2_trigger_fill_includes_high_but_excludes_fill_day_low_from_mae():
+    signal_date = date(2026, 7, 30)
+    bars = _bars(
+        ("2026-07-30", "10.00", "10.10", "9.90", "10.00", "10.00", "100"),
+        ("2026-07-31", "10.68", "12.20", "10.50", "11.80", "10.00", "100"),
+        ("2026-08-03", "11.80", "11.90", "11.40", "11.70", "11.80", "100"),
+    )
+    result = outcome._complete_event(
+        _b2_event(signal_date=signal_date, s1="12.50"),
+        bars,
+        OutcomeStudyConfig(),
+    )
+    assert result.fill_type is FillType.BREAKOUT_TRIGGER_FILL
+    assert result.mfe_pct == Decimal("0.0599")
+    assert result.mae_pct == Decimal("-0.0096")
+
+
+def test_b2_trigger_fill_low_invalid_is_ambiguous_not_loss():
+    signal_date = date(2026, 7, 30)
+    bars = _bars(
+        ("2026-07-30", "10.00", "10.10", "9.90", "10.00", "10.00", "100"),
+        ("2026-07-31", "10.68", "11.80", "10.00", "11.20", "10.00", "100"),
+    )
+    result = outcome._complete_event(
+        _b2_event(signal_date=signal_date), bars, OutcomeStudyConfig()
+    )
+    assert result.fill_type is FillType.BREAKOUT_TRIGGER_FILL
+    assert result.outcome is OutcomeStatus.AMBIGUOUS_INTRADAY
+    assert result.r_multiple is None
+    assert result.conservative_r_multiple == Decimal("-1")
+
+
+def test_b2_non_positive_reward_is_ineligible_but_structural_pattern_remains():
+    signal_date = date(2026, 7, 30)
+    bars = _bars(
+        ("2026-07-30", "10.00", "10.10", "9.90", "10.00", "10.00", "100"),
+        ("2026-07-31", "10.68", "12.20", "10.50", "11.80", "10.00", "100"),
+    )
+    result = outcome._complete_event(
+        _b2_event(signal_date=signal_date, trigger="11.51", s1="11.46", actionable=False),
+        bars,
+        OutcomeStudyConfig(),
+    )
+    assert result.outcome is OutcomeStatus.NO_FILL
+    assert result.eligibility_reason == "REWARD_NON_POSITIVE_AT_TRIGGER"
+    assert result.pattern_1d is PatternOutcome.S1_BEFORE_INVALID
+    assert outcome._stats([result]).eligible == 0
+
+
+def test_b2_non_actionable_positive_room_is_not_a_trade():
+    result = outcome._complete_event(
+        _b2_event(signal_date=date(2026, 7, 30), actionable=False),
+        _bars(
+            ("2026-07-30", "10.00", "10.10", "9.90", "10.00", "10.00", "100"),
+            ("2026-07-31", "10.68", "12.20", "10.50", "11.80", "10.00", "100"),
+        ),
+        OutcomeStudyConfig(),
+    )
+    assert result.outcome is OutcomeStatus.NO_FILL
+    assert result.eligibility_reason == "NON_ACTIONABLE_STRUCTURAL_EVENT"
+    assert outcome._stats([result]).eligible == 0
+
+
+def test_b2_non_positive_reward_is_invariant_failure_for_actionable_event():
+    with pytest.raises(ValueError, match="no positive reward room"):
+        outcome._complete_event(
+            _b2_event(
+                signal_date=date(2026, 7, 30),
+                trigger="11.51",
+                s1="11.46",
+                actionable=True,
+            ),
+            _bars(
+                ("2026-07-30", "10.00", "10.10", "9.90", "10.00", "10.00", "100"),
+                ("2026-07-31", "10.68", "12.20", "10.50", "11.80", "10.00", "100"),
+            ),
+            OutcomeStudyConfig(),
+        )
+
+
+def test_603918_b2_regression_has_no_open_fill_or_positive_r():
+    result = outcome._complete_event(
+        _b2_event(
+            signal_date=date(2026, 7, 30),
+            trigger="11.51",
+            invalid="10.37",
+            s1="11.46",
+            actionable=False,
+        ),
+        _bars(
+            ("2026-07-30", "10.00", "10.10", "9.90", "10.00", "10.00", "100"),
+            ("2026-07-31", "10.68", "12.20", "10.50", "11.38", "10.00", "100"),
+        ),
+        OutcomeStudyConfig(),
+    )
+    assert result.fill_price is None
+    assert result.fill_type is FillType.NONE
+    assert result.r_multiple is None
+    assert result.outcome is OutcomeStatus.NO_FILL
+    assert result.eligibility_reason == "REWARD_NON_POSITIVE_AT_TRIGGER"
+
+
+def test_b2_confirmed_keeps_limit_entry_semantics():
+    event = replace(
+        _event(
+            signal_date=date(2026, 7, 30),
+            preferred="11.51",
+            invalid="10.37",
+            s1="12.00",
+            label=ExecutionLabel.B2_CONFIRMED,
+        ),
+        setup_stage=SetupStage.B2_CONFIRMED,
+        b2_trigger_price=Decimal("11.51"),
+    )
+    result = outcome._complete_event(
+        event,
+        _bars(
+            ("2026-07-30", "10.00", "10.10", "9.90", "10.00", "10.00", "100"),
+            ("2026-07-31", "10.68", "12.20", "10.50", "11.80", "10.00", "100"),
+        ),
+        OutcomeStudyConfig(),
+    )
+    assert result.fill_type is FillType.OPEN_FILL
+    assert result.fill_price == Decimal("10.68")
+
+
+def test_relabel_preserves_frozen_fields_and_corrects_only_b2_outcome():
+    signal_date = date(2026, 7, 30)
+    bars = _bars(
+        ("2026-07-30", "10.00", "10.10", "9.90", "10.00", "10.00", "100"),
+        ("2026-07-31", "10.68", "12.20", "10.50", "11.80", "10.00", "100"),
+    )
+    correct = outcome._complete_event(
+        _b2_event(signal_date=signal_date), bars, OutcomeStudyConfig()
+    )
+    old = correct.model_copy(
+        update={
+            "fill_type": FillType.OPEN_FILL,
+            "fill_price": Decimal("10.68"),
+            "outcome": OutcomeStatus.WIN_S1,
+            "r_multiple": Decimal("2.5161"),
+            "conservative_r_multiple": Decimal("2.5161"),
+        }
+    )
+    relabeled, metrics = outcome.relabel_frozen_episodes(
+        [old], bars_by_code={old.code: bars}, config=OutcomeStudyConfig()
+    )
+    result = relabeled[0]
+    assert metrics["changed_episodes"] == 1
+    assert result.fill_type is FillType.BREAKOUT_TRIGGER_FILL
+    assert result.fill_price == Decimal("11.51")
+    assert result.outcome is OutcomeStatus.WIN_S1
+    for field in old.__class__.model_fields:
+        if field not in outcome._RELABEL_MUTABLE_FIELDS:
+            assert getattr(result, field) == getattr(old, field)
+
+
+def test_relabel_leaves_b1_and_b2_confirmed_outcomes_unchanged():
+    signal_date = date(2026, 7, 30)
+    bars = _bars(
+        ("2026-07-30", "10.00", "10.10", "9.90", "10.00", "10.00", "100"),
+        ("2026-07-31", "10.00", "11.10", "9.95", "10.80", "10.00", "100"),
+    )
+    b1 = outcome._complete_event(
+        _event(signal_date=signal_date), bars, OutcomeStudyConfig()
+    )
+    b2_confirmed = outcome._complete_event(
+        replace(
+            _event(
+                signal_date=signal_date,
+                preferred="10.00",
+                invalid="9.50",
+                s1="11.00",
+                label=ExecutionLabel.B2_CONFIRMED,
+            ),
+            setup_stage=SetupStage.B2_CONFIRMED,
+            b2_trigger_price=Decimal("10.00"),
+        ),
+        bars,
+        OutcomeStudyConfig(),
+    )
+    relabeled, metrics = outcome.relabel_frozen_episodes(
+        [b1, b2_confirmed],
+        bars_by_code={b1.code: bars},
+        config=OutcomeStudyConfig(),
+    )
+    assert metrics["changed_episodes"] == 0
+    assert relabeled == [b1, b2_confirmed]
+
+
 def test_no_fill_is_not_a_win_even_if_target_hits_later():
     signal_date = date(2026, 7, 28)
     bars = _bars(

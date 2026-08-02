@@ -316,6 +316,26 @@ def build_parser() -> argparse.ArgumentParser:
         help="期望episodes SHA-256；默认使用冻结Phase 2D.0 hash",
     )
 
+    relabel_parser = subparsers.add_parser(
+        "outcome-relabel",
+        help="只用现有episodes与canonical未来日线修正B2_READY outcome",
+    )
+    relabel_parser.add_argument("--snapshot-id", required=True)
+    relabel_parser.add_argument("--episodes-path", required=True, type=Path)
+    relabel_parser.add_argument("--summary-path", type=Path, default=None)
+    relabel_parser.add_argument("--output-dir", required=True, type=Path)
+    relabel_parser.add_argument("--data-root", type=Path, default=None)
+    relabel_parser.add_argument(
+        "--outcome-config",
+        type=Path,
+        default=_default_outcome_config_path(),
+    )
+    relabel_parser.add_argument(
+        "--expected-sha256",
+        default=None,
+        help="期望旧episodes SHA-256；默认使用冻结Phase 2D.0 hash",
+    )
+
     hardware_parser = subparsers.add_parser(
         "hardware-profile",
         help="探测本机硬件并校验原生 arm64（性能验收前置检查）",
@@ -615,6 +635,43 @@ def _run_diagnosis(args: argparse.Namespace) -> int:
     )
     return 0
 
+def _run_outcome_relabel(args: argparse.Namespace) -> int:
+    from limit_pullback.outcome import (
+        BASELINE_EPISODES_SHA256,
+        run_outcome_relabel,
+    )
+
+    layout = WarehouseLayout(resolve_data_root(args.data_root))
+    try:
+        result = run_outcome_relabel(
+            layout=layout,
+            snapshot_id=args.snapshot_id,
+            episodes_path=args.episodes_path,
+            summary_path=args.summary_path,
+            output_dir=args.output_dir,
+            outcome_config_path=args.outcome_config,
+            expected_sha256=args.expected_sha256 or BASELINE_EPISODES_SHA256,
+        )
+    except Exception as exc:
+        _print_error(exc)
+        return 1
+    summary = result["summary"]
+    print(
+        json.dumps(
+            {
+                "old_episodes_sha256": result["old_episodes_sha256"],
+                "new_episodes_sha256": result["new_episodes_sha256"],
+                "episodes_path": result["episodes_path"],
+                "summary_json": result["summary_json"],
+                "summary_md": result["summary_md"],
+                "performance": result["performance"],
+                "summary": summary.model_dump(mode="json"),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
 
 def _run_hardware_profile(args: argparse.Namespace) -> int:
     from limit_pullback.resources import detect_hardware
@@ -666,6 +723,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_outcome_study(args)
     if args.command == "diagnosis":
         return _run_diagnosis(args)
+    if args.command == "outcome-relabel":
+        return _run_outcome_relabel(args)
     if args.command == "hardware-profile":
         return _run_hardware_profile(args)
     if args.command is None:
