@@ -150,11 +150,13 @@ def run_screen(
     config = load_strategy_config(config_path)
     config_hash = sha256_file(config_path)
     commit = strategy_commit or _git_head()
+    requested = tuple(sorted({code.zfill(6) for code in (codes or ())}))
 
     market = load_canonical_market(
         layout,
         snapshot_id=snapshot_id,
         as_of=None if snapshot_id else as_of,
+        codes=requested or None,
     )
     if market.snapshot.as_of < as_of:
         raise ValueError(
@@ -162,7 +164,6 @@ def run_screen(
         )
     pool_mode = "debug" if pool_debug else "formal"
     resolved_snapshot_id = market.snapshot.snapshot_id
-    requested = tuple(sorted({code.zfill(6) for code in (codes or ())}))
     universe = tuple(
         code for code in market.universe if not requested or code in requested
     )
