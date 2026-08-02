@@ -34,6 +34,17 @@ Keep structure and execution separate. A setup may be `B2_READY` while
 `is_entry_candidate` is false. Execution-layer labels and buy-zone checks must
 not rewrite a frozen setup lifecycle. All calculations remain point-in-time.
 
+# Project Invariants
+
+- Frozen artifacts immutable.
+- Research cannot tune and validate on same sample.
+- Forward sample cannot influence historical parameter selection.
+- Production changes require PR + human approval.
+- Research artifacts must record: input provenance/hash, script, output, conclusion status.
+- Research conclusion taxonomy: REJECT / OBSERVE_ONLY / SUPPORTED.
+- SUPPORTED != PROMOTED.
+- Position sizing research requires proven entry edge first.
+
 # Development Principles
 
 - Make the smallest implementation that fixes a demonstrated problem.
@@ -79,9 +90,10 @@ business module, tests, configuration, or strategy code.
 
 # Git
 
-Work on the requested feature branch. Do not rebase, force-push, squash, or
-merge a pull request. Keep Draft PRs Draft until human review. Never commit
-raw行情, `/tmp` artifacts, tokens, environment files, screenshots, or caches.
+Work on the requested feature branch. Never rebase, force-push, or squash a PR.
+Do not merge a PR unless the user explicitly requests merge after human review.
+Keep Draft PRs Draft until human review. Never commit raw行情, `/tmp` artifacts,
+tokens, environment files, screenshots, or caches.
 
 # Validation
 

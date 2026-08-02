@@ -26,6 +26,8 @@ dist/
 !.codex/config.toml
 !.codex/agents/
 !.codex/agents/*.toml
+!.codex/skills/
+!.codex/skills/**
 
 # Phase 2C.2A local market-data warehouse (real data never committed).
 data/

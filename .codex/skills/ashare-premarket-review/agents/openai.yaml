@@ -1,0 +1,4 @@
+interface:
+  display_name: "A-share Premarket Review"
+  short_description: "A股盘前候选复核、交易就绪度判定与开盘决策观察卡生成"
+  default_prompt: "对指定股票生成盘前观察卡"

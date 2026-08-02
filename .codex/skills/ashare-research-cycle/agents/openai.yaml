@@ -1,0 +1,4 @@
+interface:
+  display_name: "A-share Research Cycle"
+  short_description: "研究生命周期：描述分析、口径审计、验证与 edge gating"
+  default_prompt: "执行完整研究生命周期并输出结论状态"
