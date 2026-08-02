@@ -14,7 +14,11 @@ from limit_pullback.config import load_strategy_config
 from limit_pullback.models.enums import SetupStage
 from limit_pullback.models.replay import ReplayTimelineItem
 from limit_pullback.models.signal import StrategySignal
-from limit_pullback.screen.canonical import CanonicalMarketData, load_canonical_market
+from limit_pullback.screen.canonical import (
+    CanonicalMarketData,
+    iter_canonical_code_bars,
+    load_canonical_metadata,
+)
 from limit_pullback.screen.engine import derive_status, screen_code
 from limit_pullback.screen.models import ScreenRunResult
 from limit_pullback.screen.state import load_state, save_state, state_path
@@ -196,23 +200,17 @@ def run_screen(
     commit = strategy_commit or _git_head()
     requested = tuple(sorted({code.zfill(6) for code in (codes or ())}))
 
-    market = load_canonical_market(
+    snapshot, pool_records, pool_status = load_canonical_metadata(
         layout,
         snapshot_id=snapshot_id,
         as_of=None if snapshot_id else as_of,
-        codes=requested or None,
     )
-    if market.snapshot.as_of < as_of:
+    if snapshot.as_of < as_of:
         raise ValueError(
-            f"SNAPSHOT_AS_OF_BEFORE_REQUESTED: {market.snapshot.as_of} < {as_of}"
+            f"SNAPSHOT_AS_OF_BEFORE_REQUESTED: {snapshot.as_of} < {as_of}"
         )
     pool_mode = "debug" if pool_debug else "formal"
-    resolved_snapshot_id = market.snapshot.snapshot_id
-    universe = tuple(
-        code for code in market.universe if not requested or code in requested
-    )
-    if not universe:
-        raise ValueError("NO_CONFIRMED_DATA: snapshot has no CONFIRMED daily bars")
+    resolved_snapshot_id = snapshot.snapshot_id
 
     kind = "rebuild" if rebuild else "incremental"
     run_id = (
@@ -228,6 +226,7 @@ def run_screen(
 
     if output_path.exists():
         cached = json.loads(output_path.read_text(encoding="utf-8"))
+        cached_codes = tuple(cached.get("codes", ()))
         if verify_replay and cached.get("verify_replay_matched") is not True:
             # A cached run must not claim verification it never performed.
             # Fall through and recompute (same run_id overwrites atomically).
@@ -242,8 +241,8 @@ def run_screen(
                 strategy_commit=commit,
                 config_hash=config_hash,
                 output_hash=cached.get("output_hash", ""),
-                universe_size=len(universe),
-                codes=universe,
+                universe_size=len(cached_codes),
+                codes=cached_codes,
                 rows_count=int(cached.get("rows_count", 0)),
                 status_counts=cached.get("status_counts", {}),
                 new_anchor_count=int(cached.get("new_anchor_count", 0)),
@@ -264,7 +263,7 @@ def run_screen(
     notes: list[str] = []
     if pool_mode == "debug":
         notes.append("LIMIT_POOL_DEBUG_MODE:PROVISIONAL_POOL_ALLOWED")
-    elif any(status == "PROVISIONAL" for status in market.pool_status.values()):
+    elif any(status == "PROVISIONAL" for status in pool_status.values()):
         notes.append("LIMIT_POOL_PROVISIONAL_BLOCKED_FORMAL")
     if cached_exists and verify_replay:
         notes.append("CACHE_REVERIFY")
@@ -280,12 +279,16 @@ def run_screen(
     hash_obj = hashlib.sha256()
     first_row = True
     spool_file = None
+    universe: list[str] = []
     try:
         spool_file = spool_path.open("w", encoding="utf-8")
-        for code in universe:
-            bars = market.bars_by_code.get(code, ())
-            if not bars:
-                continue
+        for code, bars in iter_canonical_code_bars(
+            layout,
+            snapshot,
+            codes=requested or None,
+            as_of=as_of,
+        ):
+            universe.append(code)
             state = None if rebuild else load_state(state_path(layout.root, code))
             previous_signal: StrategySignal | None = None
             last_processed: date | None = None
@@ -294,14 +297,14 @@ def run_screen(
                     state.strategy_commit != commit
                     or state.config_hash != config_hash
                     or state.reconciliation_policy_version
-                    != market.snapshot.reconciliation_policy_version
+                    != snapshot.reconciliation_policy_version
                     or state.last_processed_date > as_of
                     or state.bars_prefix_hash
                     != _bars_prefix_hash(bars, state.last_processed_date)
                     or state.limit_pool_prefix_hash
                     != _pool_prefix_hash(
-                        market.pool_records,
-                        market.pool_status,
+                        pool_records,
+                        pool_status,
                         state.last_processed_date,
                     )
                 )
@@ -324,14 +327,14 @@ def run_screen(
             rows, final_signal = screen_code(
                 code=code,
                 bars=bars,
-                pool_records=market.pool_records,
+                pool_records=pool_records,
                 config=config,
                 start_date=start if rebuild else None,
                 as_of=as_of,
                 generated_at=generated_at,
                 previous_signal=previous_signal,
                 last_processed=last_processed,
-                pool_status=market.pool_status,
+                pool_status=pool_status,
                 pool_mode=pool_mode,
             )
             if final_signal is not None:
@@ -345,14 +348,14 @@ def run_screen(
                         bars, min(final_signal.trade_date, as_of)
                     ),
                     limit_pool_prefix_hash=_pool_prefix_hash(
-                        market.pool_records,
-                        market.pool_status,
+                    pool_records,
+                    pool_status,
                         min(final_signal.trade_date, as_of),
                     ),
                     strategy_commit=commit,
                     config_hash=config_hash,
                     reconciliation_policy_version=(
-                        market.snapshot.reconciliation_policy_version
+                        snapshot.reconciliation_policy_version
                     ),
                     processed_at=processed_at,
                 )
@@ -360,13 +363,13 @@ def run_screen(
                 mismatches = verify_rebuild_incremental(
                     code=code,
                     bars=bars,
-                    pool_records=market.pool_records,
+                    pool_records=pool_records,
                     config=config,
                     start=start or min((bar.trade_date for bar in bars), default=as_of),
                     as_of=as_of,
                     generated_at=generated_at,
                     incremental_rows=rows,
-                    pool_status=market.pool_status,
+                    pool_status=pool_status,
                     pool_mode=pool_mode,
                 )
                 if mismatches:
@@ -375,7 +378,12 @@ def run_screen(
                         f"rebuild/incremental mismatch for {code}: {mismatches[0]}"
                     )
                 replay_mismatches = verify_single_stock_replay(
-                    market=market,
+                    market=CanonicalMarketData(
+                        snapshot=snapshot,
+                        bars_by_code={code: bars},
+                        pool_records=pool_records,
+                        pool_status=pool_status,
+                    ),
                     code=code,
                     config=config,
                     start=start or min((bar.trade_date for bar in bars), default=as_of),
@@ -425,6 +433,9 @@ def run_screen(
     hash_obj.update(b"]")
     output_hash = hash_obj.hexdigest()
     counts = dict(sorted(status_counts.items()))
+    if not universe:
+        raise ValueError("NO_CONFIRMED_DATA: snapshot has no CONFIRMED daily bars")
+    universe_tuple = tuple(universe)
     manifest = {
         "run_id": run_id,
         "kind": kind,
@@ -446,7 +457,7 @@ def run_screen(
         "pool_mode": pool_mode,
         "notes": notes,
         "universe_size": len(universe),
-        "codes": universe,
+        "codes": universe_tuple,
     }
     _write_streaming_manifest(
         metadata_with_rows=manifest,
@@ -463,8 +474,8 @@ def run_screen(
         strategy_commit=commit,
         config_hash=config_hash,
         output_hash=output_hash,
-        universe_size=len(universe),
-        codes=universe,
+        universe_size=len(universe_tuple),
+        codes=universe_tuple,
         rows_count=rows_count,
         status_counts=counts,
         new_anchor_count=new_anchors,
