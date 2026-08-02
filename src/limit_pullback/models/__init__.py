@@ -5,6 +5,10 @@ from limit_pullback.models.enums import (
     EvaluationMode,
     EventFlag,
     ExecutionLabel,
+    FillStatus,
+    FillType,
+    OutcomeStatus,
+    PatternOutcome,
     PatternType,
     ReviewGroup,
     ScoreProfile,
@@ -54,6 +58,12 @@ from limit_pullback.models.trade_plan import (
     TradePlanConfig,
     TradePlanOutput,
 )
+from limit_pullback.models.outcome import (
+    OutcomeEpisode,
+    OutcomeStats,
+    OutcomeStudyConfig,
+    OutcomeStudySummary,
+)
 
 __all__ = [
     "AnchorSnapshot",
@@ -68,6 +78,8 @@ __all__ = [
     "EvaluationMode",
     "EventFlag",
     "ExecutionLabel",
+    "FillStatus",
+    "FillType",
     "ConditionScore",
     "ContinuousPricePoint",
     "LimitUpPoolRequest",
@@ -78,6 +90,7 @@ __all__ = [
     "InvalidPriceSnapshot",
     "KlineMetrics",
     "PatternType",
+    "PatternOutcome",
     "PatternEvaluation",
     "ConditionSnapshot",
     "PriceCluster",
@@ -101,4 +114,9 @@ __all__ = [
     "TradePlan",
     "TradePlanConfig",
     "TradePlanOutput",
+    "OutcomeEpisode",
+    "OutcomeStats",
+    "OutcomeStatus",
+    "OutcomeStudyConfig",
+    "OutcomeStudySummary",
 ]

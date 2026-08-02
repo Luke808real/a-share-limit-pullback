@@ -437,6 +437,10 @@ def build_trade_plan(
 ) -> TradePlan:
     """Build one plan using only bars and pool records at or before T."""
 
+    if signal.trade_date != plan_date:
+        raise ValueError(
+            "trade plan signal.trade_date must equal plan_date"
+        )
     ordered = tuple(sorted(
         (bar for bar in bars if bar.trade_date <= plan_date),
         key=lambda bar: bar.trade_date,

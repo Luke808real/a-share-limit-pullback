@@ -1,0 +1,3 @@
+# Research-only configuration. It never changes frozen strategy semantics.
+forward_horizons: [1, 3, 5, 10]
+max_holding_sessions: 10
