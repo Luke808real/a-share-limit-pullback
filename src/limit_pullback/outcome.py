@@ -46,6 +46,7 @@ from limit_pullback.models.outcome import (
 )
 from limit_pullback.models.signal import StrategySignal
 from limit_pullback.quality import merge_signal_quality
+from limit_pullback.resources import peak_rss_bytes
 from limit_pullback.screen.canonical import FIXED_FETCHED_AT
 from limit_pullback.strategy.engine import evaluate_strategy
 from limit_pullback.trade_plan import build_trade_plan
@@ -69,6 +70,16 @@ TARGET_LABELS = frozenset(
 )
 QUALITY_GROUP_KEYS = ("<60", "60-70", "70-80", ">=80")
 DAYS_GROUP_KEYS = ("D+1", "D+2", "D+3", "D+4", "D+5+")
+BASELINE_EPISODES_SHA256 = (
+    "23d3ff935cb44d523288c744c39abc231ce2c19a486b56ddfe057aa0809130af"
+)
+INELIGIBLE_EXECUTION_REASONS = frozenset(
+    {
+        "NON_ACTIONABLE_STRUCTURAL_EVENT",
+        "REWARD_NON_POSITIVE_AT_TRIGGER",
+        "REWARD_NON_POSITIVE_AT_ENTRY",
+    }
+)
 
 
 def _git_head() -> str:
@@ -442,9 +453,18 @@ def _apply_mfe_mae(
         )
     )
     max_high = max(highs, default=None)
-    min_low = min(bar.low for bar in window)
+    lows = (
+        bar.low
+        for bar in window
+        if not (
+            fill_type is FillType.BREAKOUT_TRIGGER_FILL
+            and bar.trade_date == fill_date
+        )
+    )
+    min_low = min(lows, default=None)
     mfe = _quantize(max_high / fill_price - ONE) if max_high is not None else None
-    return mfe, _quantize(min_low / fill_price - ONE)
+    mae = _quantize(min_low / fill_price - ONE) if min_low is not None else None
+    return mfe, mae
 
 
 def _complete_event(
@@ -532,6 +552,19 @@ def _complete_event(
             outcome=OutcomeStatus.NO_FILL,
             eligibility_reason="INCOMPLETE_FROZEN_TRADE_PLAN",
         )
+    b2_trigger = (
+        event.b2_trigger_price
+        if event.execution_label is ExecutionLabel.B2_READY
+        else None
+    )
+    if event.execution_label is ExecutionLabel.B2_READY and b2_trigger is None:
+        return OutcomeEpisode(
+            **base,
+            fill_status=FillStatus.NO_FILL,
+            fill_type=FillType.NONE,
+            outcome=OutcomeStatus.NO_FILL,
+            eligibility_reason="INCOMPLETE_FROZEN_TRADE_PLAN",
+        )
     if event.preferred_entry <= event.invalid_price:
         return OutcomeEpisode(
             **base,
@@ -540,6 +573,27 @@ def _complete_event(
             outcome=OutcomeStatus.NO_FILL,
             eligibility_reason="RISK_NON_POSITIVE",
         )
+    if event.execution_label is ExecutionLabel.B2_READY:
+        if event.s1_price <= b2_trigger:
+            if event.is_entry_candidate:
+                raise ValueError(
+                    "B2_READY actionable event has no positive reward room: "
+                    f"{event.code}:{event.signal_date} S1={event.s1_price} "
+                    f"<= trigger={b2_trigger}"
+                )
+            reason = "REWARD_NON_POSITIVE_AT_TRIGGER"
+        elif not event.is_entry_candidate:
+            reason = "NON_ACTIONABLE_STRUCTURAL_EVENT"
+        else:
+            reason = None
+        if reason is not None:
+            return OutcomeEpisode(
+                **base,
+                fill_status=FillStatus.NO_FILL,
+                fill_type=FillType.NONE,
+                outcome=OutcomeStatus.NO_FILL,
+                eligibility_reason=reason,
+            )
     if not future:
         return OutcomeEpisode(
             **base,
@@ -558,69 +612,131 @@ def _complete_event(
             outcome=OutcomeStatus.CANCEL_GAP_INVALID,
             eligibility_reason="T_PLUS_1_OPEN_AT_OR_BELOW_INVALID",
         )
-    if event.invalid_price < first.open <= event.preferred_entry:
-        fill_price = first.open
-        fill_type = FillType.OPEN_FILL
-    elif first.open > event.preferred_entry and first.low <= event.preferred_entry:
-        fill_price = event.preferred_entry
-        fill_type = FillType.INTRADAY_TOUCH_FILL
-    else:
-        return OutcomeEpisode(
-            **base,
-            fill_status=FillStatus.NO_FILL,
-            fill_type=FillType.NONE,
-            outcome=OutcomeStatus.NO_FILL,
-            eligibility_reason="T_PLUS_1_ENTRY_NOT_TOUCHED",
-        )
-
-    if fill_type is FillType.INTRADAY_TOUCH_FILL:
-        # The fill-day high may precede the preferred-entry touch.  Only a
-        # same-day invalidation is orderable from daily OHLC; a simultaneous
-        # target/invalid range remains conservative ambiguity.  Otherwise,
-        # target evaluation starts at the next trading session.
-        if first.low <= event.invalid_price:
-            if first.high >= event.s1_price:
+    if event.execution_label is ExecutionLabel.B2_READY:
+        if first.open >= b2_trigger:
+            if first.open >= event.s1_price:
+                return OutcomeEpisode(
+                    **base,
+                    fill_status=FillStatus.NO_FILL,
+                    fill_type=FillType.NONE,
+                    outcome=OutcomeStatus.NO_FILL,
+                    eligibility_reason="REWARD_NON_POSITIVE_AT_ENTRY",
+                )
+            fill_price = first.open
+            fill_type = FillType.BREAKOUT_GAP_FILL
+            outcome, resolution_date, exit_price, holding, r_value, conservative_r = _trigger_outcome(
+                future,
+                max_holding_sessions=config.max_holding_sessions,
+                s1=event.s1_price,
+                invalid=event.invalid_price,
+            )
+        elif first.high >= b2_trigger:
+            fill_price = b2_trigger
+            fill_type = FillType.BREAKOUT_TRIGGER_FILL
+            if first.low <= event.invalid_price:
                 outcome = OutcomeStatus.AMBIGUOUS_INTRADAY
                 resolution_date = first.trade_date
                 exit_price = None
                 holding = 1
                 r_value = None
                 conservative_r = Decimal("-1")
-            else:
-                outcome = OutcomeStatus.LOSS_INVALID
+            elif first.high >= event.s1_price:
+                outcome = OutcomeStatus.WIN_S1
                 resolution_date = first.trade_date
-                exit_price = event.invalid_price
-                holding = 1
-                r_value = Decimal("-1")
-                conservative_r = Decimal("-1")
-        else:
-            remaining_sessions = config.max_holding_sessions - 1
-            if remaining_sessions == 0:
-                # The fill session is the complete holding window.  Its high
-                # is intentionally unusable for an intraday touch, so with
-                # no later session there is no target/invalid resolution.
-                outcome = OutcomeStatus.TIMEOUT
-                resolution_date = first.trade_date
-                exit_price = None
+                exit_price = event.s1_price
                 holding = 1
                 r_value = None
                 conservative_r = None
             else:
-                outcome, resolution_date, exit_price, holding, r_value, conservative_r = _trigger_outcome(
-                    future[1:],
-                    max_holding_sessions=remaining_sessions,
-                    s1=event.s1_price,
-                    invalid=event.invalid_price,
-                )
-                if holding is not None:
-                    holding += 1
+                remaining_sessions = config.max_holding_sessions - 1
+                if remaining_sessions == 0:
+                    outcome = OutcomeStatus.TIMEOUT
+                    resolution_date = first.trade_date
+                    exit_price = None
+                    holding = 1
+                    r_value = None
+                    conservative_r = None
+                else:
+                    outcome, resolution_date, exit_price, holding, r_value, conservative_r = _trigger_outcome(
+                        future[1:],
+                        max_holding_sessions=remaining_sessions,
+                        s1=event.s1_price,
+                        invalid=event.invalid_price,
+                    )
+                    if holding is not None:
+                        holding += 1
+        else:
+            return OutcomeEpisode(
+                **base,
+                fill_status=FillStatus.NO_FILL,
+                fill_type=FillType.NONE,
+                outcome=OutcomeStatus.NO_FILL,
+                eligibility_reason="T_PLUS_1_ENTRY_NOT_TOUCHED",
+            )
     else:
-        outcome, resolution_date, exit_price, holding, r_value, conservative_r = _trigger_outcome(
-            future,
-            max_holding_sessions=config.max_holding_sessions,
-            s1=event.s1_price,
-            invalid=event.invalid_price,
-        )
+        if event.invalid_price < first.open <= event.preferred_entry:
+            fill_price = first.open
+            fill_type = FillType.OPEN_FILL
+        elif first.open > event.preferred_entry and first.low <= event.preferred_entry:
+            fill_price = event.preferred_entry
+            fill_type = FillType.INTRADAY_TOUCH_FILL
+        else:
+            return OutcomeEpisode(
+                **base,
+                fill_status=FillStatus.NO_FILL,
+                fill_type=FillType.NONE,
+                outcome=OutcomeStatus.NO_FILL,
+                eligibility_reason="T_PLUS_1_ENTRY_NOT_TOUCHED",
+            )
+
+        if fill_type is FillType.INTRADAY_TOUCH_FILL:
+            # The fill-day high may precede the preferred-entry touch.  Only a
+            # same-day invalidation is orderable from daily OHLC; a simultaneous
+            # target/invalid range remains conservative ambiguity.  Otherwise,
+            # target evaluation starts at the next trading session.
+            if first.low <= event.invalid_price:
+                if first.high >= event.s1_price:
+                    outcome = OutcomeStatus.AMBIGUOUS_INTRADAY
+                    resolution_date = first.trade_date
+                    exit_price = None
+                    holding = 1
+                    r_value = None
+                    conservative_r = Decimal("-1")
+                else:
+                    outcome = OutcomeStatus.LOSS_INVALID
+                    resolution_date = first.trade_date
+                    exit_price = event.invalid_price
+                    holding = 1
+                    r_value = Decimal("-1")
+                    conservative_r = Decimal("-1")
+            else:
+                remaining_sessions = config.max_holding_sessions - 1
+                if remaining_sessions == 0:
+                    # The fill session is the complete holding window.  Its high
+                    # is intentionally unusable for an intraday touch, so with
+                    # no later session there is no target/invalid resolution.
+                    outcome = OutcomeStatus.TIMEOUT
+                    resolution_date = first.trade_date
+                    exit_price = None
+                    holding = 1
+                    r_value = None
+                    conservative_r = None
+                else:
+                    outcome, resolution_date, exit_price, holding, r_value, conservative_r = _trigger_outcome(
+                        future[1:],
+                        max_holding_sessions=remaining_sessions,
+                        s1=event.s1_price,
+                        invalid=event.invalid_price,
+                    )
+                    if holding is not None:
+                        holding += 1
+        else:
+            outcome, resolution_date, exit_price, holding, r_value, conservative_r = _trigger_outcome(
+                future,
+                max_holding_sessions=config.max_holding_sessions,
+                s1=event.s1_price,
+                invalid=event.invalid_price,
+            )
     risk_abs = fill_price - event.invalid_price
     if outcome is OutcomeStatus.WIN_S1 and risk_abs > ZERO:
         r_value = _quantize((event.s1_price - fill_price) / risk_abs)
@@ -671,6 +787,7 @@ def _stats(
         if event.preferred_entry is not None
         and event.invalid_price is not None
         and event.s1_price is not None
+        and event.eligibility_reason not in INELIGIBLE_EXECUTION_REASONS
     ]
     filled = [event for event in cohort_events if event.fill_status is FillStatus.FILLED]
     wins = [event for event in cohort_events if event.outcome is OutcomeStatus.WIN_S1]
@@ -925,6 +1042,123 @@ def _write_episodes(path: Path, episodes: Sequence[OutcomeEpisode]) -> None:
         }
         table = pa.Table.from_pydict(normalized)
     pq.write_table(table, path, compression="zstd")
+
+
+_RELABEL_MUTABLE_FIELDS = frozenset(
+    {
+        "fill_status",
+        "fill_type",
+        "fill_date",
+        "fill_price",
+        "outcome",
+        "resolution_date",
+        "exit_price",
+        "r_multiple",
+        "conservative_r_multiple",
+        "mfe_pct",
+        "mae_pct",
+        "holding_sessions_to_resolution",
+        "eligibility_reason",
+    }
+)
+
+
+def _episode_from_row(row: dict[str, object]) -> OutcomeEpisode:
+    payload = dict(row)
+    if isinstance(payload.get("quality_flags"), str):
+        payload["quality_flags"] = json.loads(str(payload["quality_flags"]))
+    return OutcomeEpisode.model_validate(payload)
+
+
+def _frozen_event_from_episode(event: OutcomeEpisode) -> _FrozenEvent:
+    return _FrozenEvent(
+        code=event.code,
+        setup_id=event.setup_id,
+        execution_label=event.execution_label,
+        setup_stage=event.setup_stage,
+        signal_date=event.signal_date,
+        anchor_date=event.anchor_date,
+        anchor_price=event.anchor_price,
+        support_low=event.support_low,
+        support_high=event.support_high,
+        support_center=event.support_center,
+        b2_trigger_price=event.b2_trigger_price,
+        setup_quality_score=event.setup_quality_score,
+        entry_quality_score=event.entry_quality_score,
+        days_since_anchor=event.days_since_anchor,
+        entry_room_state=event.entry_room_state,
+        is_entry_candidate=event.is_entry_candidate,
+        preferred_entry=event.preferred_entry,
+        buy_zone_low=event.buy_zone_low,
+        buy_zone_high=event.buy_zone_high,
+        invalid_price=event.invalid_price,
+        s1_price=event.s1_price,
+        entry_reference_price=event.entry_reference_price,
+        data_quality=event.data_quality,
+        quality_flags=event.quality_flags,
+        snapshot_id=event.snapshot_id,
+        strategy_commit=event.strategy_commit,
+        strategy_config_hash=event.strategy_config_hash,
+        trade_plan_config_hash=event.trade_plan_config_hash,
+        outcome_config_hash=event.outcome_config_hash,
+        frozen_event_hash=event.frozen_event_hash,
+        raw_signal_days=event.raw_signal_days,
+        snapshot_created_at=event.snapshot_created_at,
+    )
+
+
+def _relabel_frozen_event(
+    event: OutcomeEpisode,
+    bars: Sequence[DailyBar],
+    config: OutcomeStudyConfig,
+) -> tuple[OutcomeEpisode, dict[str, tuple[object, object]]]:
+    if event.execution_label is not ExecutionLabel.B2_READY:
+        return event, {}
+    corrected = _complete_event(_frozen_event_from_episode(event), bars, config)
+    before = event.model_dump(mode="python")
+    after = corrected.model_dump(mode="python")
+    differences = {
+        field: (before[field], after[field])
+        for field in before
+        if field not in _RELABEL_MUTABLE_FIELDS and before[field] != after[field]
+    }
+    if differences:
+        raise ValueError(
+            "frozen field changed during outcome relabel: "
+            f"{event.code}:{event.signal_date} {sorted(differences)}"
+        )
+    return corrected, differences
+
+
+def relabel_frozen_episodes(
+    episodes: Sequence[OutcomeEpisode],
+    *,
+    bars_by_code: dict[str, Sequence[DailyBar]],
+    config: OutcomeStudyConfig,
+) -> tuple[list[OutcomeEpisode], dict[str, int]]:
+    """Relabel only B2_READY outcomes from existing frozen events and bars."""
+
+    corrected: list[OutcomeEpisode] = []
+    changed = 0
+    for event in episodes:
+        if event.execution_label is ExecutionLabel.B2_READY:
+            if event.code not in bars_by_code:
+                raise ValueError(f"missing canonical bars for {event.code}")
+            updated, differences = _relabel_frozen_event(
+                event, bars_by_code[event.code], config
+            )
+            if any(
+                event.model_dump(mode="python")[field]
+                != updated.model_dump(mode="python")[field]
+                for field in _RELABEL_MUTABLE_FIELDS
+            ):
+                changed += 1
+            if differences:
+                raise AssertionError("unreachable frozen field difference")
+            corrected.append(updated)
+        else:
+            corrected.append(event)
+    return corrected, {"changed_episodes": changed}
 
 
 def _load_snapshot(layout: WarehouseLayout, snapshot_id: str) -> SnapshotRecord:
@@ -1600,4 +1834,239 @@ def run_outcome_study(
     return summary
 
 
-__all__ = ["run_outcome_study"]
+def _load_frozen_episodes(path: Path) -> list[OutcomeEpisode]:
+    episodes: list[OutcomeEpisode] = []
+    parquet = pq.ParquetFile(path)
+    for batch in parquet.iter_batches(batch_size=8192, use_threads=False):
+        episodes.extend(_episode_from_row(row) for row in batch.to_pylist())
+        del batch
+    return episodes
+
+
+def _relabel_from_daily_bars(
+    episodes: Sequence[OutcomeEpisode],
+    *,
+    daily_path: Path,
+    end: date,
+    config: OutcomeStudyConfig,
+) -> tuple[list[OutcomeEpisode], dict[str, int]]:
+    by_code: dict[str, list[int]] = defaultdict(list)
+    corrected = list(episodes)
+    for index, event in enumerate(episodes):
+        if event.execution_label is ExecutionLabel.B2_READY:
+            by_code[event.code].append(index)
+    changed = 0
+    seen_codes: set[str] = set()
+    for code, bars in _iter_confirmed_code_bars(daily_path):
+        indexes = by_code.get(code)
+        if not indexes:
+            continue
+        seen_codes.add(code)
+        code_bars = tuple(bar for bar in bars if bar.trade_date <= end)
+        code_events, metrics = relabel_frozen_episodes(
+            [episodes[index] for index in indexes],
+            bars_by_code={code: code_bars},
+            config=config,
+        )
+        for index, event in zip(indexes, code_events, strict=True):
+            corrected[index] = event
+        changed += metrics["changed_episodes"]
+    missing = set(by_code) - seen_codes
+    if missing:
+        raise ValueError(
+            "missing canonical bars for B2_READY codes: "
+            + ",".join(sorted(missing)[:5])
+        )
+    return corrected, {
+        "changed_episodes": changed,
+        "codes_with_b2_ready": len(seen_codes),
+    }
+
+
+def _relabel_summary(
+    summary: OutcomeStudySummary,
+    episodes: Sequence[OutcomeEpisode],
+    *,
+    performance: dict[str, object],
+    audit: dict[str, object],
+) -> OutcomeStudySummary:
+    stage_events = {
+        label.value: [event for event in episodes if event.execution_label is label]
+        for label in (
+            ExecutionLabel.B1_READY,
+            ExecutionLabel.B2_READY,
+            ExecutionLabel.B2_CONFIRMED,
+        )
+    }
+    structural_stage_stats = {
+        stage: _stats(events) for stage, events in stage_events.items()
+    }
+    actionable_stage_stats = {
+        stage: _stats(events, actionable_only=True)
+        for stage, events in stage_events.items()
+    }
+    target_events = [
+        event
+        for event in episodes
+        if event.execution_label
+        in {
+            ExecutionLabel.B1_READY,
+            ExecutionLabel.B2_READY,
+            ExecutionLabel.B2_CONFIRMED,
+        }
+    ]
+    actionable_setup_quality_groups = _group_stats(
+        target_events,
+        lambda event: _group_bucket(event.setup_quality_score),
+        actionable_only=True,
+        expected_keys=QUALITY_GROUP_KEYS,
+    )
+    actionable_entry_quality_groups = _group_stats(
+        target_events,
+        lambda event: _group_bucket(event.entry_quality_score),
+        actionable_only=True,
+        expected_keys=QUALITY_GROUP_KEYS,
+    )
+    actionable_days_since_anchor_groups = _group_stats(
+        target_events,
+        lambda event: _days_bucket(event.days_since_anchor),
+        actionable_only=True,
+        expected_keys=DAYS_GROUP_KEYS,
+    )
+    structural_setup_quality_groups = _group_stats(
+        target_events,
+        lambda event: _group_bucket(event.setup_quality_score),
+        expected_keys=QUALITY_GROUP_KEYS,
+    )
+    structural_entry_quality_groups = _group_stats(
+        target_events,
+        lambda event: _group_bucket(event.entry_quality_score),
+        expected_keys=QUALITY_GROUP_KEYS,
+    )
+    structural_days_since_anchor_groups = _group_stats(
+        target_events,
+        lambda event: _days_bucket(event.days_since_anchor),
+        expected_keys=DAYS_GROUP_KEYS,
+    )
+    return summary.model_copy(
+        update={
+            "stage_stats": actionable_stage_stats,
+            "actionable_stage_stats": actionable_stage_stats,
+            "structural_stage_stats": structural_stage_stats,
+            "actionable_setup_quality_groups": actionable_setup_quality_groups,
+            "actionable_entry_quality_groups": actionable_entry_quality_groups,
+            "actionable_days_since_anchor_groups": actionable_days_since_anchor_groups,
+            "structural_setup_quality_groups": structural_setup_quality_groups,
+            "structural_entry_quality_groups": structural_entry_quality_groups,
+            "structural_days_since_anchor_groups": structural_days_since_anchor_groups,
+            "setup_quality_groups": actionable_setup_quality_groups,
+            "entry_quality_groups": actionable_entry_quality_groups,
+            "days_since_anchor_groups": actionable_days_since_anchor_groups,
+            "performance": performance,
+            "audit": audit,
+        }
+    )
+
+
+def run_outcome_relabel(
+    *,
+    layout: WarehouseLayout,
+    snapshot_id: str,
+    episodes_path: Path,
+    summary_path: Path | None = None,
+    output_dir: Path | None = None,
+    outcome_config_path: str | Path,
+    expected_sha256: str = BASELINE_EPISODES_SHA256,
+) -> dict[str, object]:
+    """Correct only frozen outcome labels using existing canonical future bars."""
+
+    started = perf_counter()
+    actual_sha256 = sha256_file(episodes_path)
+    if actual_sha256 != expected_sha256:
+        raise ValueError(
+            "episodes artifact hash mismatch: "
+            f"expected {expected_sha256}, got {actual_sha256}"
+        )
+    source_summary_path = summary_path or episodes_path.parent / "summary.json"
+    source_summary = OutcomeStudySummary.model_validate(
+        json.loads(source_summary_path.read_text(encoding="utf-8"))
+    )
+    if source_summary.snapshot_id != snapshot_id:
+        raise ValueError(
+            f"summary snapshot mismatch: {source_summary.snapshot_id} != {snapshot_id}"
+        )
+    snapshot = _load_snapshot(layout, snapshot_id)
+    daily_path = _snapshot_file(layout, snapshot, "daily_bars")
+    outcome_config = load_outcome_study_config(outcome_config_path)
+    episodes = _load_frozen_episodes(episodes_path)
+    corrected, relabel_metrics = _relabel_from_daily_bars(
+        episodes,
+        daily_path=daily_path,
+        end=source_summary.end,
+        config=outcome_config,
+    )
+    if len(corrected) != len(episodes):
+        raise AssertionError("relabel changed episode count")
+    elapsed = perf_counter() - started
+    output = output_dir or episodes_path.parent / "corrected-b2-trigger-outcome"
+    output.mkdir(parents=True, exist_ok=True)
+    corrected_episodes_path = output / "episodes.parquet"
+    corrected_summary_json = output / "summary.json"
+    corrected_summary_md = output / "summary.md"
+    _write_episodes(corrected_episodes_path, corrected)
+    corrected_sha256 = sha256_file(corrected_episodes_path)
+    performance: dict[str, object] = {
+        "relabel_only": True,
+        "evaluate_strategy_calls": 0,
+        "trade_plan_calls": 0,
+        "episodes_processed": len(episodes),
+        "episodes_changed": relabel_metrics["changed_episodes"],
+        "b2_ready_episodes": sum(
+            event.execution_label is ExecutionLabel.B2_READY for event in episodes
+        ),
+        "codes_with_b2_ready": relabel_metrics["codes_with_b2_ready"],
+        "relabel_seconds": elapsed,
+        "peak_rss_bytes": peak_rss_bytes(),
+        "python_architecture": os.uname().machine,
+    }
+    audit = dict(source_summary.audit)
+    audit.update(
+        {
+            "relabel_only": True,
+            "evaluate_strategy_calls": 0,
+            "trade_plan_calls": 0,
+            "frozen_field_differences": 0,
+            "old_episodes_sha256": actual_sha256,
+            "new_episodes_sha256": corrected_sha256,
+            "old_baseline_status": "SUPERSEDED_FOR_B2_EXECUTION_OUTCOME",
+            "future_bar_leakage": False,
+        }
+    )
+    # The source summary's audit contains the original causal-study metrics.
+    # Replace that nested performance record so the corrected artifact cannot
+    # be mistaken for having rerun the strategy evaluator.
+    audit["performance"] = performance
+    corrected_summary = _relabel_summary(
+        source_summary,
+        corrected,
+        performance=performance,
+        audit=audit,
+    )
+    corrected_summary_json.write_text(
+        corrected_summary.model_dump_json(indent=2), encoding="utf-8"
+    )
+    corrected_summary_md.write_text(
+        _summary_markdown(corrected_summary), encoding="utf-8"
+    )
+    return {
+        "old_episodes_sha256": actual_sha256,
+        "new_episodes_sha256": corrected_sha256,
+        "episodes_path": str(corrected_episodes_path),
+        "summary_json": str(corrected_summary_json),
+        "summary_md": str(corrected_summary_md),
+        "summary": corrected_summary,
+        "performance": performance,
+    }
+
+
+__all__ = ["run_outcome_study", "run_outcome_relabel", "relabel_frozen_episodes"]
