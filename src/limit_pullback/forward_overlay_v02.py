@@ -170,15 +170,8 @@ def entry_timing_v02(
     distance = close / reference - ONE
     if close < reference:
         result["entry_timing"] = "WAIT_TRIGGER"
-    elif distance <= Decimal("0.03"):
-        result["entry_timing"] = "AT_TRIGGER"
     else:
-        result["entry_timing"] = (
-            "POST_TRIGGER_EXTENDED"
-            if execution_label == "B2_READY"
-            else "CONFIRMED_EXTENDED"
-        )
-        result["descriptive_only_extended"] = True
+        result["entry_timing"] = "TRIGGER_CROSSED"
     return result
 
 
@@ -190,7 +183,7 @@ def human_attention(
     context_confidence: str,
 ) -> str:
     if (
-        entry_timing in {"READY_AT_BUY_ZONE", "AT_TRIGGER", "WAIT_TRIGGER"}
+        entry_timing in {"READY_AT_BUY_ZONE", "WAIT_TRIGGER"}
         and context_quality != "UNFAVORABLE"
         and support_severity != "SERIOUS"
     ):
@@ -199,9 +192,7 @@ def human_attention(
         return "DIAGNOSTIC"
     if entry_timing in {
         "WAIT_PULLBACK",
-        "POST_TRIGGER",
-        "POST_TRIGGER_EXTENDED",
-        "CONFIRMED_EXTENDED",
+        "TRIGGER_CROSSED",
         "INVALID",
     } or context_confidence == "LOW":
         return "WAIT"

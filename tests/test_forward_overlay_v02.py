@@ -102,13 +102,13 @@ def test_entry_timing_separated_from_context():
         buy_zone_high=Decimal("8.80"),
         invalid_price=Decimal("8.40"),
     )
-    assert extended["entry_timing"] == "POST_TRIGGER_EXTENDED"
+    assert extended["entry_timing"] == "TRIGGER_CROSSED"
 
 
 def test_human_attention_policy():
     assert (
         human_attention(
-            entry_timing="AT_TRIGGER",
+            entry_timing="WAIT_TRIGGER",
             context_quality="FAVORABLE",
             support_severity="NONE",
             context_confidence="MEDIUM",
@@ -117,7 +117,7 @@ def test_human_attention_policy():
     )
     assert (
         human_attention(
-            entry_timing="POST_TRIGGER_EXTENDED",
+            entry_timing="TRIGGER_CROSSED",
             context_quality="MIXED",
             support_severity="NONE",
             context_confidence="MEDIUM",
