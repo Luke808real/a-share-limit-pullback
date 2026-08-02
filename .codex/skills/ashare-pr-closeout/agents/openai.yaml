@@ -1,0 +1,4 @@
+interface:
+  display_name: "A-share PR Closeout"
+  short_description: "PR 验证审计、收口与合入流程（默认不自动 merge）"
+  default_prompt: "执行 PR 收口流程"
