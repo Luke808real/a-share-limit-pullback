@@ -47,9 +47,35 @@ not rewrite a frozen setup lifecycle. All calculations remain point-in-time.
 # Multi-Agent Rule
 
 Use at most three read-only readers by default: CODE_READER,
-DATA_STRATEGY_READER, and ADVERSARIAL_REVIEWER. They inspect and report only.
+DATA_READER (the existing data/strategy reader), and ADVERSARIAL_REVIEWER.
+They inspect and report only.
 The main agent is the only writer. Do not let multiple agents edit the same
 business module, tests, configuration, or strategy code.
+
+# Adaptive Parallel Execution
+
+- `FAST_ANALYSIS`: Main plus an optional `DATA_READER` for existing frozen
+  artifacts (Parquet/JSON/reports), descriptive statistics, diagnosis,
+  robustness, or hash validation. Do not start CODE_READER or
+  ADVERSARIAL_REVIEWER by default; Main may work alone for simple aggregation
+  or formatting.
+- `SMALL_CODE`: Main plus an optional `CODE_READER`.
+- `NORMAL`: Main with `CODE_READER` and `DATA_READER` in parallel while Main
+  performs read-only preparation.
+- `HIGH_RISK`: Main with all three readers in parallel for strategy semantics,
+  B1/B2, execution models, PIT, backtest correctness, reconciliation, or
+  historical statistical claims that may alter strategy conclusions.
+- For `HIGH_RISK`, `ADVERSARIAL_REVIEWER` must report before final validation.
+- Keep exactly one writer (Main); readers are read-only and do not spawn agents.
+- For routes with two independent readers, Main may implement after their
+  reports agree; use targeted tests during development and run full validation
+  once at the end.
+- Reuse frozen artifacts before expensive computation. Keep reader reports to
+  20 lines or fewer.
+- `FAST_ANALYSIS` latency guard: do not scan the whole repository, create a
+  worktree, or run full replay; use targeted tests during development and run
+  full pytest at most once. If data analysis exceeds 60 seconds, check for an
+  accidentally expensive path. Aim for a 3–8 minute wall time.
 
 # Git
 
