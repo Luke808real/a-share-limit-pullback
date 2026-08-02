@@ -18,6 +18,7 @@ from limit_pullback.models.replay import ReplayTimelineItem
 from limit_pullback.models.signal import StrategySignal
 from limit_pullback.quality import merge_signal_quality, timeline_item
 from limit_pullback.strategy.engine import evaluate_strategy
+from limit_pullback.strategy.math import calculate_indicators
 
 POOL_STATUS_CONFIRMED = "CONFIRMED"
 POOL_STATUS_SINGLE_SOURCE = "CONFIRMED_SINGLE_SOURCE"
@@ -65,6 +66,7 @@ def screen_code(
         return (), previous_signal
     if last_processed is not None and last_processed >= as_of:
         return (), previous_signal
+    full_indicators = calculate_indicators(ordered, config.indicators)
 
     code_pool = tuple(
         sorted(
@@ -92,6 +94,8 @@ def screen_code(
             generated_at=generated_at,
             limit_pool=pool_up_to_date,
             previous_signal=previous,
+            precomputed_indicators=full_indicators,
+            indicator_end_index=index + 1,
         )
         signal = merge_signal_quality(
             signal,
