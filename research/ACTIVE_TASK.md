@@ -18,3 +18,13 @@
 - **Result**: ANALOG_DESCRIPTIVE_ONLY — no OOS predictive/calibration value
   (MFE rho ≈ 0, Brier ≈ naive, corridor coverage ≈ chance); descriptive
   similarity only; no promotion.
+
+## V03A_STRICT_PIT（PR #21 更新）
+
+- PIT fix: per-query z-standardization only over analog universe with date < T.
+- Sampling fix: deterministic evenly-spaced per year/stage (max 500/year,
+  full-year coverage).
+- Result: **ANALOG_DESCRIPTIVE_ONLY_CONFIRMED**（原结论不变；V03 的弱 S1-rank
+  信号在严格 PIT 下收缩，Brier 略改善，MFE rho 仍 ≈0）。
+- BASE_DRIFT detected: origin/main 34a4a13 -> d3ed5cb (PR #20 merge);
+  synced via ordinary merge (no rebase/force).

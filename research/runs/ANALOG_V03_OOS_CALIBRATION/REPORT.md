@@ -55,6 +55,34 @@ Technical/volume blocks add essentially nothing over price-shape only
 Brier ~ naive, corridor coverage ~ chance); the engine remains a descriptive
 similarity/case-retrieval tool only. No promotion; no production change.
 
+## V03A_STRICT_PIT (PIT correction)
+
+Fixes: (1) per-query z-standardization now uses ONLY the analog universe with
+date < T (no future records in mean/std); (2) query sampling is deterministic
+evenly-spaced per year/stage (max 500/year, full-year coverage).
+
+Headline (5d):
+
+| stage | variant | n | Brier S1 (V03 -> V03A) | rho mfe5 (V03 -> V03A) | rho s1 (V03 -> V03A) | cov mfe p25-75 (V03A) |
+|---|---|---:|---:|---:|---:|---:|
+| B2_READY | RAW | 1204 | 0.210 -> 0.189 | 0.031 -> 0.072 | 0.291 -> 0.181 | 46.5% |
+| B2_READY | BAL | 1204 | 0.207 -> 0.187 | 0.048 -> 0.057 | 0.292 -> 0.207 | 47.3% |
+| LAUNCH_READY | RAW | 575 | 0.209 -> 0.205 | -0.009 -> -0.003 | 0.280 -> 0.132 | 45.9% |
+| PREPOSITION | RAW | 1310 | 0.161 -> 0.130 | 0.098 -> 0.065 | 0.201 -> 0.057 | 47.0% |
+
+After the PIT fix:
+
+- The modest S1-rate rank signal from V03 (0.19-0.29) largely shrinks
+  (0.06-0.21); part of V03's signal was PIT leakage.
+- Brier S1 improves slightly in all stages (PREP 0.130 is now better than the
+  naive base-rate 0.148; B2/LAUNCH ~0.19-0.20 vs naive 0.21-0.21).
+- MFE rank correlation remains ~0; corridor coverage remains ~chance.
+- Ablation A-D: technical/volume still add ~nothing (D vs A differences
+  < 0.01 in neighbor rates).
+
+**V03A conclusion: ANALOG_DESCRIPTIVE_ONLY_CONFIRMED** — the original
+conclusion is unchanged after strict PIT.
+
 ## Limitations
 
 - Query sampling 500/year/stage (not full library) to bound runtime.
