@@ -28,3 +28,12 @@
   信号在严格 PIT 下收缩，Brier 略改善，MFE rho 仍 ≈0）。
 - BASE_DRIFT detected: origin/main 34a4a13 -> d3ed5cb (PR #20 merge);
   synced via ordinary merge (no rebase/force).
+
+## V03B_SAMPLING_FIX（PR #21 更新）
+
+- Fixed V03A sampling bug (in-year positions misused as absolute recs
+  indices); V03B maps positions back via `year_indices[selected_position]`.
+- SAMPLING_AUDIT all asserts passed (selected<=500, duplicates=0,
+  wrong_year=0, first/last covered when available>500).
+- Result: **ANALOG_DESCRIPTIVE_ONLY_CONFIRMED**（采样修复不改结论；
+  MFE rho ≈0、走廊≈随机、Brier ≤ naive、S1 rank 仍弱）。
