@@ -1,116 +1,108 @@
-# A-share Limit Pullback
+# 首板回踩再启动 / Second Launch Radar
 
-纯盘后、单股票的A股涨停回调策略检查器。Phase 2C.1支持任意合法沪深主板六位
-代码的 `inspect` / `replay`；Phase 2C.2A提供本地多数据源历史行情仓库
-（Tushare 主日线 + AKShare 交叉验证/涨停池 + BaoStock 历史补录），但不提供
-全市场扫描、HTML报告、回测、盘中监控或自动交易。
+> A-share research system for narrowing thousands of stocks into a small
+> watchlist of structurally strong second-launch candidates.
 
-## CLI
+## 这个项目解决什么问题
 
-安装项目依赖后，可在内存中运行：
+这不是一个自动预测涨停的系统，也不是机械寻找最低买点的工具。
 
-```bash
-python -m limit_pullback inspect \
-  --code 603318 \
-  --as-of 2026-07-30 \
-  --days 400
+核心目标是把全市场逐步缩小成一小份值得人工盯盘的候选：
 
-python -m limit_pullback replay \
-  --code 603318 \
-  --as-of 2026-07-30 \
-  --lookback-calendar-days 400
+`全市场 → 找到第一次资金明显表态 → 判断回调后结构是否仍然健康 → 找到重新转强的股票 → 提前缩小到少量 PREPOSITION / LAUNCH_READY 候选 → 由人工盘中执行。`
+
+## 策略怎么理解
+
+策略围绕“第一次资金表态之后，结构是否还活着、能否再次发动”展开：
+
+- **FIRST_ATTACK**：第一次资金明显表态（涨停或放量攻击）。
+- **STRUCTURE_ALIVE**：表态后的回调/换手中，底部或平台结构没有被破坏。
+- **RECLAIM**：价格重新站回短均线等关键位置，结构开始修复。
+- **PREPOSITION**：结构健康且处于修复中，进入“值得继续观察”的预备位。
+- **LAUNCH_READY**：次日值得重点盯盘的转强候选。
+- **SECOND_LAUNCH**：第二次攻击确认（突破前高、接近 S1、或明显扩张上涨）。
+- **POST_B**：目标达成或行情已走完，只观察、不追高。
+
+文中统一使用客观描述：资金表态、结构保持、换手/分歧、重新转强、第二次攻击。
+不把“主力洗盘 / 吸筹”写成事实。
+
+## 流程
+
+```mermaid
+flowchart LR
+    A[3000+ A股] --> B[结构扫描]
+    B --> C[PREPOSITION]
+    C --> D[LAUNCH_READY]
+    D --> E[HUMAN WATCH]
+    E --> F[HUMAN EXECUTION]
+    E -. 没有合适标的 .-> G[NO_TRADE_DAY]
 ```
 
-`inspect`是`STATELESS_INSPECT`，只解释指定交易日；它没有上一信号，不能还原
-B2生命周期。`replay`是`POINT_IN_TIME_REPLAY`，会从早到晚传递上一交易日信号。
-两者只向stdout输出JSON且不自动写文件。
+## Human + Machine 分工
 
-允许深圳000/001/002/003及上海600/601/603/605前缀。代码必须保留为六位字符串；
-创业板、科创板、B股、北交所及未知前缀会在Provider调用前拒绝。合法代码并不
-保证请求日存在行情。
+**机器负责：**
 
-默认测试完全封禁socket：
+- 扫描大量股票
+- 识别结构状态
+- 缩小观察范围
+- 提供支撑 / invalid / S1 / G 等参考
+- 保存历史与 forward evidence
 
-```bash
-pytest -q
-```
+**人工负责：**
 
-真实Provider测试必须显式运行：
+- 判断当天盘口承接
+- 判断板块环境
+- 判断是否追高
+- 决定是否真正交易
 
-```bash
-pytest -m integration -q
-```
+系统目标是优化“注意力分配”，**不是自动下单**。
 
-## Phase 2C.2A 本地行情仓库
+## B 点是什么
 
-仓库命令把真实数据写入默认 `data/` 目录（可用 `--data-root` 或环境变量
-`LIMIT_PULLBACK_DATA_ROOT` 覆盖）；`data/` 已被 Git 忽略，真实行情永不入库。
+B 不是一个固定价格。
 
-```bash
-# 探测 Tushare 各接口能力（仅从环境变量 TUSHARE_TOKEN 读取认证）
-python -m limit_pullback provider-probe --provider tushare
+B condition =
 
-# 历史 bootstrap：下载 → 单位标准化 → 对账 → canonical 快照
-python -m limit_pullback bootstrap \
-  --start 2026-06-01 --end 2026-07-30 \
-  --codes 603918 603318 002640 600199 002891
+**PRICE ZONE**（进入计划区域）
 
-# 幂等每日增量更新
-python -m limit_pullback update --as-of 2026-07-31
+**+ BEHAVIOR CONFIRMATION**（盘中表现符合预期）
 
-# 仓库状态与完整性校验
-python -m limit_pullback data-status
-python -m limit_pullback data-validate
-```
+**+ INVALIDATION**（风险失效位置明确）
 
-布局：
+盘前制定 → 盘中执行 → 盘后评价。
 
-```text
-data/
-  raw/tushare/            daily_bars, adjustment_factor, daily_basic,
-                          suspension, price_limits
-  raw/akshare/            daily_bars, limit_up_pool
-  raw/baostock/           daily_bars
-  canonical/              daily_bars, limit_up_pool（按 snapshot 不可变发布）
-  quarantine/             冲突与隔离记录
-  manifests/              snapshot manifest（原子提交）
-  warehouse.duckdb        运行/能力/文件/快照/对账元数据
-```
+## 每日工作流
 
-对账状态：`PROVISIONAL / CONFIRMED / INCOMPLETE / CONFLICTED /
-QUARANTINED`。Tushare 与 AKShare 一致时发布 `CONFIRMED`；BaoStock 明确
-延迟但双源一致时仍 `CONFIRMED` 并记录 `BAOSTOCK_LAGGING`；OHLC 超容差冲突
-进入 `CONFLICTED` 并隔离，绝不发布 canonical；不同来源的字段绝不拼接。
-`TUSHARE_TOKEN` 只从环境变量读取，缺失时返回
-`TUSHARE_TOKEN_NOT_CONFIGURED`，Token 不会出现在日志、异常、报告或 Git 中。
+`3000+ stocks → tens of structural candidates → 10-20 Human Watch → 3-5 重点观察 → 0-2 实际交易`
 
-## Phase 2C.2B 离线全市场 setup 扫描
+没有合适标的时间，允许 **NO TRADE**，不为交易强制选股。
 
-`screen` 完全离线运行：只读取已发布 canonical 快照中的 `CONFIRMED` 日线
-（涨停池取自 canonical pool），不访问任何 Provider、不使用未来数据。
+## 当前研究认知
 
-```bash
-# 首次/全量重建
-python -m limit_pullback screen \
-  --start 2026-06-01 --as-of 2026-07-30 --rebuild \
-  --snapshot-id snap-xxx --verify-replay
+以下均为研究阶段的观察（research hypothesis），不是已验证的稳定盈利规则：
 
-# 日常增量：只推进昨日活动 setup 与当日新 Anchor
-python -m limit_pullback screen --as-of 2026-07-31
-```
+- 传统机械 B1 entry 尚未证明稳定正期望。
+- “越便宜越好”没有得到支持。
+- 强势候选往往本来就更靠近近期高点。
+- G Geometry 更适合作为 LAUNCH_READY radar，而不是自动买入信号。
+- RR / buy zone 更适合作 execution reference，而不是唯一 watch gate。
+- Analog Engine 当前定位为 DESCRIPTIVE CASE RETRIEVAL，不用于预测 S1/S2。
+- 技术指标只是辅助特征，不作为万能硬规则。
 
-每次运行绑定 `strategy commit / config hash / dataset snapshot / output hash`；
-输出（setup 快照、评分、Support、Invalid、B2 Trigger、S1、Entry Room、事件、
-数据质量）写入 `data/screen/runs/`，逐股状态写入 `data/screen/states/`。
-全量重建与逐日增量必须一致；未来快照不修改历史结果。不实现 B1_PREP、挂单、
-持仓、S 点卖出或回测。
+## 案例说明（仅供结构理解）
 
-要点：
+以下只作为 strategy archetype / observation case，**不是历史已验证的成功交易**：
 
-- 历史 `--as-of` 默认只读取该时点已发布的 snapshot；如仓库快照晚于请求日，
-  必须显式传 `--snapshot-id`；
-- 正式模式不把 `PROVISIONAL` 涨停池记录当作 OK 锚点（质量降 `UNUSABLE`）；
-  `--pool-debug` 仅用于调试（降 `DEGRADED` 并输出警告）；
-- `NEW_ANCHOR` 仅出现在 `LIMIT_ANCHOR` 且 `anchor_date == trade_date` 的当天；
-- 状态绑定 bars/pool 前缀哈希、strategy commit、config hash 与对账策略版本，
-  任一变化自动从安全起点重算。
+- **600468 百利电气**：SUCCESS CASE（结构/二次启动观察，非 entry ground truth）
+- **600756 浪潮软件**：OBSERVATION / HUMAN_SELECTED（人工低吸观察；数据受限）
+- **603980 吉华集团**：OBSERVATION / PENDING（等待回踩支撑簇）
+- **002112 三变科技**：FORWARD CASE / HUMAN_SELECTED（盘中人工观察）
+- **大连电瓷**：OBSERVATION（仅来源提及，无完整数据时不做结论）
+
+## 更多文档
+
+- [docs/strategy-overview.md](docs/strategy-overview.md) — 策略概览（更详细）
+- [docs/agent-context.md](docs/agent-context.md) — 工程上下文
+- [docs/project-operating-model.md](docs/project-operating-model.md) — 四层 truth 模型
+- [research/second_launch_radar_v1.md](research/second_launch_radar_v1.md) — research-only 雷达 spec
+- 知识库：`a-share-strategy-brain`
