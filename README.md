@@ -7,9 +7,10 @@
 
 这不是一个自动预测涨停的系统，也不是机械寻找最低买点的工具。
 
-核心目标是把全市场逐步缩小成一小份值得人工盯盘的候选：
+核心目标是把当前股票池逐步缩小成一小份值得人工盯盘的候选。
+（长期愿景是面向全市场扫描。）
 
-`全市场 → 找到第一次资金明显表态 → 判断回调后结构是否仍然健康 → 找到重新转强的股票 → 提前缩小到少量 PREPOSITION / LAUNCH_READY 候选 → 由人工盘中执行。`
+`当前项目股票池（约3000+） → 找到第一次资金明显表态 → 判断回调后结构是否仍然健康 → 找到重新转强的股票 → 提前缩小到少量 PREPOSITION / LAUNCH_READY 候选 → 由人工盘中执行。`
 
 ## 策略怎么理解
 
@@ -33,7 +34,7 @@
 
 ```mermaid
 flowchart LR
-    A[3000+ A股] --> B[结构扫描]
+    A[当前项目股票池（3000+）] --> B[结构扫描]
     B --> C[PREPOSITION]
     C --> D[LAUNCH_READY]
     D --> E[HUMAN WATCH]
@@ -76,7 +77,7 @@ B condition =
 
 ## 每日工作流
 
-`3000+ stocks → tens of structural candidates → 10-20 Human Watch → 3-5 重点观察 → 0-2 实际交易`
+`当前股票池（3000+） → tens of structural candidates → 10-20 Human Watch → 3-5 重点观察 → 0-2 实际交易`
 
 没有合适标的时间，允许 **NO TRADE**，不为交易强制选股。
 
