@@ -19,9 +19,12 @@
 - **STRUCTURE_ALIVE**：表态后的回调/换手中，底部或平台结构没有被破坏。
 - **RECLAIM**：价格重新站回短均线等关键位置，结构开始修复。
 - **PREPOSITION**：结构健康且处于修复中，进入“值得继续观察”的预备位。
-- **LAUNCH_READY**：次日值得重点盯盘的转强候选。
-- **SECOND_LAUNCH**：第二次攻击确认（突破前高、接近 S1、或明显扩张上涨）。
-- **POST_B**：目标达成或行情已走完，只观察、不追高。
+- **LAUNCH_READY**：次日值得重点盯盘的转强候选（常伴随接近 S1 / 近期高点等
+  geometry 特征；这些只是特征，不构成确认）。
+- **SECOND_LAUNCH**：第二次攻击确认——突破关键 trigger / 前高 / 压力区，并
+  形成有效强势扩张。
+- **POST_B**：主要启动段已经兑现，进入持仓管理 / 延续观察阶段；新开仓通常
+  NO_CHASE。
 
 文中统一使用客观描述：资金表态、结构保持、换手/分歧、重新转强、第二次攻击。
 不把“主力洗盘 / 吸筹”写成事实。
@@ -93,11 +96,12 @@ B condition =
 
 以下只作为 strategy archetype / observation case，**不是历史已验证的成功交易**：
 
-- **600468 百利电气**：SUCCESS CASE（结构/二次启动观察，非 entry ground truth）
+- **600468 百利电气**：STRUCTURE_SUCCESS / SECOND_LAUNCH_SUCCESS
+  （非 ENTRY_SUCCESS ground truth）
 - **600756 浪潮软件**：OBSERVATION / HUMAN_SELECTED（人工低吸观察；数据受限）
 - **603980 吉华集团**：OBSERVATION / PENDING（等待回踩支撑簇）
 - **002112 三变科技**：FORWARD CASE / HUMAN_SELECTED（盘中人工观察）
-- **大连电瓷**：OBSERVATION（仅来源提及，无完整数据时不做结论）
+- **大连电瓷**：MANUAL_REVIEW（仓库内无完整时间轴，待人工补证；不自行补造事实）
 
 ## 更多文档
 
