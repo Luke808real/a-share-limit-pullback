@@ -9,6 +9,10 @@ DATA_SOURCE: AKSHARE/SINA 1m（主验证）+ 5m（fallback 证据）
 
 所有计数由最终 manifest CSV 动态读取。
 
+PR23_REMOTE_REVIEW_FIX：missingness rate 分母改为动态
+（SUCCESS_TOTAL / FAILED_BREAKOUT_TOTAL），不再硬编码 43/103；
+amount 缺失时跳过校验；新增 1m/5m 与 canonical 日线 OHLC 差异审计。
+
 ## 1. INPUT
 
 TOTAL_EVENT_CASES = 146
@@ -66,12 +70,27 @@ MISSINGNESS_IMBALANCE = false
 解释：缺失不是按 outcome 差异（两组可用率几乎相同），而是系统性时间窗口
 限制——新浪 1m 不提供 7/23 之前的历史；未自行补样本。
 
+rate 分母为动态值：SUCCESS_TOTAL = 43、FAILED_BREAKOUT_TOTAL = 103。
+
 ## 6. EXACT EVENT VALIDATION
 
 - canonical daily high >= s1_price：146/146 成立（cohort 定义自洽）。
 - 可用 7 个事件日：分钟 1m high 均 >= s1；分钟 close 与 canonical daily close
   差异 <= 0.5%。
 - DAILY_INTRADAY_MISMATCH_N = 0；无 mismatch case。
+- 1m OHLC 审计（7 个可用事件）：minute open/high/low/close 聚合值与
+  canonical daily OHLC 差异全部为 0.00%（OPEN/HIGH/LOW/CLOSE_DIFF_PCT），
+  S1_TOUCH_MISMATCH 全部 False。
+
+## 5M DATA AUDIT（fallback，不做特征研究）
+
+- 5m 覆盖事件日：146/146；完整 session（5m 口径）：139/146。
+- 5M_FULL_SUCCESS_N = 40；5M_FULL_FAILED_N = 99。
+- 5m OHLC 校验：146/146 会话 ohlc_valid=True；5m close 与 canonical daily
+  close 最大绝对差异 0.0831%（≤ 1.0% 固定审计阈值）。
+- 5M_AUDIT_STATUS = PASS。
+- 仅登记 NEXT = INTRADAY_SUCCESS_PATTERN_V02A_5M（不自动执行；
+  是否采用 5m fallback 仍需人工确认）。
 
 ## 7. 5m FALLBACK EVIDENCE（不作为 1m gate）
 

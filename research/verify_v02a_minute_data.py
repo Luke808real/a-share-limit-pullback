@@ -59,7 +59,8 @@ def session_checks(df: pd.DataFrame, d: str, granule: str = "1m") -> dict:
     s = s.sort_values("ts").reset_index(drop=True)
     for col in ("open", "high", "low", "close", "volume"):
         s[col] = pd.to_numeric(s[col], errors="coerce")
-    if "amount" in s.columns:
+    has_amount = "amount" in s.columns
+    if has_amount:
         s["amount"] = pd.to_numeric(s["amount"], errors="coerce")
     first_tt = int(s["tt"].iloc[0])
     last_tt = int(s["tt"].iloc[-1])
@@ -69,7 +70,7 @@ def session_checks(df: pd.DataFrame, d: str, granule: str = "1m") -> dict:
         (s["high"] >= s[["open", "close", "low"]].max(axis=1) - 1e-9).all()
         and (s["low"] <= s[["open", "close", "high"]].min(axis=1) + 1e-9).all()
         and (s["volume"] >= 0).all()
-        and (s["amount"].fillna(0) >= 0).all()
+        and (not has_amount or (s["amount"].fillna(0) >= 0).all())
     )
     max_gap = int(s["tt"].diff().max()) if len(s) > 1 else 999
     has = {k: bool((s["tt"] == t).any()) for k, t in CHECKPOINTS.items()}
@@ -125,6 +126,7 @@ def session_checks(df: pd.DataFrame, d: str, granule: str = "1m") -> dict:
         "minute_high": float(s["high"].max()) if len(s) else None,
         "minute_close": float(s.iloc[-1]["close"]) if len(s) else None,
         "minute_open": float(s.iloc[0]["open"]) if len(s) else None,
+        "minute_low": float(s["low"].min()) if len(s) else None,
     }
 
 
@@ -174,17 +176,35 @@ def main() -> None:
             five_status = res5[0]
 
         minute_high = chk.get("minute_high")
-        mismatch = False
+        s1_touch_mismatch = bool(
+            chk.get("has_data")
+            and minute_high is not None
+            and daily_s1_ok
+            and minute_high < s1 - 1e-6
+        )
+
+        def diff_pct(minute_val, daily_val):
+            if minute_val is None or daily_val is None or daily_val == 0:
+                return None
+            return round((minute_val / daily_val - 1.0) * 100.0, 4)
+
+        open_diff = diff_pct(chk.get("minute_open"), daily_open)
+        high_diff = diff_pct(chk.get("minute_high"), daily_high)
+        low_diff = diff_pct(chk.get("minute_low"), daily_low)
+        close_diff = diff_pct(chk.get("minute_close"), daily_close)
+        ohlc_mismatch = close_diff is not None and abs(close_diff) > 0.5
+        mismatch = bool(s1_touch_mismatch or ohlc_mismatch)
         mismatch_detail = ""
-        if chk.get("has_data") and minute_high is not None:
-            if daily_s1_ok and minute_high < s1 - 1e-6:
-                mismatch = True
-                mismatch_detail = "minute_high<s1 despite daily_high>=s1"
-            elif daily_close is not None and chk.get("minute_close") is not None:
-                close_diff = abs(chk["minute_close"] - daily_close) / daily_close * 100.0
-                if close_diff > 0.5:
-                    mismatch = True
-                    mismatch_detail = f"close_diff_pct={close_diff:.2f}"
+        if s1_touch_mismatch:
+            mismatch_detail = "minute_high<s1 despite daily_high>=s1"
+        elif ohlc_mismatch:
+            mismatch_detail = f"close_diff_pct={close_diff:.2f}"
+
+        d5_open = diff_pct(chk5.get("minute_open"), daily_open)
+        d5_high = diff_pct(chk5.get("minute_high"), daily_high)
+        d5_low = diff_pct(chk5.get("minute_low"), daily_low)
+        d5_close = diff_pct(chk5.get("minute_close"), daily_close)
+        chk5_ohlc_ok = bool(chk5.get("has_data", False) and chk5.get("ohlc_valid", False))
         manifest_rows.append(
             {
                 "episode_id": c["episode_id"],
@@ -209,6 +229,11 @@ def main() -> None:
                 "has_close_session": chk.get("has_close_session", False),
                 "INTRADAY_DAILY_MISMATCH": mismatch,
                 "mismatch_detail": mismatch_detail,
+                "S1_TOUCH_MISMATCH": s1_touch_mismatch,
+                "OPEN_DIFF_PCT": open_diff,
+                "HIGH_DIFF_PCT": high_diff,
+                "LOW_DIFF_PCT": low_diff,
+                "CLOSE_DIFF_PCT": close_diff,
                 "daily_high": daily_high,
                 "minute_high": minute_high,
                 "daily_close": daily_close,
@@ -223,11 +248,19 @@ def main() -> None:
                 "5M_READY_1030": chk5.get("READY_1030", False),
                 "5M_READY_1130": chk5.get("READY_1130", False),
                 "5M_FULL_SESSION_COMPLETE": chk5.get("FULL_SESSION_COMPLETE", False),
+                "5M_OPEN_DIFF_PCT": d5_open,
+                "5M_HIGH_DIFF_PCT": d5_high,
+                "5M_LOW_DIFF_PCT": d5_low,
+                "5M_CLOSE_DIFF_PCT": d5_close,
+                "5M_OHLC_VALID": chk5_ohlc_ok,
             }
         )
 
     manifest = pd.DataFrame(manifest_rows)
     manifest.to_csv(MANIFEST, index=False)
+
+    success_total = int((manifest["outcome"] == "SUCCESS").sum())
+    failed_total = int((manifest["outcome"] == "FAILED_BREAKOUT").sum())
 
     def ready_count(outcome: str, ckpt: str) -> int:
         sub = manifest[manifest["outcome"] == outcome]
@@ -238,8 +271,10 @@ def main() -> None:
         rates[ckpt] = {
             "success_n": ready_count("SUCCESS", ckpt),
             "failed_n": ready_count("FAILED_BREAKOUT", ckpt),
-            "success_rate": round(ready_count("SUCCESS", ckpt) / 43, 4),
-            "failed_rate": round(ready_count("FAILED_BREAKOUT", ckpt) / 103, 4),
+            "success_total": success_total,
+            "failed_total": failed_total,
+            "success_rate": round(ready_count("SUCCESS", ckpt) / success_total, 4),
+            "failed_rate": round(ready_count("FAILED_BREAKOUT", ckpt) / failed_total, 4),
         }
     imbalance = any(
         abs(r["success_rate"] - r["failed_rate"]) >= 0.10 for r in rates.values()
@@ -263,7 +298,24 @@ def main() -> None:
         and not imbalance
         and min_rate >= 0.90
     )
+    five_full_success = int(
+        ((manifest["outcome"] == "SUCCESS") & manifest["5M_FULL_SESSION_COMPLETE"]).sum()
+    )
+    five_full_failed = int(
+        (
+            (manifest["outcome"] == "FAILED_BREAKOUT")
+            & manifest["5M_FULL_SESSION_COMPLETE"]
+        ).sum()
+    )
+    five_close_diffs = manifest["5M_CLOSE_DIFF_PCT"].dropna()
+    five_max_close_diff = float(five_close_diffs.abs().max()) if len(five_close_diffs) else None
+    five_audit_pass = bool(
+        five_full_success >= 20
+        and five_full_failed >= 20
+        and (five_max_close_diff is None or five_max_close_diff <= 1.0)
+    )
     print("TOTAL_EVENT_CASES:", len(manifest))
+    print("SUCCESS_TOTAL:", success_total, "FAILED_BREAKOUT_TOTAL:", failed_total)
     print("FETCH_SUCCESS(1m):", fetch_stats.get("1m_OK", 0) + fetch_stats.get("1m_CACHED", 0),
           "FETCH_FAILED(1m):", fetch_stats.get("1m_ERROR", 0))
     print("COMMON_SUCCESS_N:", common_success, "COMMON_FAILED_BREAKOUT_N:", common_failed)
@@ -276,15 +328,13 @@ def main() -> None:
     print(pd.crosstab(manifest["outcome"], manifest["5m_has_data"]).to_string())
     print("5m full-session by outcome:")
     print(pd.crosstab(manifest["outcome"], manifest["5M_FULL_SESSION_COMPLETE"]).to_string())
+    print("5m full-ready counts:", five_full_success, five_full_failed)
+    print("5m max close diff pct:", five_max_close_diff)
+    print("5M_AUDIT_STATUS:", "PASS" if five_audit_pass else "FAIL")
     print(
-        "5m full-ready counts:",
-        int(((manifest["outcome"] == "SUCCESS") & manifest["5M_FULL_SESSION_COMPLETE"]).sum()),
-        int(
-            (
-                (manifest["outcome"] == "FAILED_BREAKOUT")
-                & manifest["5M_FULL_SESSION_COMPLETE"]
-            ).sum()
-        ),
+        "NEXT (registered only): INTRADAY_SUCCESS_PATTERN_V02A_5M"
+        if five_audit_pass
+        else "NEXT: none (5m audit not passed)"
     )
     print("fetch_stats:", fetch_stats)
     print("manifest rows:", len(manifest))
