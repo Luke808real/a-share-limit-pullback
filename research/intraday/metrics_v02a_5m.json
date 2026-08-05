@@ -25,22 +25,28 @@
     "CHECKPOINT_MISSING_N": 0,
     "DATA_GATE_STATUS": "PASS"
   },
+  "prev_close_audit_offset1": {
+    "n": 76,
+    "exact_match_n": 76,
+    "max_abs_diff": 0.0,
+    "pct_abs_diff_gt_0.1%": 0
+  },
   "checkpoints": {
     "0945": {
       "success_n": 40,
       "failed_n": 99,
       "OPEN_GAP_PCT": {
-        "success_median": 1.1229,
-        "failed_median": 1.6976,
+        "success_median": 0.0,
+        "failed_median": 0.0,
         "success_iqr": [
-          0.0,
-          5.1361
+          -1.0269,
+          1.0419
         ],
         "failed_iqr": [
-          -0.0096,
-          4.7664
+          -0.6196,
+          2.1105
         ],
-        "std_diff": 0.022
+        "std_diff": -0.279
       },
       "DRAWDOWN_FROM_OPEN_PCT": {
         "success_median": -0.7983,
@@ -56,17 +62,17 @@
         "std_diff": 0.03
       },
       "DRAWDOWN_FROM_PREV_CLOSE_PCT": {
-        "success_median": 0.4239,
-        "failed_median": 0.2085,
+        "success_median": -0.7662,
+        "failed_median": -0.8712,
         "success_iqr": [
-          -0.8692,
-          3.4809
+          -2.5248,
+          0.3386
         ],
         "failed_iqr": [
-          -1.1463,
-          3.4143
+          -1.7982,
+          0.6409
         ],
-        "std_diff": 0.035
+        "std_diff": -0.294
       },
       "CURRENT_RETURN_FROM_OPEN_PCT": {
         "success_median": 1.6416,
@@ -82,17 +88,17 @@
         "std_diff": 0.022
       },
       "CURRENT_RETURN_FROM_PREV_CLOSE_PCT": {
-        "success_median": 4.2354,
-        "failed_median": 4.3434,
+        "success_median": 2.6013,
+        "failed_median": 3.0361,
         "success_iqr": [
-          2.3338,
-          7.1375
+          0.678,
+          4.1806
         ],
         "failed_iqr": [
-          2.3308,
-          7.7401
+          0.8182,
+          5.3095
         ],
-        "std_diff": 0.044
+        "std_diff": -0.223
       },
       "DIST_TO_VWAP_PCT": {
         "success_median": 0.7063,
@@ -108,17 +114,17 @@
         "std_diff": 0.03
       },
       "DIST_TO_PREV_CLOSE_PCT": {
-        "success_median": 4.2354,
-        "failed_median": 4.3434,
+        "success_median": 2.6013,
+        "failed_median": 3.0361,
         "success_iqr": [
-          2.3338,
-          7.1375
+          0.678,
+          4.1806
         ],
         "failed_iqr": [
-          2.3308,
-          7.7401
+          0.8182,
+          5.3095
         ],
-        "std_diff": 0.044
+        "std_diff": -0.223
       },
       "DIST_TO_S1_PCT": {
         "success_median": -1.6616,
@@ -282,9 +288,9 @@
         "rate_diff": -0.097
       },
       "PREV_CLOSE_STATE_rate": {
-        "success_rate": 0.9,
-        "failed_rate": 0.9394,
-        "rate_diff": -0.0394
+        "success_rate": 0.8,
+        "failed_rate": 0.8283,
+        "rate_diff": -0.0283
       },
       "S1_STATE_rate": {
         "success_rate": 0.35,
@@ -297,9 +303,9 @@
         "rate_diff": -0.1109
       },
       "VWAP_FIRST_RECLAIMED_rate": {
-        "success_rate": 0.05,
-        "failed_rate": 0.0909,
-        "rate_diff": -0.0409
+        "success_rate": 0.275,
+        "failed_rate": 0.2323,
+        "rate_diff": 0.0427
       },
       "VWAP_SECOND_RECLAIMED_rate": {
         "success_rate": 0.0,
@@ -311,15 +317,30 @@
         "failed_rate": 0.0505,
         "rate_diff": 0.0245
       },
+      "S1_TOUCH_REJECTED_IMMEDIATELY_rate": {
+        "success_rate": 0.175,
+        "failed_rate": 0.2828,
+        "rate_diff": -0.1078
+      },
+      "S1_ACCEPTED_CLOSE_OCCURRED_rate": {
+        "success_rate": 0.425,
+        "failed_rate": 0.3737,
+        "rate_diff": 0.0513
+      },
+      "S1_ACCEPTED_THEN_REBREAK_rate": {
+        "success_rate": 0.075,
+        "failed_rate": 0.0505,
+        "rate_diff": 0.0245
+      },
       "S1_SECOND_RECLAIMED_rate": {
         "success_rate": 0.0,
         "failed_rate": 0.0,
         "rate_diff": 0.0
       },
       "OPEN_SHAKE_RECLAIMED_rate": {
-        "success_rate": 0.05,
-        "failed_rate": 0.0404,
-        "rate_diff": 0.0096
+        "success_rate": 0.15,
+        "failed_rate": 0.1212,
+        "rate_diff": 0.0288
       },
       "OPEN_RECLAIMED_NOW_rate": {
         "success_rate": 0.825,
@@ -336,17 +357,17 @@
       "success_n": 40,
       "failed_n": 99,
       "OPEN_GAP_PCT": {
-        "success_median": 1.1229,
-        "failed_median": 1.6976,
+        "success_median": 0.0,
+        "failed_median": 0.0,
         "success_iqr": [
-          0.0,
-          5.1361
+          -1.0269,
+          1.0419
         ],
         "failed_iqr": [
-          -0.0096,
-          4.7664
+          -0.6196,
+          2.1105
         ],
-        "std_diff": 0.022
+        "std_diff": -0.279
       },
       "DRAWDOWN_FROM_OPEN_PCT": {
         "success_median": -0.8439,
@@ -362,17 +383,17 @@
         "std_diff": -0.04
       },
       "DRAWDOWN_FROM_PREV_CLOSE_PCT": {
-        "success_median": 0.3821,
-        "failed_median": 0.2085,
+        "success_median": -0.8804,
+        "failed_median": -0.8889,
         "success_iqr": [
-          -0.8847,
-          3.1868
+          -2.5248,
+          0.2246
         ],
         "failed_iqr": [
-          -1.1984,
-          3.4143
+          -1.8043,
+          0.5693
         ],
-        "std_diff": 0.008
+        "std_diff": -0.345
       },
       "CURRENT_RETURN_FROM_OPEN_PCT": {
         "success_median": 2.7536,
@@ -388,17 +409,17 @@
         "std_diff": 0.171
       },
       "CURRENT_RETURN_FROM_PREV_CLOSE_PCT": {
-        "success_median": 4.7931,
-        "failed_median": 4.2865,
+        "success_median": 3.144,
+        "failed_median": 2.7964,
         "success_iqr": [
-          2.6907,
-          7.8832
+          0.7288,
+          5.1706
         ],
         "failed_iqr": [
-          1.8188,
-          7.6796
+          1.0255,
+          5.3281
         ],
-        "std_diff": 0.148
+        "std_diff": -0.067
       },
       "DIST_TO_VWAP_PCT": {
         "success_median": 0.8233,
@@ -414,17 +435,17 @@
         "std_diff": 0.309
       },
       "DIST_TO_PREV_CLOSE_PCT": {
-        "success_median": 4.7931,
-        "failed_median": 4.2865,
+        "success_median": 3.144,
+        "failed_median": 2.7964,
         "success_iqr": [
-          2.6907,
-          7.8832
+          0.7288,
+          5.1706
         ],
         "failed_iqr": [
-          1.8188,
-          7.6796
+          1.0255,
+          5.3281
         ],
-        "std_diff": 0.148
+        "std_diff": -0.067
       },
       "DIST_TO_S1_PCT": {
         "success_median": -1.3333,
@@ -544,30 +565,30 @@
         "std_diff": 0.109
       },
       "HIGH_PROGRESSION_PCT": {
-        "success_median": 0.2747,
-        "failed_median": 0.2179,
+        "success_median": 0.0,
+        "failed_median": 0.0,
         "success_iqr": [
           0.0,
-          1.077
+          0.7784
         ],
         "failed_iqr": [
           0.0,
-          1.0094
+          0.3281
         ],
-        "std_diff": 0.105
+        "std_diff": 0.191
       },
       "LOW_PROGRESSION_PCT": {
-        "success_median": -1.5996,
-        "failed_median": -1.9521,
+        "success_median": 0.0,
+        "failed_median": 0.0,
         "success_iqr": [
-          -4.6193,
-          -0.6925
+          0.0,
+          0.0
         ],
         "failed_iqr": [
-          -3.3454,
-          -0.6565
+          0.0,
+          0.0
         ],
-        "std_diff": -0.129
+        "std_diff": -0.244
       },
       "CUM_VOLUME": {
         "success_median": 17428566.5,
@@ -588,9 +609,9 @@
         "rate_diff": 0.0636
       },
       "PREV_CLOSE_STATE_rate": {
-        "success_rate": 0.875,
-        "failed_rate": 0.9495,
-        "rate_diff": -0.0745
+        "success_rate": 0.8,
+        "failed_rate": 0.8687,
+        "rate_diff": -0.0687
       },
       "S1_STATE_rate": {
         "success_rate": 0.425,
@@ -603,16 +624,31 @@
         "rate_diff": -0.1268
       },
       "VWAP_FIRST_RECLAIMED_rate": {
-        "success_rate": 0.35,
-        "failed_rate": 0.2828,
-        "rate_diff": 0.0672
+        "success_rate": 0.45,
+        "failed_rate": 0.3838,
+        "rate_diff": 0.0662
       },
       "VWAP_SECOND_RECLAIMED_rate": {
-        "success_rate": 0.0,
-        "failed_rate": 0.0303,
-        "rate_diff": -0.0303
+        "success_rate": 0.125,
+        "failed_rate": 0.0707,
+        "rate_diff": 0.0543
       },
       "S1_REBREAK_AFTER_TOUCH_rate": {
+        "success_rate": 0.125,
+        "failed_rate": 0.2222,
+        "rate_diff": -0.0972
+      },
+      "S1_TOUCH_REJECTED_IMMEDIATELY_rate": {
+        "success_rate": 0.225,
+        "failed_rate": 0.3535,
+        "rate_diff": -0.1285
+      },
+      "S1_ACCEPTED_CLOSE_OCCURRED_rate": {
+        "success_rate": 0.5,
+        "failed_rate": 0.4646,
+        "rate_diff": 0.0354
+      },
+      "S1_ACCEPTED_THEN_REBREAK_rate": {
         "success_rate": 0.125,
         "failed_rate": 0.2222,
         "rate_diff": -0.0972
@@ -623,9 +659,9 @@
         "rate_diff": -0.0106
       },
       "OPEN_SHAKE_RECLAIMED_rate": {
-        "success_rate": 0.1,
-        "failed_rate": 0.1212,
-        "rate_diff": -0.0212
+        "success_rate": 0.2,
+        "failed_rate": 0.202,
+        "rate_diff": -0.002
       },
       "OPEN_RECLAIMED_NOW_rate": {
         "success_rate": 0.8,
@@ -642,17 +678,17 @@
       "success_n": 40,
       "failed_n": 99,
       "OPEN_GAP_PCT": {
-        "success_median": 1.1229,
-        "failed_median": 1.6976,
+        "success_median": 0.0,
+        "failed_median": 0.0,
         "success_iqr": [
-          0.0,
-          5.1361
+          -1.0269,
+          1.0419
         ],
         "failed_iqr": [
-          -0.0096,
-          4.7664
+          -0.6196,
+          2.1105
         ],
-        "std_diff": 0.022
+        "std_diff": -0.279
       },
       "DRAWDOWN_FROM_OPEN_PCT": {
         "success_median": -0.8439,
@@ -668,17 +704,17 @@
         "std_diff": 0.021
       },
       "DRAWDOWN_FROM_PREV_CLOSE_PCT": {
-        "success_median": 0.3821,
-        "failed_median": 0.0,
+        "success_median": -0.9205,
+        "failed_median": -1.0436,
         "success_iqr": [
-          -0.8957,
-          2.8549
+          -2.5248,
+          0.2246
         ],
         "failed_iqr": [
-          -1.2754,
-          3.3666
+          -1.9097,
+          0.3717
         ],
-        "std_diff": 0.032
+        "std_diff": -0.304
       },
       "CURRENT_RETURN_FROM_OPEN_PCT": {
         "success_median": 4.4884,
@@ -694,17 +730,17 @@
         "std_diff": 0.372
       },
       "CURRENT_RETURN_FROM_PREV_CLOSE_PCT": {
-        "success_median": 5.8233,
-        "failed_median": 4.7341,
+        "success_median": 3.4815,
+        "failed_median": 3.0411,
         "success_iqr": [
-          2.7402,
-          10.0148
+          1.0353,
+          7.2598
         ],
         "failed_iqr": [
-          2.0838,
-          8.6079
+          1.081,
+          5.8107
         ],
-        "std_diff": 0.302
+        "std_diff": 0.146
       },
       "DIST_TO_VWAP_PCT": {
         "success_median": 1.3469,
@@ -720,17 +756,17 @@
         "std_diff": 0.495
       },
       "DIST_TO_PREV_CLOSE_PCT": {
-        "success_median": 5.8233,
-        "failed_median": 4.7341,
+        "success_median": 3.4815,
+        "failed_median": 3.0411,
         "success_iqr": [
-          2.7402,
-          10.0148
+          1.0353,
+          7.2598
         ],
         "failed_iqr": [
-          2.0838,
-          8.6079
+          1.081,
+          5.8107
         ],
-        "std_diff": 0.302
+        "std_diff": 0.146
       },
       "DIST_TO_S1_PCT": {
         "success_median": 0.5203,
@@ -850,30 +886,30 @@
         "std_diff": -0.049
       },
       "HIGH_PROGRESSION_PCT": {
+        "success_median": 0.1064,
+        "failed_median": 0.0,
+        "success_iqr": [
+          0.0,
+          1.1038
+        ],
+        "failed_iqr": [
+          0.0,
+          0.319
+        ],
+        "std_diff": 0.298
+      },
+      "LOW_PROGRESSION_PCT": {
         "success_median": 0.0,
         "failed_median": 0.0,
         "success_iqr": [
           0.0,
-          0.622
+          0.0
         ],
         "failed_iqr": [
           0.0,
-          0.6797
+          0.0
         ],
-        "std_diff": 0.064
-      },
-      "LOW_PROGRESSION_PCT": {
-        "success_median": -1.4375,
-        "failed_median": -1.2469,
-        "success_iqr": [
-          -4.5067,
-          -0.412
-        ],
-        "failed_iqr": [
-          -3.3076,
-          -0.1832
-        ],
-        "std_diff": -0.198
+        "std_diff": 0.158
       },
       "CUM_VOLUME": {
         "success_median": 27414525.0,
@@ -894,9 +930,9 @@
         "rate_diff": 0.1439
       },
       "PREV_CLOSE_STATE_rate": {
-        "success_rate": 0.95,
-        "failed_rate": 0.899,
-        "rate_diff": 0.051
+        "success_rate": 0.9,
+        "failed_rate": 0.8081,
+        "rate_diff": 0.0919
       },
       "S1_STATE_rate": {
         "success_rate": 0.55,
@@ -909,16 +945,31 @@
         "rate_diff": -0.1528
       },
       "VWAP_FIRST_RECLAIMED_rate": {
-        "success_rate": 0.475,
-        "failed_rate": 0.3939,
-        "rate_diff": 0.0811
+        "success_rate": 0.575,
+        "failed_rate": 0.4747,
+        "rate_diff": 0.1003
       },
       "VWAP_SECOND_RECLAIMED_rate": {
-        "success_rate": 0.15,
-        "failed_rate": 0.1515,
-        "rate_diff": -0.0015
+        "success_rate": 0.225,
+        "failed_rate": 0.1717,
+        "rate_diff": 0.0533
       },
       "S1_REBREAK_AFTER_TOUCH_rate": {
+        "success_rate": 0.125,
+        "failed_rate": 0.2929,
+        "rate_diff": -0.1679
+      },
+      "S1_TOUCH_REJECTED_IMMEDIATELY_rate": {
+        "success_rate": 0.25,
+        "failed_rate": 0.404,
+        "rate_diff": -0.154
+      },
+      "S1_ACCEPTED_CLOSE_OCCURRED_rate": {
+        "success_rate": 0.6,
+        "failed_rate": 0.5455,
+        "rate_diff": 0.0545
+      },
+      "S1_ACCEPTED_THEN_REBREAK_rate": {
         "success_rate": 0.125,
         "failed_rate": 0.2929,
         "rate_diff": -0.1679
@@ -929,9 +980,9 @@
         "rate_diff": -0.0111
       },
       "OPEN_SHAKE_RECLAIMED_rate": {
-        "success_rate": 0.225,
-        "failed_rate": 0.1717,
-        "rate_diff": 0.0533
+        "success_rate": 0.325,
+        "failed_rate": 0.2525,
+        "rate_diff": 0.0725
       },
       "OPEN_RECLAIMED_NOW_rate": {
         "success_rate": 0.875,
@@ -939,26 +990,26 @@
         "rate_diff": 0.0568
       },
       "NEW_LOW_AFTER_OPEN_RECLAIM_rate": {
-        "success_rate": 0.0,
-        "failed_rate": 0.0,
-        "rate_diff": 0.0
+        "success_rate": 0.025,
+        "failed_rate": 0.0202,
+        "rate_diff": 0.0048
       }
     },
     "1130": {
       "success_n": 40,
       "failed_n": 99,
       "OPEN_GAP_PCT": {
-        "success_median": 1.1229,
-        "failed_median": 1.6976,
+        "success_median": 0.0,
+        "failed_median": 0.0,
         "success_iqr": [
-          0.0,
-          5.1361
+          -1.0269,
+          1.0419
         ],
         "failed_iqr": [
-          -0.0096,
-          4.7664
+          -0.6196,
+          2.1105
         ],
-        "std_diff": 0.022
+        "std_diff": -0.279
       },
       "DRAWDOWN_FROM_OPEN_PCT": {
         "success_median": -0.8758,
@@ -974,17 +1025,17 @@
         "std_diff": 0.034
       },
       "DRAWDOWN_FROM_PREV_CLOSE_PCT": {
-        "success_median": 0.2913,
-        "failed_median": 0.0,
+        "success_median": -1.0667,
+        "failed_median": -1.073,
         "success_iqr": [
-          -1.003,
-          2.4562
+          -2.5693,
+          0.2005
         ],
         "failed_iqr": [
-          -1.4394,
-          3.1629
+          -2.1242,
+          0.2046
         ],
-        "std_diff": 0.038
+        "std_diff": -0.284
       },
       "CURRENT_RETURN_FROM_OPEN_PCT": {
         "success_median": 5.7702,
@@ -1000,17 +1051,17 @@
         "std_diff": 0.495
       },
       "CURRENT_RETURN_FROM_PREV_CLOSE_PCT": {
-        "success_median": 5.8993,
-        "failed_median": 4.8684,
+        "success_median": 4.3477,
+        "failed_median": 3.4046,
         "success_iqr": [
-          4.278,
-          10.0276
+          2.3696,
+          8.3335
         ],
         "failed_iqr": [
-          2.4255,
-          8.8486
+          0.9183,
+          6.0777
         ],
-        "std_diff": 0.415
+        "std_diff": 0.281
       },
       "DIST_TO_VWAP_PCT": {
         "success_median": 1.4643,
@@ -1026,17 +1077,17 @@
         "std_diff": 0.592
       },
       "DIST_TO_PREV_CLOSE_PCT": {
-        "success_median": 5.8993,
-        "failed_median": 4.8684,
+        "success_median": 4.3477,
+        "failed_median": 3.4046,
         "success_iqr": [
-          4.278,
-          10.0276
+          2.3696,
+          8.3335
         ],
         "failed_iqr": [
-          2.4255,
-          8.8486
+          0.9183,
+          6.0777
         ],
-        "std_diff": 0.415
+        "std_diff": 0.281
       },
       "DIST_TO_S1_PCT": {
         "success_median": 0.8702,
@@ -1160,26 +1211,26 @@
         "failed_median": 0.0,
         "success_iqr": [
           0.0,
-          0.0401
+          1.8037
         ],
         "failed_iqr": [
           0.0,
-          0.2554
-        ],
-        "std_diff": 0.078
-      },
-      "LOW_PROGRESSION_PCT": {
-        "success_median": -1.4375,
-        "failed_median": -0.9259,
-        "success_iqr": [
-          -4.1625,
-          -0.2667
-        ],
-        "failed_iqr": [
-          -2.7496,
           0.0
         ],
-        "std_diff": -0.198
+        "std_diff": 0.38
+      },
+      "LOW_PROGRESSION_PCT": {
+        "success_median": 0.0,
+        "failed_median": 0.0,
+        "success_iqr": [
+          0.0,
+          0.0
+        ],
+        "failed_iqr": [
+          0.0,
+          0.0
+        ],
+        "std_diff": 0.057
       },
       "CUM_VOLUME": {
         "success_median": 40959851.0,
@@ -1200,9 +1251,9 @@
         "rate_diff": 0.204
       },
       "PREV_CLOSE_STATE_rate": {
-        "success_rate": 1.0,
-        "failed_rate": 0.9293,
-        "rate_diff": 0.0707
+        "success_rate": 0.95,
+        "failed_rate": 0.8384,
+        "rate_diff": 0.1116
       },
       "S1_STATE_rate": {
         "success_rate": 0.55,
@@ -1215,16 +1266,31 @@
         "rate_diff": -0.1235
       },
       "VWAP_FIRST_RECLAIMED_rate": {
-        "success_rate": 0.65,
-        "failed_rate": 0.5556,
-        "rate_diff": 0.0944
+        "success_rate": 0.75,
+        "failed_rate": 0.596,
+        "rate_diff": 0.154
       },
       "VWAP_SECOND_RECLAIMED_rate": {
-        "success_rate": 0.225,
-        "failed_rate": 0.2525,
-        "rate_diff": -0.0275
+        "success_rate": 0.3,
+        "failed_rate": 0.3131,
+        "rate_diff": -0.0131
       },
       "S1_REBREAK_AFTER_TOUCH_rate": {
+        "success_rate": 0.25,
+        "failed_rate": 0.3636,
+        "rate_diff": -0.1136
+      },
+      "S1_TOUCH_REJECTED_IMMEDIATELY_rate": {
+        "success_rate": 0.3,
+        "failed_rate": 0.4545,
+        "rate_diff": -0.1545
+      },
+      "S1_ACCEPTED_CLOSE_OCCURRED_rate": {
+        "success_rate": 0.7,
+        "failed_rate": 0.6162,
+        "rate_diff": 0.0838
+      },
+      "S1_ACCEPTED_THEN_REBREAK_rate": {
         "success_rate": 0.25,
         "failed_rate": 0.3636,
         "rate_diff": -0.1136
@@ -1235,9 +1301,9 @@
         "rate_diff": -0.052
       },
       "OPEN_SHAKE_RECLAIMED_rate": {
-        "success_rate": 0.275,
-        "failed_rate": 0.303,
-        "rate_diff": -0.028
+        "success_rate": 0.375,
+        "failed_rate": 0.3535,
+        "rate_diff": 0.0215
       },
       "OPEN_RECLAIMED_NOW_rate": {
         "success_rate": 0.9,
@@ -1245,9 +1311,9 @@
         "rate_diff": 0.0818
       },
       "NEW_LOW_AFTER_OPEN_RECLAIM_rate": {
-        "success_rate": 0.0,
-        "failed_rate": 0.0,
-        "rate_diff": 0.0
+        "success_rate": 0.05,
+        "failed_rate": 0.1111,
+        "rate_diff": -0.0611
       }
     }
   }

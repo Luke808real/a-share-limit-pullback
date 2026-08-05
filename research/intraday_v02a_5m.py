@@ -70,7 +70,9 @@ def first_index_after(condition: list[bool], start: int) -> int | None:
     return None
 
 
-def checkpoint_features(s: pd.DataFrame, t: int, prev_close: float, s1: float) -> dict:
+def checkpoint_features(
+    s: pd.DataFrame, t: int, event_prev_close: float, s1: float
+) -> dict:
     sub = s[s["tt"] <= t].reset_index(drop=True)
     open_ = float(sub.iloc[0]["open"])
     cur_close = float(sub.iloc[-1]["close"])
@@ -93,7 +95,7 @@ def checkpoint_features(s: pd.DataFrame, t: int, prev_close: float, s1: float) -
 
     above_vwap = [c >= v for c, v in zip(closes, vwap_vals.tolist(), strict=False)]
     vw_trans = transition_counts(closes, vwap_vals.tolist())
-    vw_below_first = first_index_after([not a for a in above_vwap], 1)
+    vw_below_first = first_index_after([not a for a in above_vwap], 0)
     vw_first_reclaim = None
     if vw_below_first is not None:
         vw_first_reclaim = first_index_after(above_vwap, vw_below_first + 1)
@@ -134,7 +136,7 @@ def checkpoint_features(s: pd.DataFrame, t: int, prev_close: float, s1: float) -
         s1_second_reclaim = second_reclaim_seen
 
     open_above = [c >= open_ for c in closes]
-    open_below_first = first_index_after([not a for a in open_above], 1)
+    open_below_first = first_index_after([not a for a in open_above], 0)
     open_reclaimed = False
     if open_below_first is not None:
         open_reclaimed = first_index_after(open_above, open_below_first + 1) is not None
@@ -143,40 +145,66 @@ def checkpoint_features(s: pd.DataFrame, t: int, prev_close: float, s1: float) -
     if open_below_first is not None and open_reclaimed:
         reclaim_idx = first_index_after(open_above, open_below_first + 1)
         assert reclaim_idx is not None
-        post_min = min(lows[reclaim_idx + 1 :]) if reclaim_idx + 1 < len(lows) else None
+        pre_reclaim_low = min(lows[: reclaim_idx + 1])
+        post_reclaim_low = min(lows[reclaim_idx + 1 :]) if reclaim_idx + 1 < len(lows) else None
         new_low_after_open_reclaim = bool(
-            post_min is not None and post_min < min_low - 1e-9
+            post_reclaim_low is not None and post_reclaim_low < pre_reclaim_low - 1e-9
         )
 
+    s1_touch_rejected_immediately = False
+    if s1_first_touch is not None:
+        s1_touch_rejected_immediately = bool(closes[s1_first_touch] < s1)
+    s1_accepted_close = any(s1_above)
+    s1_accepted_then_rebreak = False
+    if s1_accepted_close:
+        first_accepted = first_index_after(s1_above, 0)
+        assert first_accepted is not None
+        s1_accepted_then_rebreak = first_index_after(
+            [not a for a in s1_above], first_accepted + 1
+        ) is not None
+
     # previous-checkpoint progression (relative to 09:45)
-    ckpt_prev = CHECKPOINTS["0945"] if t > CHECKPOINTS["0945"] else None
+    adj_prev = {"1000": 585, "1030": 600, "1130": 630}
+    ckpt_prev = adj_prev.get(next((k for k, v in CHECKPOINTS.items() if v == t), ""))
     high_prog = low_prog = None
     if ckpt_prev is not None:
-        prev_sub = s[(s["tt"] >= ckpt_prev) & (s["tt"] < t)]
+        prev_sub = s[s["tt"] <= ckpt_prev]
         if len(prev_sub):
-            high_prog = round((max_high / float(prev_sub["high"].max()) - 1.0) * 100.0, 4)
-            low_prog = round((min_low / float(prev_sub["low"].min()) - 1.0) * 100.0, 4)
+            prev_high = float(prev_sub["high"].max())
+            prev_low = float(prev_sub["low"].min())
+            high_prog = round((max_high / prev_high - 1.0) * 100.0, 4)
+            low_prog = round((min_low / prev_low - 1.0) * 100.0, 4)
 
     return {
-        "OPEN_GAP_PCT": round((open_ / prev_close - 1.0) * 100.0, 4),
+        "OPEN_GAP_PCT": round((open_ / event_prev_close - 1.0) * 100.0, 4),
         "DRAWDOWN_FROM_OPEN_PCT": round((min_low / open_ - 1.0) * 100.0, 4),
-        "DRAWDOWN_FROM_PREV_CLOSE_PCT": round((min_low / prev_close - 1.0) * 100.0, 4),
+        "DRAWDOWN_FROM_PREV_CLOSE_PCT": round(
+            (min_low / event_prev_close - 1.0) * 100.0, 4
+        ),
         "CURRENT_RETURN_FROM_OPEN_PCT": round((cur_close / open_ - 1.0) * 100.0, 4),
-        "CURRENT_RETURN_FROM_PREV_CLOSE_PCT": round((cur_close / prev_close - 1.0) * 100.0, 4),
+        "CURRENT_RETURN_FROM_PREV_CLOSE_PCT": round(
+            (cur_close / event_prev_close - 1.0) * 100.0, 4
+        ),
         "VWAP_STATE": "ABOVE" if cur_close >= vwap_t else "BELOW",
         "DIST_TO_VWAP_PCT": round((cur_close / vwap_t - 1.0) * 100.0, 4),
         "VWAP_FIRST_RECLAIMED": vw_first_reclaim is not None,
         "VWAP_SECOND_RECLAIMED": vw_second_reclaim is not None,
         "VWAP_REBREAK_COUNT": vw_trans["rebreak_count"],
         "VWAP_RECLAIM_COUNT": vw_trans["reclaim_count"],
-        "PREV_CLOSE_STATE": "ABOVE" if cur_close >= prev_close else "BELOW",
-        "DIST_TO_PREV_CLOSE_PCT": round((cur_close / prev_close - 1.0) * 100.0, 4),
+        "PREV_CLOSE_STATE": "ABOVE" if cur_close >= event_prev_close else "BELOW",
+        "DIST_TO_PREV_CLOSE_PCT": round(
+            (cur_close / event_prev_close - 1.0) * 100.0, 4
+        ),
+        "EVENT_PREV_CLOSE": round(event_prev_close, 4),
         "S1_STATE": "ABOVE" if cur_close >= s1 else "BELOW",
         "DIST_TO_S1_PCT": round((cur_close / s1 - 1.0) * 100.0, 4),
         "S1_TOUCHED_BY_CHECKPOINT": s1_touched,
         "S1_FIRST_TOUCH_MIN": s1_first_touch_tt - 570 if s1_first_touch_tt is not None else None,
         "MINUTES_SINCE_S1_TOUCH": t - s1_first_touch_tt if s1_first_touch_tt is not None else None,
         "S1_REBREAK_AFTER_TOUCH": bool(s1_rebreak_count) if s1_first_touch is not None else False,
+        "S1_TOUCH_REJECTED_IMMEDIATELY": s1_touch_rejected_immediately,
+        "S1_ACCEPTED_CLOSE_OCCURRED": s1_accepted_close,
+        "S1_ACCEPTED_THEN_REBREAK": s1_accepted_then_rebreak,
         "S1_REBREAK_COUNT": s1_rebreak_count if s1_first_touch is not None else 0,
         "S1_RECLAIM_COUNT": s1_reclaim_count if s1_first_touch is not None else 0,
         "S1_SECOND_RECLAIMED": bool(s1_second_reclaim) if s1_first_touch is not None else False,
@@ -232,6 +260,45 @@ def main() -> None:
     print("FINAL_COHORT_SUCCESS_N:", final_success)
     print("FINAL_COHORT_FAILED_N:", final_failed)
 
+    # ---- EVENT_PREV_CLOSE (canonical previous trading session close) ----
+    codes = sorted(cohort["symbol"].str.zfill(6).unique().tolist())
+    bar_df = pd.read_parquet(
+        ROOT / "data/canonical/daily_bars/snap-2026-07-31-b5f84004de8a.parquet",
+        columns=["code", "trade_date", "close"],
+        filters=[("code", "in", codes)],
+    )
+    bar_df["trade_date"] = pd.to_datetime(bar_df["trade_date"]).dt.date
+    bar_df["code"] = bar_df["code"].astype(str).str.zfill(6)
+    bar_map: dict[str, pd.DataFrame] = {}
+    for code, group in bar_df.groupby("code", sort=False):
+        bar_map[code] = group.sort_values("trade_date").reset_index(drop=True)
+
+    def prev_close(code: str, event_date: str) -> float | None:
+        rows = bar_map.get(code)
+        if rows is None:
+            return None
+        before = rows[rows["trade_date"] < date.fromisoformat(event_date)]
+        if len(before) == 0:
+            return None
+        return float(before.iloc[-1]["close"])
+
+    cohort["EVENT_PREV_CLOSE"] = [
+        prev_close(str(c).zfill(6), d) for c, d in zip(cohort["symbol"], cohort["OUTCOME_EVENT_DATE"], strict=False)
+    ]
+    offset1 = cohort[cohort["EVENT_SESSION_OFFSET"] == 1]
+    prev_close_align = None
+    if len(offset1):
+        diffs = (
+            offset1["EVENT_PREV_CLOSE"].astype(float) - offset1["candidate_close"].astype(float)
+        ).abs()
+        prev_close_align = {
+            "n": int(len(offset1)),
+            "exact_match_n": int((diffs <= 1e-6).sum()),
+            "max_abs_diff": round(float(diffs.max()), 6),
+            "pct_abs_diff_gt_0.1%": int((diffs / offset1["candidate_close"].astype(float) > 0.001).sum()),
+        }
+        print("PREV_CLOSE_AUDIT_OFFSET1:", prev_close_align)
+
     # ---- FINAL DATA GATE ----
     gate = {}
     for col in ("5M_OPEN_DIFF_PCT", "5M_HIGH_DIFF_PCT", "5M_LOW_DIFF_PCT", "5M_CLOSE_DIFF_PCT"):
@@ -278,10 +345,10 @@ def main() -> None:
     rows = []
     for _, c in cohort.iterrows():
         s = session_bars(load_5m(str(c["symbol"]).zfill(6)), c["OUTCOME_EVENT_DATE"])
-        prev_close = float(c["candidate_close"])
+        event_prev_close = float(c["EVENT_PREV_CLOSE"])
         s1 = float(c["s1_price"])
         for ckpt, t in CHECKPOINTS.items():
-            feat = checkpoint_features(s, t, prev_close, s1)
+            feat = checkpoint_features(s, t, event_prev_close, s1)
             rows.append(
                 {
                     "episode_id": c["episode_id"],
@@ -327,6 +394,9 @@ def main() -> None:
         "VWAP_FIRST_RECLAIMED": True,
         "VWAP_SECOND_RECLAIMED": True,
         "S1_REBREAK_AFTER_TOUCH": True,
+        "S1_TOUCH_REJECTED_IMMEDIATELY": True,
+        "S1_ACCEPTED_CLOSE_OCCURRED": True,
+        "S1_ACCEPTED_THEN_REBREAK": True,
         "S1_SECOND_RECLAIMED": True,
         "OPEN_SHAKE_RECLAIMED": True,
         "OPEN_RECLAIMED_NOW": True,
@@ -363,7 +433,18 @@ def main() -> None:
                 "rate_diff": round(sr - fr, 4) if sr is not None and fr is not None else None,
             }
     with open(OUT_JSON, "w") as fh:
-        json.dump({"cohort": {"success_n": final_success, "failed_n": final_failed}, "gate": gate, "checkpoints": summary}, fh, ensure_ascii=False, indent=2, default=str)
+        json.dump(
+            {
+                "cohort": {"success_n": final_success, "failed_n": final_failed},
+                "gate": gate,
+                "prev_close_audit_offset1": prev_close_align,
+                "checkpoints": summary,
+            },
+            fh,
+            ensure_ascii=False,
+            indent=2,
+            default=str,
+        )
     print("metrics written:", OUT_CSV, OUT_JSON)
     print("rows:", len(out), "checkpoints per outcome sample check:")
     print(pd.crosstab(out["CHECKPOINT"], out["outcome"]).to_string())
