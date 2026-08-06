@@ -25,7 +25,12 @@ from limit_pullback.providers.base import DailyBarProvider, LimitUpPoolProvider
 from limit_pullback.warehouse.layout import WarehouseLayout
 from limit_pullback.warehouse.metadata import WarehouseMetadata
 from limit_pullback.warehouse.models import SnapshotRecord
-from limit_pullback.warehouse.snapshot import read_snapshot_daily, read_snapshot_pool
+from limit_pullback.warehouse.snapshot import (
+    SnapshotUsabilityError,
+    read_snapshot_daily,
+    read_snapshot_pool,
+    require_formally_usable_snapshot,
+)
 
 FIXED_FETCHED_AT = datetime(2026, 7, 31, 23, 59, 59, tzinfo=timezone.utc)
 
@@ -161,12 +166,14 @@ def load_canonical_market(
     as_of: date | None = None,
     codes: Sequence[str] | None = None,
     stats: dict[str, Any] | None = None,
+    allow_unusable_snapshot_for_forensics: bool = False,
 ) -> CanonicalMarketData:
     """Load one immutable canonical snapshot; no network access."""
 
     if not layout.duckdb_path.exists():
         raise ValueError("no dataset snapshot published")
     with WarehouseMetadata(layout.duckdb_path, read_only=True) as metadata:
+        resolution = "explicit" if snapshot_id is not None else "implicit"
         if snapshot_id is not None:
             snapshot = metadata.snapshot_by_id(snapshot_id)
             if snapshot is None:
@@ -182,6 +189,26 @@ def load_canonical_market(
             snapshot = metadata.latest_snapshot()
             if snapshot is None:
                 raise ValueError("no dataset snapshot published")
+        try:
+            require_formally_usable_snapshot(
+                snapshot,
+                allow_unusable_snapshot_for_forensics=(
+                    allow_unusable_snapshot_for_forensics
+                ),
+            )
+        except SnapshotUsabilityError as exc:
+            if resolution == "implicit":
+                raise SnapshotUsabilityError(
+                    code="LATEST_SNAPSHOT_NOT_SCREEN_READY",
+                    snapshot_id=snapshot.snapshot_id,
+                    snapshot_status=snapshot.status,
+                    as_of=snapshot.as_of,
+                    detail=(
+                        "latest/default snapshot is not formally usable; "
+                        "pass an explicit SCREEN_READY snapshot id"
+                    ),
+                ) from exc
+            raise
         pool_rows = read_snapshot_pool(layout, snapshot)
 
     fetched_at = FIXED_FETCHED_AT
@@ -247,12 +274,14 @@ def load_canonical_metadata(
     *,
     snapshot_id: str | None = None,
     as_of: date | None = None,
+    allow_unusable_snapshot_for_forensics: bool = False,
 ):
     """Resolve snapshot and small pool metadata without materializing daily bars."""
 
     if not layout.duckdb_path.exists():
         raise ValueError("no dataset snapshot published")
     with WarehouseMetadata(layout.duckdb_path, read_only=True) as metadata:
+        resolution = "explicit" if snapshot_id is not None else "implicit"
         if snapshot_id is not None:
             snapshot = metadata.snapshot_by_id(snapshot_id)
             if snapshot is None:
@@ -268,6 +297,26 @@ def load_canonical_metadata(
             snapshot = metadata.latest_snapshot()
             if snapshot is None:
                 raise ValueError("no dataset snapshot published")
+        try:
+            require_formally_usable_snapshot(
+                snapshot,
+                allow_unusable_snapshot_for_forensics=(
+                    allow_unusable_snapshot_for_forensics
+                ),
+            )
+        except SnapshotUsabilityError as exc:
+            if resolution == "implicit":
+                raise SnapshotUsabilityError(
+                    code="LATEST_SNAPSHOT_NOT_SCREEN_READY",
+                    snapshot_id=snapshot.snapshot_id,
+                    snapshot_status=snapshot.status,
+                    as_of=snapshot.as_of,
+                    detail=(
+                        "latest/default snapshot is not formally usable; "
+                        "pass an explicit SCREEN_READY snapshot id"
+                    ),
+                ) from exc
+            raise
         pool_rows = read_snapshot_pool(layout, snapshot)
     fetched_at = FIXED_FETCHED_AT
     pool_records = tuple(

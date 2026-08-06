@@ -32,6 +32,34 @@ ReconciliationStatus = Literal[
     "QUARANTINED",
 ]
 
+SnapshotStatus = Literal[
+    "CURRENT",
+    "SCREEN_READY",
+    "RESEARCH_READY",
+    "QUARANTINED",
+    "INVALID",
+    "REJECTED",
+]
+
+#: Single shared formal-usability predicate for production snapshot consumption.
+#:
+#: A snapshot is formally usable by production consumers (screen, TradePlan,
+#: state consumers) only when it is explicitly promoted to ``SCREEN_READY``.
+#: ``CURRENT`` is the raw publication state and NEVER implies usability; an
+#: unreviewed or broken snapshot may sit at ``CURRENT`` indefinitely.
+SCREEN_READY_STATUS = "SCREEN_READY"
+FORMALLY_USABLE_STATUSES = frozenset({SCREEN_READY_STATUS})
+
+
+def is_snapshot_formally_usable(status: str) -> bool:
+    """Return whether ``status`` permits formal production consumption.
+
+    This is the single shared predicate.  Consumers must fail closed unless
+    this returns True; they must not duplicate the status whitelist.
+    """
+
+    return status in FORMALLY_USABLE_STATUSES
+
 
 class ProbeCapability(DomainModel):
     capability: str

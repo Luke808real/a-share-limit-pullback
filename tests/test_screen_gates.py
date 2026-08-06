@@ -111,6 +111,7 @@ def test_historical_as_of_ignores_future_revised_snapshot(tmp_path):
         codes=codes,
         provider_set=fake_s1,
         today=mid,
+        snapshot_status="SCREEN_READY",
     )
     assert s1.snapshot_id is not None
 
@@ -136,6 +137,7 @@ def test_historical_as_of_ignores_future_revised_snapshot(tmp_path):
         codes=codes,
         provider_set=fake_s2,
         today=dates[31],
+        snapshot_status="SCREEN_READY",
     )
     assert s2.snapshot_id != s1.snapshot_id
 

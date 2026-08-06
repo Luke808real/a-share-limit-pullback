@@ -28,6 +28,10 @@ from limit_pullback.screen.verify import (
 )
 from limit_pullback.warehouse.layout import WarehouseLayout
 from limit_pullback.warehouse.parquet import sha256_file, write_json_atomic
+from limit_pullback.warehouse.snapshot import (
+    require_state_snapshot_usable,
+    snapshot_status_map,
+)
 
 
 def _now_utc() -> datetime:
@@ -225,6 +229,7 @@ def run_screen(
         )
     pool_mode = "debug" if pool_debug else "formal"
     resolved_snapshot_id = snapshot.snapshot_id
+    status_by_snapshot = None if rebuild else snapshot_status_map(layout)
 
     kind = "rebuild" if rebuild else "incremental"
     run_id = (
@@ -308,6 +313,12 @@ def run_screen(
         ):
             universe.append(code)
             state = None if rebuild else load_state(state_path(layout.root, code))
+            if state is not None:
+                require_state_snapshot_usable(
+                    status_by_snapshot or {},
+                    snapshot_id=state.snapshot_id,
+                    as_of=state.last_processed_date,
+                )
             previous_signal: StrategySignal | None = None
             last_processed: date | None = None
             if state is not None:

@@ -169,6 +169,19 @@ class WarehouseMetadata:
         )
         self._connection.execute(
             """
+            CREATE TABLE IF NOT EXISTS snapshot_governance_records (
+                record_id VARCHAR PRIMARY KEY,
+                snapshot_id VARCHAR NOT NULL,
+                status_from VARCHAR NOT NULL,
+                status_to VARCHAR NOT NULL,
+                reason VARCHAR NOT NULL,
+                audit_report_sha256 VARCHAR,
+                created_at TIMESTAMPTZ NOT NULL
+            )
+            """
+        )
+        self._connection.execute(
+            """
             CREATE TABLE IF NOT EXISTS ingest_progress (
                 run_id VARCHAR NOT NULL,
                 provider VARCHAR NOT NULL,
@@ -448,6 +461,58 @@ class WarehouseMetadata:
             ],
         )
 
+    def set_snapshot_status(
+        self,
+        *,
+        snapshot_id: str,
+        status: str,
+        reason: str,
+        record_id: str | None = None,
+        audit_report_sha256: str | None = None,
+        created_at: datetime | None = None,
+    ) -> tuple[str, str]:
+        """Auditable snapshot status transition (e.g. quarantine).
+
+        Persists a governance record describing the transition; the original
+        canonical parquet/manifest bytes are never touched here.
+        """
+
+        from uuid import uuid4
+
+        rows = self._connection.execute(
+            "SELECT status FROM dataset_snapshots WHERE snapshot_id = ?",
+            [snapshot_id],
+        ).fetchall()
+        if not rows:
+            raise ValueError(f"unknown snapshot: {snapshot_id}")
+        status_from = str(rows[0][0])
+        if status_from == status:
+            return status_from, status
+        created = created_at or datetime.now(timezone.utc)
+        rid = record_id or f"gov-{snapshot_id}-{uuid4().hex[:12]}"
+        self._connection.execute(
+            "UPDATE dataset_snapshots SET status = ? WHERE snapshot_id = ?",
+            [status, snapshot_id],
+        )
+        self._connection.execute(
+            """
+            INSERT INTO snapshot_governance_records (
+                record_id, snapshot_id, status_from, status_to,
+                reason, audit_report_sha256, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                rid,
+                snapshot_id,
+                status_from,
+                status,
+                reason,
+                audit_report_sha256,
+                _utc(created),
+            ],
+        )
+        return status_from, status
+
     def latest_snapshot(self) -> SnapshotRecord | None:
         rows = self._connection.execute(
             """
@@ -455,6 +520,28 @@ class WarehouseMetadata:
             ORDER BY as_of DESC, created_at DESC
             LIMIT 1
             """
+        ).fetchall()
+        return self._snapshot_from_row(rows[0]) if rows else None
+
+    def latest_screen_ready_snapshot(self) -> SnapshotRecord | None:
+        """Newest snapshot explicitly promoted to SCREEN_READY.
+
+        This is the ONLY sanctioned "usable latest" selector for formal
+        consumers.  It never falls back to CURRENT: if the newest snapshot is
+        not formally usable, callers receive None and must fail closed rather
+        than silently selecting an older snapshot.
+        """
+
+        from limit_pullback.warehouse.models import SCREEN_READY_STATUS
+
+        rows = self._connection.execute(
+            """
+            SELECT * FROM dataset_snapshots
+            WHERE status = ?
+            ORDER BY as_of DESC, created_at DESC
+            LIMIT 1
+            """,
+            [SCREEN_READY_STATUS],
         ).fetchall()
         return self._snapshot_from_row(rows[0]) if rows else None
 

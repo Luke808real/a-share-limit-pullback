@@ -40,6 +40,11 @@ from limit_pullback.strategy.structure import (
 from limit_pullback.screen.canonical import FIXED_FETCHED_AT
 from limit_pullback.warehouse.layout import WarehouseLayout
 from limit_pullback.warehouse.metadata import WarehouseMetadata
+from limit_pullback.warehouse.snapshot import (
+    require_formally_usable_snapshot,
+    require_state_snapshot_usable,
+    snapshot_status_map,
+)
 
 
 ZERO = Decimal("0")
@@ -914,6 +919,7 @@ def build_trade_plan_output(
         snapshot = metadata.snapshot_by_id(snapshot_id)
     if snapshot is None:
         raise ValueError(f"unknown snapshot: {snapshot_id}")
+    require_formally_usable_snapshot(snapshot)
     if snapshot.as_of < as_of:
         raise ValueError(
             f"SNAPSHOT_AS_OF_BEFORE_REQUESTED: {snapshot.as_of} < {as_of}"
@@ -935,18 +941,28 @@ def build_trade_plan_output(
         )
     )
     eligible_entries: list[tuple[str, ScreenState, StrategySignal]] = []
+    status_by_snapshot = snapshot_status_map(layout)
     for path in state_paths:
         code = path.stem
         try:
             state = load_state(state_path(layout.root, code))
+        except Exception:
+            state = None
+        if state is not None:
+            require_state_snapshot_usable(
+                status_by_snapshot,
+                snapshot_id=state.snapshot_id,
+                as_of=state.last_processed_date,
+            )
+        try:
             signal = (
                 StrategySignal.model_validate_json(state.signal_json)
                 if state is not None
                 else None
             )
         except Exception:
-            state = None
             signal = None
+            state = None
         provenance_ok = (
             state is not None
             and signal is not None
