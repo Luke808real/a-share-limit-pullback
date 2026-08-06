@@ -232,6 +232,14 @@ def _content_hash(rows: Sequence[Mapping[str, Any]]) -> str:
     )
 
 
+def staged_candidate_content_hash(
+    rows: Sequence[Mapping[str, Any]],
+) -> str:
+    """Public deterministic content hash for a PR-B staged candidate."""
+
+    return _content_hash(rows)
+
+
 def run_adr008_staging(
     layout: WarehouseLayout,
     *,
