@@ -16,6 +16,7 @@ from limit_pullback.providers.errors import (
 )
 from limit_pullback.providers.tdx_daily import (
     TDX_DAILY_VOLUME_MULTIPLIER,
+    fetch_tdx_daily,
     normalize_tdx_daily_row,
 )
 from limit_pullback.providers.tencent_daily import (
@@ -439,6 +440,69 @@ def test_tdx_server_failover_same_provider():
     )
     assert failures == []
     assert rows == []
+
+
+def test_tdx_raw_passthrough_keeps_raw_units():
+    class FakeApi:
+        def connect(self, *args, **kwargs):
+            return True
+
+        def get_security_bars(self, *args, **kwargs):
+            return [
+                {
+                    "year": 2026,
+                    "month": 8,
+                    "day": 6,
+                    "open": 11.20,
+                    "high": 11.28,
+                    "low": 11.12,
+                    "close": 11.27,
+                    "vol": 1046342,
+                    "amount": 1171011840,
+                }
+            ]
+
+        def disconnect(self):
+            pass
+
+    rows, failures = fetch_tdx_daily(
+        ["000001"],
+        sessions=[date(2026, 8, 6)],
+        api_factory=FakeApi,
+        normalize=False,
+    )
+    assert failures == []
+    assert len(rows) == 1
+    assert rows[0]["volume_lots"] == 1046342
+    assert "volume" not in rows[0]
+    assert "raw_hash" in rows[0]
+
+
+def test_tencent_raw_passthrough_keeps_raw_volume():
+    raw = [
+        {
+            "code": "000001",
+            "trade_date": date(2026, 8, 6),
+            "open": 11.20,
+            "high": 11.28,
+            "low": 11.12,
+            "close": 11.27,
+            "volume_shares": 1046343.0,
+            "amount": 1171011800.0,
+            "raw_hash": "raw-tx-1",
+        }
+    ]
+    rows, failures = fetch_tencent_daily(
+        ["000001"],
+        sessions=[date(2026, 8, 6)],
+        workers=1,
+        fetch_one=lambda code: raw,
+        normalize=False,
+    )
+    assert failures == []
+    assert len(rows) == 1
+    assert rows[0]["volume_shares"] == 1046343.0
+    assert "volume_raw" not in rows[0]
 
 
 def test_unclassified_failure_blocks_publish_eligibility(tmp_path, monkeypatch):

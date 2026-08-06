@@ -126,6 +126,7 @@ def fetch_tdx_daily(
     run_id: str | None = None,
     clock: Callable[[], datetime] = _utc_now,
     api_factory: Callable[[], Any] | None = None,
+    normalize: bool = True,
 ) -> tuple[list[dict[str, Any]], list[ProviderError]]:
     """Fetch TDX daily bars for one universe.
 
@@ -226,21 +227,24 @@ def fetch_tdx_daily(
                     ).encode("utf-8")
                 ).hexdigest(),
             }
-            try:
-                rows.append(
-                    normalize_tdx_daily_row(
-                        raw,
-                        provider_server=(
-                            f"{servers[server_index - 1][0]}:{servers[server_index - 1][1]}"
-                            if server_index - 1 < len(servers)
-                            else "unknown"
-                        ),
-                        fetched_at=fetched_at,
-                        run_id=run_id,
+            if normalize:
+                try:
+                    rows.append(
+                        normalize_tdx_daily_row(
+                            raw,
+                            provider_server=(
+                                f"{servers[server_index - 1][0]}:{servers[server_index - 1][1]}"
+                                if server_index - 1 < len(servers)
+                                else "unknown"
+                            ),
+                            fetched_at=fetched_at,
+                            run_id=run_id,
+                        )
                     )
-                )
-            except ProviderMalformedRowError as exc:
-                failures.append(exc)
+                except ProviderMalformedRowError as exc:
+                    failures.append(exc)
+            else:
+                rows.append(raw)
     try:
         api.disconnect()
     except Exception:

@@ -40,7 +40,7 @@ def _raw_schema():
     )
 
 
-def _staged_rows(seed_closes):
+def _staged_rows(seed_closes, sessions=SESSIONS):
     rows = []
     for code in ("603318", "002640"):
         previous = Decimal(str(seed_closes[code]))
@@ -185,6 +185,53 @@ def test_staged_snapshot_not_formally_visible(promotion_env, tmp_path):
     kwargs = _promote_inputs(tmp_path, layout, snapshot, config)
     result = promote_snapshot(layout, **kwargs, dry_run=True)
     assert _snapshot_status(layout, result.snapshot_id) is None
+    assert _pointer(layout) == (snapshot.snapshot_id, "test")
+
+
+def test_promotion_accepts_custom_sessions_and_as_of(promotion_env, tmp_path):
+    layout, snapshot, config = promotion_env
+    kwargs = _promote_inputs(tmp_path, layout, snapshot, config)
+    one_session = [date(2026, 8, 6)]
+    kwargs["staged_rows"] = _staged_rows(
+        _seed_closes(layout, snapshot),
+        sessions=one_session,
+    )
+    kwargs["prb_staging_hash"] = staged_candidate_content_hash(
+        kwargs["staged_rows"]
+    )
+    events = build_derived_limit_events(
+        [
+            {
+                "code": row["code"],
+                "trade_date": row["trade_date"],
+                "open": row["open"],
+                "high": row["high"],
+                "low": row["low"],
+                "close": row["close"],
+                "preclose": row["preclose"],
+                "source_daily_hash": row["selected_source_hash"],
+            }
+            for row in kwargs["staged_rows"]
+        ],
+        source_id="test-prd",
+        config=config,
+        universe_members=set(
+            phase2d0_universe_from_snapshot(layout, snapshot).members
+        ),
+    )
+    kwargs["derived_events"] = events
+    kwargs["derived_event_hash"] = derived_event_content_hash(events)
+    kwargs["sessions"] = one_session
+    kwargs["as_of"] = date(2026, 8, 6)
+    universe = phase2d0_universe_from_snapshot(layout, snapshot)
+    kwargs["verified_no_trade"] = tuple(
+        (code, date(2026, 8, 6))
+        for code in universe.members
+    )
+    result = promote_snapshot(layout, **kwargs, dry_run=True)
+    assert result.as_of == date(2026, 8, 6)
+    assert result.snapshot_id.startswith("snap-2026-08-06-")
+    assert result.status == "STAGED"
     assert _pointer(layout) == (snapshot.snapshot_id, "test")
 
 

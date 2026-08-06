@@ -216,7 +216,8 @@ def _build_daily_file(
     staged_rows: Sequence[Mapping[str, Any]],
     snapshot_id: str,
     target: Path,
-) -> tuple[int, int, int, int]:
+    sessions: Sequence[date],
+) -> tuple[int, dict[date, int]]:
     """Stream base history unchanged + CONFIRMED staged rows into new daily."""
 
     base_rel = next(
@@ -253,18 +254,14 @@ def _build_daily_file(
                     schema=schema,
                 )
             )
-    published = {
-        date(2026, 8, 3): 0,
-        date(2026, 8, 4): 0,
-        date(2026, 8, 5): 0,
-    }
+    published = {day: 0 for day in sessions}
     for staged in staged_rows:
         if staged.get("reconciliation_status") != "CONFIRMED":
             continue
         day = staged["trade_date"]
         if day in published:
             published[day] += 1
-    return historical_n, published[date(2026, 8, 3)], published[date(2026, 8, 4)], published[date(2026, 8, 5)]
+    return historical_n, published
 
 
 def _legacy_pool_rows(
@@ -376,6 +373,7 @@ def _validate_new_rows(
     universe_members: Sequence[str],
     pool_derived_rows: Sequence[Mapping[str, Any]],
     config: StrategyConfig,
+    sessions: Sequence[date],
 ) -> dict[str, Any]:
     seed_closes: dict[str, Decimal] = {}
     base_rel = next(
@@ -413,11 +411,7 @@ def _validate_new_rows(
     prev_index = previous_close_index(
         rows_by_key,
         seed_previous_close=seed_closes,
-        ordered_sessions=[
-            date(2026, 8, 3),
-            date(2026, 8, 4),
-            date(2026, 8, 5),
-        ],
+        ordered_sessions=list(sessions),
     )
     issues = preclose_continuity_issues(
         new_rows,
@@ -537,12 +531,27 @@ def promote_snapshot(
     raw_tdx_path: Path | None = None,
     raw_tencent_path: Path | None = None,
     verified_no_trade: Sequence[tuple[str, date]] = (),
+    sessions: Sequence[date] | None = None,
+    as_of: date | None = None,
     failpoint: str | None = None,
     dry_run: bool = False,
     clock=None,
 ) -> PromotionResult:
     """Run one validated atomic promotion (dry or real)."""
 
+    sessions = tuple(
+        sorted(
+            set(
+                sessions
+                or (
+                    date(2026, 8, 3),
+                    date(2026, 8, 4),
+                    date(2026, 8, 5),
+                )
+            )
+        )
+    )
+    as_of = as_of or max(sessions)
     started = _utc_now()
     build_start = started
     peak_rss_bytes = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
@@ -586,13 +595,17 @@ def promote_snapshot(
     build_dir.mkdir(parents=True, exist_ok=True)
     tmp_daily = build_dir / "daily.parquet"
     tmp_pool = build_dir / "pool.parquet"
-    historical_n, p0803, p0804, p0805 = _build_daily_file(
+    historical_n, published_by_date = _build_daily_file(
         layout=layout,
         base_snapshot=base,
         staged_rows=staged_rows,
         snapshot_id="__generation__",
         target=tmp_daily,
+        sessions=sessions,
     )
+    p0803 = published_by_date.get(date(2026, 8, 3), 0)
+    p0804 = published_by_date.get(date(2026, 8, 4), 0)
+    p0805 = published_by_date.get(date(2026, 8, 5), 0)
     _raise_failpoint(failpoint, "after_daily_write")
     legacy_pool = _legacy_pool_rows(layout, base, "__generation__")
     derived_pool = _derived_pool_rows(derived_events, "__generation__")
@@ -608,7 +621,7 @@ def promote_snapshot(
     snapshot_content_hash = _sha256_text(
         f"{daily_content_hash}|{pool_content_hash}"
     )
-    snapshot_id = f"snap-2026-08-05-{snapshot_content_hash[:12]}"
+    snapshot_id = f"snap-{as_of.isoformat()}-{snapshot_content_hash[:12]}"
 
     # Idempotency: same content -> same snapshot id; never create a second truth.
     with WarehouseMetadata(layout.duckdb_path, read_only=True) as metadata:
@@ -632,7 +645,7 @@ def promote_snapshot(
             if (layout.manifests_dir / f"{snapshot_id}.json").exists()
             else "",
             validation_report_hash="",
-            as_of=date(2026, 8, 5),
+            as_of=as_of,
             status=SCREEN_READY,
             formal_pointer_before=(
                 pointer_now[0] if pointer_now is not None else None
@@ -675,7 +688,7 @@ def promote_snapshot(
     draft_dir.mkdir(parents=True, exist_ok=True)
     draft_manifest = {
         "snapshot_id": snapshot_id,
-        "as_of": "2026-08-05",
+        "as_of": as_of.isoformat(),
         "status": "STAGED",
         "parent_snapshot": base_snapshot_id,
         "price_domain": "RAW_UNADJUSTED",
@@ -697,6 +710,7 @@ def promote_snapshot(
         universe_members=universe.members,
         pool_derived_rows=derived_pool,
         config=config,
+        sessions=sessions,
     )
     parity = _duckdb_historical_parity(
         layout,
@@ -708,12 +722,12 @@ def promote_snapshot(
         {
             "historical_row_count_diff": abs(parity[0] - parity[1]),
             "historical_value_diff_n": parity[2],
-            "000001_20260805_preclose": next(
+            f"000001_{as_of:%Y%m%d}_preclose": next(
                 (
                     str(row["preclose"])
                     for row in new_rows
                     if row["code"] == "000001"
-                    and row["trade_date"] == date(2026, 8, 5)
+                    and row["trade_date"] == as_of
                 ),
                 None,
             ),
@@ -769,7 +783,6 @@ def promote_snapshot(
             pool_trace_fail += 1
 
     # Formal-universe coverage (daily availability is separate from membership).
-    sessions = [date(2026, 8, 3), date(2026, 8, 4), date(2026, 8, 5)]
     unexplained_total = 0
     for session in sessions:
         coverage_audit = classify_daily_coverage(
@@ -867,7 +880,7 @@ def promote_snapshot(
             snapshot_content_hash=snapshot_content_hash,
             manifest_hash="",
             validation_report_hash=dry_report_hash,
-            as_of=date(2026, 8, 5),
+            as_of=as_of,
             status="STAGED",
             formal_pointer_before=None,
             formal_pointer_after=None,
@@ -933,7 +946,7 @@ def promote_snapshot(
     manifest = {
         "snapshot_id": snapshot_id,
         "created_at": _utc_now().isoformat(timespec="seconds"),
-        "as_of": "2026-08-05",
+        "as_of": as_of.isoformat(),
         "provider_versions": {"TDX": "v1", "TENCENT": "v1"},
         "source_file_hashes": {
             relative(raw_tdx_path): sha256_file(raw_tdx_path)
@@ -1004,7 +1017,7 @@ def promote_snapshot(
         record = SnapshotRecord(
             snapshot_id=snapshot_id,
             created_at=_utc_now(),
-            as_of=date(2026, 8, 5),
+            as_of=as_of,
             provider_versions={"TDX": "v1", "TENCENT": "v1"},
             source_file_hashes=manifest["source_file_hashes"],
             canonical_file_hashes=manifest["canonical_file_hashes"],
@@ -1071,7 +1084,7 @@ def promote_snapshot(
         snapshot_content_hash=snapshot_content_hash,
         manifest_hash=manifest_hash,
         validation_report_hash=validation_report_hash,
-        as_of=date(2026, 8, 5),
+        as_of=as_of,
         status=SCREEN_READY,
         formal_pointer_before=pointer_before_id,
         formal_pointer_after=pointer_after_id,

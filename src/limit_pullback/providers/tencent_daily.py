@@ -145,6 +145,7 @@ def fetch_tencent_daily(
     run_id: str | None = None,
     clock: Callable[[], datetime] = _utc_now,
     fetch_one: Callable[[str], list[dict[str, Any]]] | None = None,
+    normalize: bool = True,
 ) -> tuple[list[dict[str, Any]], list[ProviderError]]:
     """Fetch Tencent daily bars (confirm path) with typed failures.
 
@@ -192,17 +193,20 @@ def fetch_tencent_daily(
                     )
                 )
                 continue
-            for row in code_rows:
-                try:
-                    rows.append(
-                        normalize_tencent_daily_row(
-                            row,
-                            fetched_at=fetched_at,
-                            run_id=run_id,
+            if normalize:
+                for row in code_rows:
+                    try:
+                        rows.append(
+                            normalize_tencent_daily_row(
+                                row,
+                                fetched_at=fetched_at,
+                                run_id=run_id,
+                            )
                         )
-                    )
-                except ProviderMalformedRowError as exc:
-                    failures.append(exc)
+                    except ProviderMalformedRowError as exc:
+                        failures.append(exc)
+            else:
+                rows.extend(code_rows)
     rows.sort(key=lambda row: (row["code"], row["trade_date"]))
     return rows, failures
 
