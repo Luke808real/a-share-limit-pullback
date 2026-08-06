@@ -21,6 +21,8 @@ from limit_pullback.warehouse.snapshot import (
     FormalPointerError,
     SnapshotUsabilityError,
 )
+from limit_pullback.screen.generation import StatePointerError
+from limit_pullback.trade_plan import StrategySemanticReviewPendingError
 from limit_pullback.warehouse.tushare_provider import CapabilityUnavailable
 
 
@@ -465,6 +467,23 @@ def _print_error(exc: BaseException) -> None:
                 "message": str(exc),
                 "snapshot_id": exc.snapshot_id,
                 "snapshot_status": exc.snapshot_status,
+            }
+        }
+    elif isinstance(exc, StatePointerError):
+        error = {
+            "error": {
+                "type": "StatePointerError",
+                "code": exc.code,
+                "message": str(exc),
+                "generation_id": exc.generation_id,
+            }
+        }
+    elif isinstance(exc, StrategySemanticReviewPendingError):
+        error = {
+            "error": {
+                "type": "StrategySemanticReviewPendingError",
+                "code": exc.code,
+                "message": str(exc),
             }
         }
     else:

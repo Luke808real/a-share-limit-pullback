@@ -221,6 +221,57 @@ class WarehouseMetadata:
         )
         self._connection.execute(
             """
+            CREATE TABLE IF NOT EXISTS state_generations (
+                generation_id VARCHAR PRIMARY KEY,
+                snapshot_id VARCHAR NOT NULL,
+                snapshot_content_hash VARCHAR NOT NULL,
+                snapshot_validation_hash VARCHAR,
+                universe_contract_version VARCHAR NOT NULL,
+                universe_hash VARCHAR NOT NULL,
+                strategy_version VARCHAR NOT NULL,
+                strategy_config_hash VARCHAR NOT NULL,
+                strategy_code_commit VARCHAR,
+                as_of DATE NOT NULL,
+                status VARCHAR NOT NULL,
+                state_semantic_root_hash VARCHAR NOT NULL,
+                compact_output_hash VARCHAR NOT NULL,
+                verification_hash VARCHAR NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL
+            )
+            """
+        )
+        self._connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS state_generation_promotion_records (
+                generation_id VARCHAR PRIMARY KEY,
+                snapshot_id VARCHAR NOT NULL,
+                snapshot_hash VARCHAR NOT NULL,
+                universe_contract VARCHAR NOT NULL,
+                universe_hash VARCHAR NOT NULL,
+                strategy_version VARCHAR NOT NULL,
+                strategy_config_hash VARCHAR NOT NULL,
+                code_commit VARCHAR,
+                state_semantic_root_hash VARCHAR NOT NULL,
+                compact_output_hash VARCHAR NOT NULL,
+                verification_hash VARCHAR NOT NULL,
+                from_state VARCHAR NOT NULL,
+                to_state VARCHAR NOT NULL,
+                promoted_at TIMESTAMPTZ NOT NULL,
+                promotion_reason VARCHAR NOT NULL
+            )
+            """
+        )
+        self._connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS formal_state_generation_pointer (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                generation_id VARCHAR NOT NULL,
+                updated_at TIMESTAMPTZ NOT NULL
+            )
+            """
+        )
+        self._connection.execute(
+            """
             CREATE TABLE IF NOT EXISTS ingest_progress (
                 run_id VARCHAR NOT NULL,
                 provider VARCHAR NOT NULL,
@@ -615,6 +666,192 @@ class WarehouseMetadata:
                 updated_at = excluded.updated_at
             """,
             [snapshot_id, validation_report_hash, _utc(now)],
+        )
+
+    def get_formal_state_pointer(self) -> str | None:
+        if not self._table_exists("formal_state_generation_pointer"):
+            return None
+        rows = self._connection.execute(
+            """
+            SELECT generation_id FROM formal_state_generation_pointer
+            WHERE id = 1
+            """
+        ).fetchall()
+        return str(rows[0][0]) if rows else None
+
+    def set_formal_state_pointer(
+        self,
+        *,
+        generation_id: str,
+        updated_at: datetime | None = None,
+    ) -> None:
+        now = updated_at or datetime.now(timezone.utc)
+        self._connection.execute(
+            """
+            INSERT INTO formal_state_generation_pointer (
+                id, generation_id, updated_at
+            ) VALUES (1, ?, ?)
+            ON CONFLICT (id) DO UPDATE SET
+                generation_id = excluded.generation_id,
+                updated_at = excluded.updated_at
+            """,
+            [generation_id, _utc(now)],
+        )
+
+    def insert_state_generation(
+        self,
+        *,
+        generation_id: str,
+        snapshot_id: str,
+        snapshot_content_hash: str,
+        snapshot_validation_hash: str | None,
+        universe_contract_version: str,
+        universe_hash: str,
+        strategy_version: str,
+        strategy_config_hash: str,
+        strategy_code_commit: str | None,
+        as_of: date,
+        status: str,
+        state_semantic_root_hash: str,
+        compact_output_hash: str,
+        verification_hash: str,
+        created_at: datetime,
+    ) -> None:
+        self._connection.execute(
+            """
+            INSERT INTO state_generations (
+                generation_id, snapshot_id, snapshot_content_hash,
+                snapshot_validation_hash, universe_contract_version,
+                universe_hash, strategy_version, strategy_config_hash,
+                strategy_code_commit, as_of, status, state_semantic_root_hash,
+                compact_output_hash, verification_hash, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (generation_id) DO UPDATE SET
+                status = excluded.status,
+                state_semantic_root_hash = excluded.state_semantic_root_hash,
+                compact_output_hash = excluded.compact_output_hash,
+                verification_hash = excluded.verification_hash
+            """,
+            [
+                generation_id,
+                snapshot_id,
+                snapshot_content_hash,
+                snapshot_validation_hash,
+                universe_contract_version,
+                universe_hash,
+                strategy_version,
+                strategy_config_hash,
+                strategy_code_commit,
+                as_of,
+                status,
+                state_semantic_root_hash,
+                compact_output_hash,
+                verification_hash,
+                _utc(created_at),
+            ],
+        )
+
+    def update_state_generation_status(
+        self,
+        *,
+        generation_id: str,
+        status: str,
+    ) -> None:
+        self._connection.execute(
+            "UPDATE state_generations SET status = ? WHERE generation_id = ?",
+            [status, generation_id],
+        )
+
+    def state_generation_by_id(self, generation_id: str) -> dict[str, Any] | None:
+        if not self._table_exists("state_generations"):
+            return None
+        rows = self._connection.execute(
+            """
+            SELECT generation_id, snapshot_id, snapshot_content_hash,
+                   snapshot_validation_hash, universe_contract_version,
+                   universe_hash, strategy_version, strategy_config_hash,
+                   strategy_code_commit, as_of, status,
+                   state_semantic_root_hash, compact_output_hash,
+                   verification_hash, created_at
+            FROM state_generations WHERE generation_id = ?
+            """,
+            [generation_id],
+        ).fetchall()
+        if not rows:
+            return None
+        row = rows[0]
+        return {
+            "generation_id": str(row[0]),
+            "snapshot_id": str(row[1]),
+            "snapshot_content_hash": str(row[2]),
+            "snapshot_validation_hash": (
+                str(row[3]) if row[3] is not None else None
+            ),
+            "universe_contract_version": str(row[4]),
+            "universe_hash": str(row[5]),
+            "strategy_version": str(row[6]),
+            "strategy_config_hash": str(row[7]),
+            "strategy_code_commit": (
+                str(row[8]) if row[8] is not None else None
+            ),
+            "as_of": row[9],
+            "status": str(row[10]),
+            "state_semantic_root_hash": str(row[11]),
+            "compact_output_hash": str(row[12]),
+            "verification_hash": str(row[13]),
+            "created_at": row[14],
+        }
+
+    def insert_state_generation_promotion(
+        self,
+        *,
+        generation_id: str,
+        snapshot_id: str,
+        snapshot_hash: str,
+        universe_contract: str,
+        universe_hash: str,
+        strategy_version: str,
+        strategy_config_hash: str,
+        code_commit: str | None,
+        state_semantic_root_hash: str,
+        compact_output_hash: str,
+        verification_hash: str,
+        from_state: str,
+        to_state: str,
+        promoted_at: datetime,
+        promotion_reason: str,
+    ) -> None:
+        self._connection.execute(
+            """
+            INSERT INTO state_generation_promotion_records (
+                generation_id, snapshot_id, snapshot_hash, universe_contract,
+                universe_hash, strategy_version, strategy_config_hash,
+                code_commit, state_semantic_root_hash, compact_output_hash,
+                verification_hash, from_state, to_state, promoted_at,
+                promotion_reason
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (generation_id) DO UPDATE SET
+                from_state = excluded.from_state,
+                to_state = excluded.to_state,
+                verification_hash = excluded.verification_hash
+            """,
+            [
+                generation_id,
+                snapshot_id,
+                snapshot_hash,
+                universe_contract,
+                universe_hash,
+                strategy_version,
+                strategy_config_hash,
+                code_commit,
+                state_semantic_root_hash,
+                compact_output_hash,
+                verification_hash,
+                from_state,
+                to_state,
+                _utc(promoted_at),
+                promotion_reason,
+            ],
         )
 
     def insert_snapshot_validation(
