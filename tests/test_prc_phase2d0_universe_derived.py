@@ -184,7 +184,14 @@ def _audit(
 def test_verified_no_trade_does_not_create_synthetic_bar():
     audit = _audit(
         members=["600000", "600530"],
-        staged_rows=[{"code": "600000", "trade_date": date(2026, 8, 3), "close": 11}],
+        staged_rows=[
+            {
+                "code": "600000",
+                "trade_date": date(2026, 8, 3),
+                "close": 11,
+                "reconciliation_status": "CONFIRMED",
+            }
+        ],
         verified=[("600530", date(2026, 8, 3))],
     )
     assert audit.traded == (("600000", date(2026, 8, 3)),)

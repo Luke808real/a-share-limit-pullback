@@ -27,6 +27,7 @@ from limit_pullback.screen.generation import (
     StatePointerError,
     build_state_generation,
     compact_output_roundtrip_hash,
+    normalize_output_payload,
     state_semantic_root_hash,
 )
 from limit_pullback.screen.runner import ScreenFailpointError
@@ -329,7 +330,7 @@ def test_full_rebuild_equals_incremental_rebuild(gen_env):
         layout.root / "tmp" / "pr-e" / "full" / "screen-output.parquet"
     )
     full_payloads = {
-        payload
+        normalize_output_payload(payload)
         for day, payload in zip(
             full_table["trade_date"].to_pylist(),
             full_table["payload"].to_pylist(),
@@ -337,11 +338,12 @@ def test_full_rebuild_equals_incremental_rebuild(gen_env):
         )
         if day > mid
     }
-    inc_payloads = set(
-        pq.read_table(
+    inc_payloads = {
+        normalize_output_payload(payload)
+        for payload in pq.read_table(
             incremental_root / "screen-output.parquet"
         )["payload"].to_pylist()
-    )
+    }
     assert full_payloads == inc_payloads
 
 
