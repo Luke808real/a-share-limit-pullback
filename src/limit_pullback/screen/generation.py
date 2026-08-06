@@ -18,11 +18,16 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 import pyarrow as pa
+import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 from limit_pullback.models.enums import SetupStage
 from limit_pullback.models.signal import StrategySignal
 from limit_pullback.screen.models import ScreenState
+from limit_pullback.coverage import (
+    STATE_COVERED_THROUGH_AS_OF,
+    state_is_covered_through,
+)
 from limit_pullback.screen.runner import (
     ScreenFailpointError,
     run_screen,
@@ -112,6 +117,40 @@ def _sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+SET_LIKE_SIGNAL_FIELDS = (
+    "matched_patterns",
+    "event_flags",
+    "quality_flags",
+    "unavailable_rules",
+)
+
+
+def normalize_signal_payload(signal: dict[str, Any]) -> dict[str, Any]:
+    """Order/derived-metadata normalization for set-like signal fields."""
+
+    normalized = {
+        key: value
+        for key, value in signal.items()
+        if key != "generated_at"
+    }
+    for key in SET_LIKE_SIGNAL_FIELDS:
+        value = normalized.get(key)
+        if isinstance(value, list):
+            normalized[key] = sorted(value, key=str)
+    return normalized
+
+
+def normalize_output_payload(payload_json: str) -> str:
+    """Normalize one compact output row for semantic comparison."""
+
+    row = json.loads(payload_json)
+    for key in SET_LIKE_SIGNAL_FIELDS:
+        value = row.get(key)
+        if isinstance(value, list):
+            row[key] = sorted(value, key=str)
+    return json.dumps(row, sort_keys=True, ensure_ascii=False)
+
+
 def snapshot_content_hash_from_validation(
     layout: WarehouseLayout,
     snapshot,
@@ -183,7 +222,9 @@ def state_semantic_root_hash(states_root: Path) -> tuple[str, int]:
             "reconciliation_policy_version": (
                 state.reconciliation_policy_version
             ),
-            "signal": json.loads(state.signal_json),
+            "signal": normalize_signal_payload(
+                json.loads(state.signal_json)
+            ),
         }
         digest.update(
             json.dumps(
@@ -223,6 +264,10 @@ def _verify_generation(
     expected_config_hash: str,
     expected_commit: str,
     output_hash: str,
+    confirmed_sessions: set[tuple[str, date]],
+    latest_confirmed_by_code: dict[str, date],
+    verified_no_trade: set[tuple[str, date]],
+    session_calendar: Sequence[date],
 ) -> dict[str, Any]:
     semantic_hash, state_n = state_semantic_root_hash(states_root)
     codes = sorted(path.stem for path in states_root.glob("[0-9]*.json"))
@@ -235,6 +280,11 @@ def _verify_generation(
     last_processed_20260805 = 0
     setup_counts: dict[str, int] = {}
     invalid_invariant_fail = 0
+    coverage_rows: list[dict[str, Any]] = []
+    covered_through = 0
+    verified_no_trade_covered = 0
+    uncovered = 0
+    confirmed_after_last = 0
     for path in states_root.glob("[0-9]*.json"):
         state = ScreenState.model_validate_json(
             path.read_text(encoding="utf-8")
@@ -253,6 +303,61 @@ def _verify_generation(
             eligible = getattr(signal, "eligible_from", None)
             if eligible is not None and eligible <= signal.anchor.frozen_as_of:
                 invalid_invariant_fail += 1
+        status, coverage_through, reasons = state_is_covered_through(
+            last_processed_date=state.last_processed_date,
+            as_of=expected_as_of,
+            session_calendar=session_calendar,
+            confirmed_traded_sessions=confirmed_sessions,
+            verified_no_trade_sessions=verified_no_trade,
+            code=state.code,
+        )
+        coverage_rows.append(
+            {
+                "code": state.code,
+                "state_last_processed_date": state.last_processed_date,
+                "latest_confirmed_traded_bar_date": (
+                    latest_confirmed_by_code.get(state.code)
+                ),
+                "generation_as_of": expected_as_of,
+                "verified_no_trade_session_n": sum(
+                    1
+                    for session in session_calendar
+                    if (state.code, session) in verified_no_trade
+                ),
+                "unexplained_missing_session_n": len(
+                    [
+                        reason
+                        for reason in reasons
+                        if reason.startswith("UNEXPLAINED_SESSION:")
+                    ]
+                ),
+                "coverage_status": status,
+                "coverage_through": coverage_through,
+                "coverage_evidence_hash": "",
+            }
+        )
+        if status == STATE_COVERED_THROUGH_AS_OF:
+            covered_through += 1
+            if (
+                state.last_processed_date < expected_as_of
+                and not any(
+                    (state.code, session) in confirmed_sessions
+                    for session in session_calendar
+                    if state.last_processed_date
+                    < session
+                    <= expected_as_of
+                )
+            ):
+                verified_no_trade_covered += 1
+        else:
+            uncovered += 1
+        if any(
+            (state.code, session) in confirmed_sessions
+            for session in session_calendar
+            if state.last_processed_date < session <= expected_as_of
+        ):
+            confirmed_after_last += 1
+    coverage_root_hash = _coverage_root_hash(coverage_rows)
     roundtrip_hash, compact_rows = compact_output_roundtrip_hash(
         compact_output_path
     )
@@ -277,11 +382,12 @@ def _verify_generation(
         if state.last_processed_date > expected_as_of:
             issues.append("LAST_PROCESSED_FUTURE")
             break
-    if (
-        expected_as_of == date(2026, 8, 5)
-        and last_processed_as_of != universe.member_n
-    ):
-        issues.append("LAST_PROCESSED_20260805")
+    if covered_through != universe.member_n:
+        issues.append("STATE_COVERAGE_THROUGH_AS_OF")
+    if uncovered:
+        issues.append("STATE_UNCOVERED")
+    if confirmed_after_last:
+        issues.append("LATEST_CONFIRMED_BAR_AFTER_STATE_LAST_PROCESSED")
     if invalid_invariant_fail:
         issues.append("ELIGIBLE_FROM_INVARIANT")
     if roundtrip_hash != output_hash:
@@ -302,6 +408,14 @@ def _verify_generation(
         "snapshot_binding_mismatch_n": snapshot_mismatch,
         "last_processed_20260805_n": last_processed_20260805,
         "last_processed_as_of_n": last_processed_as_of,
+        "verified_no_trade_covered_n": verified_no_trade_covered,
+        "state_coverage_through_as_of_n": covered_through,
+        "state_uncovered_n": uncovered,
+        "latest_confirmed_bar_after_state_last_processed_n": (
+            confirmed_after_last
+        ),
+        "state_coverage_root_hash": coverage_root_hash,
+        "coverage_rows": coverage_rows,
         "setup_counts": dict(sorted(setup_counts.items())),
         "eligible_from_invariant_fail_n": invalid_invariant_fail,
         "compact_output_hash": output_hash,
@@ -311,6 +425,46 @@ def _verify_generation(
         "issues": issues,
         "passed": not issues,
     }
+
+
+def _coverage_root_hash(
+    coverage_rows: Sequence[Mapping[str, Any]],
+) -> str:
+    payload = [
+        {
+            key: (
+                value.isoformat()
+                if isinstance(value, (date, datetime))
+                else value
+            )
+            for key, value in sorted(row.items())
+            if key != "coverage_evidence_hash"
+        }
+        for row in coverage_rows
+    ]
+    return _sha256_text(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
+    )
+
+
+def _coverage_schema() -> pa.Schema:
+    return pa.schema(
+        [
+            pa.field("code", pa.string()),
+            pa.field("state_last_processed_date", pa.date32()),
+            pa.field(
+                "latest_confirmed_traded_bar_date",
+                pa.date32(),
+                nullable=True,
+            ),
+            pa.field("generation_as_of", pa.date32()),
+            pa.field("verified_no_trade_session_n", pa.int64()),
+            pa.field("unexplained_missing_session_n", pa.int64()),
+            pa.field("coverage_status", pa.string()),
+            pa.field("coverage_through", pa.date32()),
+            pa.field("coverage_evidence_hash", pa.string()),
+        ]
+    )
 
 
 def build_state_generation(
@@ -327,6 +481,8 @@ def build_state_generation(
     failpoint: str | None = None,
     dry_run: bool = False,
     seed_states_root: Path | None = None,
+    verified_no_trade: Sequence[tuple[str, date]] = (),
+    session_calendar: Sequence[date] = (),
 ) -> StateGenerationResult:
     """Build and (unless dry) atomically promote one state generation."""
 
@@ -351,6 +507,59 @@ def build_state_generation(
         layout,
         snapshot,
     )
+    confirmed_sessions: set[tuple[str, date]] = set()
+    latest_confirmed_by_code: dict[str, date] = {}
+    if session_calendar:
+        daily_rel = next(
+            key
+            for key in snapshot.canonical_file_hashes
+            if key.endswith(
+                "/daily_bars/" + snapshot.snapshot_id + ".parquet"
+            )
+        )
+        pf = pq.ParquetFile(layout.root / daily_rel)
+        session_set = set(session_calendar)
+        for batch in pf.iter_batches(
+            columns=["code", "trade_date", "reconciliation_status"],
+            batch_size=65536,
+            use_threads=False,
+        ):
+            mask = pc.is_in(
+                batch["trade_date"],
+                value_set=pa.array(sorted(session_set)),
+            )
+            mask = pc.and_(
+                mask,
+                pc.equal(
+                    batch["reconciliation_status"],
+                    pa.scalar("CONFIRMED"),
+                ),
+            )
+            for row in batch.filter(mask).to_pylist():
+                confirmed_sessions.add((str(row["code"]), row["trade_date"]))
+        # Lightweight index of the latest CONFIRMED bar per code through as_of.
+        pf = pq.ParquetFile(layout.root / daily_rel)
+        for batch in pf.iter_batches(
+            columns=["code", "trade_date", "reconciliation_status"],
+            batch_size=65536,
+            use_threads=False,
+        ):
+            mask = pc.equal(
+                batch["reconciliation_status"],
+                pa.scalar("CONFIRMED"),
+            )
+            mask = pc.and_(
+                mask,
+                pc.less_equal(
+                    batch["trade_date"],
+                    pa.scalar(as_of),
+                ),
+            )
+            for row in batch.filter(mask).to_pylist():
+                code = str(row["code"])
+                previous = latest_confirmed_by_code.get(code)
+                if previous is None or row["trade_date"] > previous:
+                    latest_confirmed_by_code[code] = row["trade_date"]
 
     states_root = build_root / "states"
     compact_output_path = build_root / "screen-output.parquet"
@@ -388,6 +597,10 @@ def build_state_generation(
         expected_config_hash=config_hash,
         expected_commit=commit,
         output_hash=output_hash,
+        confirmed_sessions=confirmed_sessions,
+        latest_confirmed_by_code=latest_confirmed_by_code,
+        verified_no_trade=set(verified_no_trade),
+        session_calendar=session_calendar,
     )
     _raise_failpoint(failpoint, "during_verify")
     if not verification["passed"]:
@@ -402,18 +615,74 @@ def build_state_generation(
     verification["universe_hash"] = universe.member_hash
     verification_hash = _sha256_text(
         json.dumps(
-            verification,
+            {
+                key: value
+                for key, value in verification.items()
+                if key != "coverage_rows"
+            },
             ensure_ascii=False,
             sort_keys=True,
             default=str,
         )
     )
-    write_json_atomic(verification, verification_path)
+    write_json_atomic(
+        {
+            key: value
+            for key, value in verification.items()
+            if key != "coverage_rows"
+        },
+        verification_path,
+    )
+    coverage_rows = verification["coverage_rows"]
+    coverage_table = pa.Table.from_pylist(
+        [
+            {
+                "code": row["code"],
+                "state_last_processed_date": row[
+                    "state_last_processed_date"
+                ],
+                "latest_confirmed_traded_bar_date": row[
+                    "latest_confirmed_traded_bar_date"
+                ],
+                "generation_as_of": row["generation_as_of"],
+                "verified_no_trade_session_n": row[
+                    "verified_no_trade_session_n"
+                ],
+                "unexplained_missing_session_n": row[
+                    "unexplained_missing_session_n"
+                ],
+                "coverage_status": row["coverage_status"],
+                "coverage_through": row["coverage_through"],
+                "coverage_evidence_hash": row["coverage_evidence_hash"],
+            }
+            for row in coverage_rows
+        ],
+        schema=_coverage_schema(),
+    )
+    pq.write_table(
+        coverage_table,
+        build_root / "state-coverage.parquet",
+        compression="zstd",
+    )
     _raise_failpoint(failpoint, "after_verify_before_metadata")
 
     semantic_hash = verification["state_semantic_root_hash"]
+    coverage_root_hash = verification["state_coverage_root_hash"]
+    identity = _sha256_text(
+        "|".join(
+            [
+                semantic_hash,
+                coverage_root_hash,
+                snapshot_content_hash,
+                universe.member_hash,
+                config_hash,
+                commit,
+                as_of.isoformat(),
+            ]
+        )
+    )
     generation_id = (
-        f"stategen-{as_of.isoformat()}-{semantic_hash[:12]}"
+        f"stategen-{as_of.isoformat()}-{identity[:12]}"
     )
 
     generation_manifest = {
@@ -434,6 +703,14 @@ def build_state_generation(
         "strategy_config_hash": config_hash,
         "strategy_code_commit": commit,
         "state_semantic_root_hash": semantic_hash,
+        "state_coverage_root_hash": coverage_root_hash,
+        "state_coverage_through_as_of_n": verification[
+            "state_coverage_through_as_of_n"
+        ],
+        "verified_no_trade_covered_n": verification[
+            "verified_no_trade_covered_n"
+        ],
+        "state_uncovered_n": verification["state_uncovered_n"],
         "compact_output_hash": output_hash,
         "compact_output_row_n": verification["compact_output_row_n"],
         "verification_hash": verification_hash,

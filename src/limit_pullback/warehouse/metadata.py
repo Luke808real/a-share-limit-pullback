@@ -272,6 +272,22 @@ class WarehouseMetadata:
         )
         self._connection.execute(
             """
+            CREATE TABLE IF NOT EXISTS snapshot_validation_correction_records (
+                record_id VARCHAR PRIMARY KEY,
+                snapshot_id VARCHAR NOT NULL,
+                original_validation_hash VARCHAR NOT NULL,
+                correction_type VARCHAR NOT NULL,
+                old_summary VARCHAR NOT NULL,
+                corrected_summary VARCHAR NOT NULL,
+                snapshot_bytes_affected BOOLEAN NOT NULL,
+                publication_eligibility_changed BOOLEAN NOT NULL,
+                reason VARCHAR NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL
+            )
+            """
+        )
+        self._connection.execute(
+            """
             CREATE TABLE IF NOT EXISTS ingest_progress (
                 run_id VARCHAR NOT NULL,
                 provider VARCHAR NOT NULL,
@@ -851,6 +867,46 @@ class WarehouseMetadata:
                 to_state,
                 _utc(promoted_at),
                 promotion_reason,
+            ],
+        )
+
+    def insert_snapshot_validation_correction(
+        self,
+        *,
+        record_id: str,
+        snapshot_id: str,
+        original_validation_hash: str,
+        correction_type: str,
+        old_summary: dict[str, Any],
+        corrected_summary: dict[str, Any],
+        snapshot_bytes_affected: bool,
+        publication_eligibility_changed: bool,
+        reason: str,
+        created_at: datetime,
+    ) -> None:
+        self._connection.execute(
+            """
+            INSERT INTO snapshot_validation_correction_records (
+                record_id, snapshot_id, original_validation_hash,
+                correction_type, old_summary, corrected_summary,
+                snapshot_bytes_affected, publication_eligibility_changed,
+                reason, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (record_id) DO UPDATE SET
+                corrected_summary = excluded.corrected_summary,
+                reason = excluded.reason
+            """,
+            [
+                record_id,
+                snapshot_id,
+                original_validation_hash,
+                correction_type,
+                json.dumps(old_summary, sort_keys=True, default=str),
+                json.dumps(corrected_summary, sort_keys=True, default=str),
+                bool(snapshot_bytes_affected),
+                bool(publication_eligibility_changed),
+                reason,
+                _utc(created_at),
             ],
         )
 
