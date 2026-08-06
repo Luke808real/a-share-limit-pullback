@@ -128,6 +128,7 @@ def test_0731_full_screen_hash_regression(monkeypatch, tmp_path):
     result = runner_mod.run_screen(
         layout=layout,
         as_of=snapshot.as_of,
+        snapshot_id=snapshot.snapshot_id,
         start=date(2024, 1, 1),
         rebuild=True,
         codes=None,

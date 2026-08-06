@@ -55,6 +55,63 @@ class SnapshotUsabilityError(ValueError):
         )
 
 
+class FormalPointerError(RuntimeError):
+    """Formal screen-ready pointer is missing or points to an unusable snapshot."""
+
+    def __init__(
+        self,
+        *,
+        code: str,
+        snapshot_id: str | None = None,
+        snapshot_status: str | None = None,
+        detail: str = "",
+    ) -> None:
+        self.code = code
+        self.snapshot_id = snapshot_id
+        self.snapshot_status = snapshot_status
+        message = code
+        if snapshot_id:
+            message += (
+                f": snapshot={snapshot_id}"
+                + (
+                    f" status={snapshot_status}"
+                    if snapshot_status
+                    else ""
+                )
+            )
+        if detail:
+            message += f" {detail}"
+        super().__init__(message)
+
+
+def resolve_formal_screen_ready_snapshot(
+    metadata,
+) -> SnapshotRecord:
+    """Resolve the single formal pointer; fail closed when absent/invalid."""
+
+    pointer = metadata.get_formal_pointer()
+    if pointer is None:
+        raise FormalPointerError(
+            code="FORMAL_POINTER_MISSING",
+            detail="no formal SCREEN_READY pointer has been promoted",
+        )
+    snapshot = metadata.snapshot_by_id(pointer[0])
+    if snapshot is None:
+        raise FormalPointerError(
+            code="FORMAL_POINTER_INVALID",
+            snapshot_id=pointer[0],
+            detail="pointer references an unknown snapshot",
+        )
+    if not is_snapshot_formally_usable(snapshot.status):
+        raise FormalPointerError(
+            code="FORMAL_POINTER_INVALID",
+            snapshot_id=snapshot.snapshot_id,
+            snapshot_status=snapshot.status,
+            detail="pointer references a non-SCREEN_READY snapshot",
+        )
+    return snapshot
+
+
 def require_formally_usable_snapshot(
     snapshot: SnapshotRecord,
     *,

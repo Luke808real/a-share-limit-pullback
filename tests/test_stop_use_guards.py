@@ -26,6 +26,7 @@ from limit_pullback.warehouse.models import (
 from limit_pullback.warehouse.parquet import sha256_file, write_json_atomic
 from limit_pullback.warehouse.pipeline import bootstrap
 from limit_pullback.warehouse.snapshot import (
+    FormalPointerError,
     SnapshotUsabilityError,
     forward_preflight,
     require_state_snapshot_usable,
@@ -65,6 +66,14 @@ def _write_state(layout: WarehouseLayout, *, snapshot_id: str, code: str = "6033
     )
     write_json_atomic(state.model_dump(mode="json"), path)
     return path
+
+
+def _set_pointer(layout: WarehouseLayout, snapshot_id: str) -> None:
+    with WarehouseMetadata(layout.duckdb_path) as metadata:
+        metadata.set_formal_pointer(
+            snapshot_id=snapshot_id,
+            validation_report_hash="test",
+        )
 
 
 def test_current_snapshot_is_not_implicitly_usable():
@@ -140,15 +149,17 @@ def test_no_silent_fallback_to_previous_screen_ready(tmp_path):
     )
     assert new.snapshot_id is not None
     assert new.snapshot_id != old.snapshot_id
+    _set_pointer(layout, new.snapshot_id)
 
-    with pytest.raises(SnapshotUsabilityError) as exc_info:
+    with pytest.raises(FormalPointerError) as exc_info:
         run_screen(layout=layout, as_of=dates[-1])
-    assert exc_info.value.code == "LATEST_SNAPSHOT_NOT_SCREEN_READY"
+    assert exc_info.value.code == "FORMAL_POINTER_INVALID"
     assert exc_info.value.snapshot_id == new.snapshot_id
 
 
 def test_bad_snapshot_screen_fails_before_strategy_evaluation(tmp_path, monkeypatch):
-    layout, _ = _layout_with_current_snapshot(tmp_path)
+    layout, snapshot_id = _layout_with_current_snapshot(tmp_path)
+    _set_pointer(layout, snapshot_id)
     calls: list[dict] = []
 
     def fake_screen_code(**kwargs):
@@ -156,15 +167,16 @@ def test_bad_snapshot_screen_fails_before_strategy_evaluation(tmp_path, monkeypa
         return [], None
 
     monkeypatch.setattr("limit_pullback.screen.runner.screen_code", fake_screen_code)
-    with pytest.raises(SnapshotUsabilityError):
+    with pytest.raises(FormalPointerError):
         run_screen(layout=layout, as_of=date(2026, 7, 31))
     assert calls == []
 
 
 def test_bad_snapshot_screen_writes_no_state(tmp_path):
-    layout, _ = _layout_with_current_snapshot(tmp_path)
+    layout, snapshot_id = _layout_with_current_snapshot(tmp_path)
+    _set_pointer(layout, snapshot_id)
     states_dir = layout.root / "screen" / "states"
-    with pytest.raises(SnapshotUsabilityError):
+    with pytest.raises(FormalPointerError):
         run_screen(layout=layout, as_of=date(2026, 7, 31))
     assert not states_dir.exists() or list(states_dir.glob("*.json")) == []
 

@@ -117,6 +117,13 @@ def _build_warehouse(
         snapshot_status=snapshot_status,
     )
     assert result.snapshot_id is not None
+    from limit_pullback.warehouse.metadata import WarehouseMetadata
+
+    with WarehouseMetadata(layout.duckdb_path) as metadata:
+        metadata.set_formal_pointer(
+            snapshot_id=result.snapshot_id,
+            validation_report_hash="test",
+        )
     return layout, dates, result.snapshot_id
 
 
@@ -280,6 +287,10 @@ def test_screen_incremental_after_update_only_advances_new_dates(tmp_path):
             snapshot_id=latest.snapshot_id,
             status="SCREEN_READY",
             reason="test promotion after update",
+        )
+        metadata.set_formal_pointer(
+            snapshot_id=latest.snapshot_id,
+            validation_report_hash="test",
         )
     incremental = run_screen(layout=layout, as_of=new_date)
     assert incremental.reused is False

@@ -26,10 +26,10 @@ from limit_pullback.warehouse.layout import WarehouseLayout
 from limit_pullback.warehouse.metadata import WarehouseMetadata
 from limit_pullback.warehouse.models import SnapshotRecord
 from limit_pullback.warehouse.snapshot import (
-    SnapshotUsabilityError,
     read_snapshot_daily,
     read_snapshot_pool,
     require_formally_usable_snapshot,
+    resolve_formal_screen_ready_snapshot,
 )
 
 FIXED_FETCHED_AT = datetime(2026, 7, 31, 23, 59, 59, tzinfo=timezone.utc)
@@ -173,42 +173,18 @@ def load_canonical_market(
     if not layout.duckdb_path.exists():
         raise ValueError("no dataset snapshot published")
     with WarehouseMetadata(layout.duckdb_path, read_only=True) as metadata:
-        resolution = "explicit" if snapshot_id is not None else "implicit"
         if snapshot_id is not None:
             snapshot = metadata.snapshot_by_id(snapshot_id)
             if snapshot is None:
                 raise ValueError(f"unknown snapshot: {snapshot_id}")
-        elif as_of is not None:
-            snapshot = metadata.resolve_snapshot(as_of)
-            if snapshot is None:
-                raise ValueError(
-                    f"no snapshot available for as_of {as_of}; "
-                    "pass an explicit --snapshot-id for later-published data"
-                )
         else:
-            snapshot = metadata.latest_snapshot()
-            if snapshot is None:
-                raise ValueError("no dataset snapshot published")
-        try:
-            require_formally_usable_snapshot(
-                snapshot,
-                allow_unusable_snapshot_for_forensics=(
-                    allow_unusable_snapshot_for_forensics
-                ),
-            )
-        except SnapshotUsabilityError as exc:
-            if resolution == "implicit":
-                raise SnapshotUsabilityError(
-                    code="LATEST_SNAPSHOT_NOT_SCREEN_READY",
-                    snapshot_id=snapshot.snapshot_id,
-                    snapshot_status=snapshot.status,
-                    as_of=snapshot.as_of,
-                    detail=(
-                        "latest/default snapshot is not formally usable; "
-                        "pass an explicit SCREEN_READY snapshot id"
-                    ),
-                ) from exc
-            raise
+            snapshot = resolve_formal_screen_ready_snapshot(metadata)
+        require_formally_usable_snapshot(
+            snapshot,
+            allow_unusable_snapshot_for_forensics=(
+                allow_unusable_snapshot_for_forensics
+            ),
+        )
         pool_rows = read_snapshot_pool(layout, snapshot)
 
     fetched_at = FIXED_FETCHED_AT
@@ -281,42 +257,18 @@ def load_canonical_metadata(
     if not layout.duckdb_path.exists():
         raise ValueError("no dataset snapshot published")
     with WarehouseMetadata(layout.duckdb_path, read_only=True) as metadata:
-        resolution = "explicit" if snapshot_id is not None else "implicit"
         if snapshot_id is not None:
             snapshot = metadata.snapshot_by_id(snapshot_id)
             if snapshot is None:
                 raise ValueError(f"unknown snapshot: {snapshot_id}")
-        elif as_of is not None:
-            snapshot = metadata.resolve_snapshot(as_of)
-            if snapshot is None:
-                raise ValueError(
-                    f"no snapshot available for as_of {as_of}; "
-                    "pass an explicit --snapshot-id for later-published data"
-                )
         else:
-            snapshot = metadata.latest_snapshot()
-            if snapshot is None:
-                raise ValueError("no dataset snapshot published")
-        try:
-            require_formally_usable_snapshot(
-                snapshot,
-                allow_unusable_snapshot_for_forensics=(
-                    allow_unusable_snapshot_for_forensics
-                ),
-            )
-        except SnapshotUsabilityError as exc:
-            if resolution == "implicit":
-                raise SnapshotUsabilityError(
-                    code="LATEST_SNAPSHOT_NOT_SCREEN_READY",
-                    snapshot_id=snapshot.snapshot_id,
-                    snapshot_status=snapshot.status,
-                    as_of=snapshot.as_of,
-                    detail=(
-                        "latest/default snapshot is not formally usable; "
-                        "pass an explicit SCREEN_READY snapshot id"
-                    ),
-                ) from exc
-            raise
+            snapshot = resolve_formal_screen_ready_snapshot(metadata)
+        require_formally_usable_snapshot(
+            snapshot,
+            allow_unusable_snapshot_for_forensics=(
+                allow_unusable_snapshot_for_forensics
+            ),
+        )
         pool_rows = read_snapshot_pool(layout, snapshot)
     fetched_at = FIXED_FETCHED_AT
     pool_records = tuple(

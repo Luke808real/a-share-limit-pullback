@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
@@ -177,6 +178,44 @@ class WarehouseMetadata:
                 reason VARCHAR NOT NULL,
                 audit_report_sha256 VARCHAR,
                 created_at TIMESTAMPTZ NOT NULL
+            )
+            """
+        )
+        self._connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS snapshot_validation_records (
+                snapshot_id VARCHAR PRIMARY KEY,
+                report_hash VARCHAR NOT NULL,
+                report_path VARCHAR,
+                validation_status VARCHAR NOT NULL,
+                validated_at TIMESTAMPTZ NOT NULL,
+                validator_version VARCHAR NOT NULL
+            )
+            """
+        )
+        self._connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS snapshot_promotion_records (
+                snapshot_id VARCHAR PRIMARY KEY,
+                from_state VARCHAR NOT NULL,
+                to_state VARCHAR NOT NULL,
+                validation_report_hash VARCHAR NOT NULL,
+                input_artifact_hashes VARCHAR NOT NULL,
+                code_commit VARCHAR,
+                strategy_version VARCHAR,
+                universe_contract VARCHAR,
+                promoted_at TIMESTAMPTZ NOT NULL,
+                promotion_reason VARCHAR NOT NULL
+            )
+            """
+        )
+        self._connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS formal_screen_ready_pointer (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                snapshot_id VARCHAR NOT NULL,
+                validation_report_hash VARCHAR,
+                updated_at TIMESTAMPTZ NOT NULL
             )
             """
         )
@@ -512,6 +551,150 @@ class WarehouseMetadata:
             ],
         )
         return status_from, status
+
+    @contextmanager
+    def promotion_transaction(self):
+        """Explicit DuckDB transaction for atomic promotion visibility."""
+
+        self._connection.execute("BEGIN TRANSACTION")
+        try:
+            yield self
+        except BaseException:
+            self._connection.execute("ROLLBACK")
+            raise
+        self._connection.execute("COMMIT")
+
+    def get_formal_pointer(self) -> tuple[str, str | None] | None:
+        if not self._table_exists("formal_screen_ready_pointer"):
+            return None
+        rows = self._connection.execute(
+            """
+            SELECT snapshot_id, validation_report_hash
+            FROM formal_screen_ready_pointer
+            WHERE id = 1
+            """
+        ).fetchall()
+        if not rows:
+            return None
+        return str(rows[0][0]), (
+            str(rows[0][1]) if rows[0][1] is not None else None
+        )
+
+    def _table_exists(self, name: str) -> bool:
+        rows = self._connection.execute(
+            """
+            SELECT 1 FROM information_schema.tables
+            WHERE table_schema = 'main' AND table_name = ?
+            """,
+            [name],
+        ).fetchall()
+        return bool(rows)
+
+    def resolve_formal_snapshot(self) -> SnapshotRecord | None:
+        pointer = self.get_formal_pointer()
+        if pointer is None:
+            return None
+        return self.snapshot_by_id(pointer[0])
+
+    def set_formal_pointer(
+        self,
+        *,
+        snapshot_id: str,
+        validation_report_hash: str | None = None,
+        updated_at: datetime | None = None,
+    ) -> None:
+        now = updated_at or datetime.now(timezone.utc)
+        self._connection.execute(
+            """
+            INSERT INTO formal_screen_ready_pointer (
+                id, snapshot_id, validation_report_hash, updated_at
+            ) VALUES (1, ?, ?, ?)
+            ON CONFLICT (id) DO UPDATE SET
+                snapshot_id = excluded.snapshot_id,
+                validation_report_hash = excluded.validation_report_hash,
+                updated_at = excluded.updated_at
+            """,
+            [snapshot_id, validation_report_hash, _utc(now)],
+        )
+
+    def insert_snapshot_validation(
+        self,
+        *,
+        snapshot_id: str,
+        report_hash: str,
+        report_path: str | None,
+        validation_status: str,
+        validated_at: datetime,
+        validator_version: str,
+    ) -> None:
+        self._connection.execute(
+            """
+            INSERT INTO snapshot_validation_records (
+                snapshot_id, report_hash, report_path, validation_status,
+                validated_at, validator_version
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT (snapshot_id) DO UPDATE SET
+                report_hash = excluded.report_hash,
+                report_path = excluded.report_path,
+                validation_status = excluded.validation_status,
+                validated_at = excluded.validated_at,
+                validator_version = excluded.validator_version
+            """,
+            [
+                snapshot_id,
+                report_hash,
+                report_path,
+                validation_status,
+                _utc(validated_at),
+                validator_version,
+            ],
+        )
+
+    def insert_snapshot_promotion(
+        self,
+        *,
+        snapshot_id: str,
+        from_state: str,
+        to_state: str,
+        validation_report_hash: str,
+        input_artifact_hashes: dict[str, str],
+        code_commit: str | None,
+        strategy_version: str | None,
+        universe_contract: str | None,
+        promoted_at: datetime,
+        promotion_reason: str,
+    ) -> None:
+        self._connection.execute(
+            """
+            INSERT INTO snapshot_promotion_records (
+                snapshot_id, from_state, to_state, validation_report_hash,
+                input_artifact_hashes, code_commit, strategy_version,
+                universe_contract, promoted_at, promotion_reason
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (snapshot_id) DO UPDATE SET
+                from_state = excluded.from_state,
+                to_state = excluded.to_state,
+                validation_report_hash = excluded.validation_report_hash,
+                input_artifact_hashes = excluded.input_artifact_hashes,
+                code_commit = excluded.code_commit,
+                strategy_version = excluded.strategy_version,
+                universe_contract = excluded.universe_contract,
+                promoted_at = excluded.promoted_at,
+                promotion_reason = excluded.promotion_reason
+            """,
+            [
+                snapshot_id,
+                from_state,
+                to_state,
+                validation_report_hash,
+                json.dumps(input_artifact_hashes, sort_keys=True),
+                code_commit,
+                strategy_version,
+                universe_contract,
+                _utc(promoted_at),
+                promotion_reason,
+            ],
+        )
 
     def latest_snapshot(self) -> SnapshotRecord | None:
         rows = self._connection.execute(

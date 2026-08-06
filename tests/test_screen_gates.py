@@ -115,7 +115,7 @@ def test_historical_as_of_ignores_future_revised_snapshot(tmp_path):
     )
     assert s1.snapshot_id is not None
 
-    old_run = run_screen(layout=layout, as_of=mid)
+    old_run = run_screen(layout=layout, as_of=mid, snapshot_id=s1.snapshot_id)
     old_hash = old_run.output_hash
     old_rows = _rows_of(old_run.output_path)
     old_anchor_price = old_rows[
@@ -142,7 +142,7 @@ def test_historical_as_of_ignores_future_revised_snapshot(tmp_path):
     assert s2.snapshot_id != s1.snapshot_id
 
     # as_of=mid must keep using the snapshot published at that frontier.
-    historical = run_screen(layout=layout, as_of=mid)
+    historical = run_screen(layout=layout, as_of=mid, snapshot_id=s1.snapshot_id)
     assert historical.output_hash == old_hash
     assert historical.snapshot_id == s1.snapshot_id
     historical_rows = _rows_of(historical.output_path)
@@ -152,7 +152,9 @@ def test_historical_as_of_ignores_future_revised_snapshot(tmp_path):
     )
 
     # as_of=dates[31] uses the revised snapshot.
-    frontier = run_screen(layout=layout, as_of=dates[31])
+    frontier = run_screen(
+        layout=layout, as_of=dates[31], snapshot_id=s2.snapshot_id
+    )
     assert frontier.snapshot_id == s2.snapshot_id
     frontier_rows = _rows_of(frontier.output_path)
     assert (
