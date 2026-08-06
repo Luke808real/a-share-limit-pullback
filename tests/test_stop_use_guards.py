@@ -222,8 +222,51 @@ def test_tradeplan_rejects_unusable_state_snapshot(tmp_path, project_root):
     )
     assert bad.snapshot_id is not None
     bad_snapshot_id = bad.snapshot_id
-    # Contaminated state references the unusable snapshot, not the safe one.
-    _write_state(layout, snapshot_id=bad_snapshot_id)
+    # Craft an ACTIVE generation whose state is bound to the unusable snapshot.
+    generation_id = "stategen-test-bad-bound"
+    gen_states = (
+        layout.root / "screen" / "generations" / generation_id / "states"
+    )
+    from limit_pullback.screen.models import ScreenState
+    from limit_pullback.warehouse.parquet import write_json_atomic
+
+    gen_states.mkdir(parents=True, exist_ok=True)
+    state = ScreenState(
+        code="603318",
+        last_processed_date=dates[-1],
+        signal_json="{}",
+        setup_id=None,
+        snapshot_id=bad_snapshot_id,
+        bars_prefix_hash="b" * 64,
+        limit_pool_prefix_hash="p" * 64,
+        strategy_commit="c" * 40,
+        config_hash="d" * 64,
+        reconciliation_policy_version="phase-2c2a-r1",
+        processed_at=datetime(2026, 7, 31, 23, 59, 59, tzinfo=timezone.utc),
+    )
+    write_json_atomic(
+        state.model_dump(mode="json"),
+        gen_states / "603318.json",
+    )
+    with WarehouseMetadata(layout.duckdb_path) as metadata:
+        metadata.insert_state_generation(
+            generation_id=generation_id,
+            snapshot_id=safe_snapshot_id,
+            snapshot_content_hash="x",
+            snapshot_validation_hash=None,
+            universe_contract_version="PHASE2D0_UNIVERSE_V1",
+            universe_hash="y",
+            strategy_version="phase-2d0",
+            strategy_config_hash="d" * 64,
+            strategy_code_commit="c" * 40,
+            as_of=dates[-1],
+            status="ACTIVE",
+            state_semantic_root_hash="z",
+            compact_output_hash="w",
+            verification_hash="v",
+            created_at=datetime(2026, 8, 6, 12, 0, 0, tzinfo=timezone.utc),
+        )
+        metadata.set_formal_state_pointer(generation_id=generation_id)
     config = load_strategy_config(project_root / "config" / "strategy.yaml")
     with pytest.raises(SnapshotUsabilityError) as exc_info:
         build_trade_plan_output(
@@ -232,6 +275,7 @@ def test_tradeplan_rejects_unusable_state_snapshot(tmp_path, project_root):
             snapshot_id=safe_snapshot_id,
             config=config,
             config_hash="d" * 64,
+            allow_decision_output=True,
         )
     assert exc_info.value.code == "STATE_BOUND_TO_UNUSABLE_SNAPSHOT"
     assert exc_info.value.snapshot_id == bad_snapshot_id
