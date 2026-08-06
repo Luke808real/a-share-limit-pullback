@@ -21,7 +21,7 @@ from limit_pullback.screen.canonical import (
 )
 from limit_pullback.screen.engine import derive_status, screen_code
 from limit_pullback.screen.models import ScreenRunResult
-from limit_pullback.screen.state import load_state, save_state, state_path
+from limit_pullback.screen.state import load_state, save_state
 from limit_pullback.screen.verify import (
     verify_rebuild_incremental,
     verify_single_stock_replay,
@@ -32,6 +32,101 @@ from limit_pullback.warehouse.snapshot import (
     require_state_snapshot_usable,
     snapshot_status_map,
 )
+
+
+class ScreenFailpointError(RuntimeError):
+    """Raised at requested screen state-write failpoints (fault injection)."""
+
+
+_SCREEN_FAILPOINT_STATE = {"saves": 0}
+
+
+def _raise_screen_failpoint(failpoint: str | None, path: Path | None) -> None:
+    if failpoint is None:
+        return
+    if failpoint == "after_all_states" and path is None:
+        raise ScreenFailpointError(failpoint)
+    if path is None:
+        return
+    _SCREEN_FAILPOINT_STATE["saves"] += 1
+    saves = _SCREEN_FAILPOINT_STATE["saves"]
+    if failpoint == "after_first_state_batch" and saves == 1:
+        raise ScreenFailpointError(failpoint)
+    if failpoint == "mid_state_write" and saves == 2:
+        raise ScreenFailpointError(failpoint)
+
+
+def _write_compact_output(
+    *,
+    metadata: dict[str, Any],
+    spool_path: Path,
+    compact_output_path: Path,
+    output_path: Path,
+) -> None:
+    """Write a columnar rows payload plus a small JSON manifest (no row embedding)."""
+
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    from datetime import date as _date
+
+    schema = pa.schema(
+        [
+            pa.field("code", pa.string()),
+            pa.field("trade_date", pa.date32()),
+            pa.field("payload", pa.string()),
+        ]
+    )
+    compact_output_path.parent.mkdir(parents=True, exist_ok=True)
+    writer = pq.ParquetWriter(
+        compact_output_path,
+        schema,
+        compression="zstd",
+    )
+    batch_rows: list[dict[str, Any]] = []
+    hash_obj = hashlib.sha256()
+    first = True
+    count = 0
+    with spool_path.open("r", encoding="utf-8") as stream:
+        for line in stream:
+            line = line.strip()
+            if not line:
+                continue
+            row = json.loads(line)
+            payload = json.dumps(row, sort_keys=True, ensure_ascii=False)
+            batch_rows.append(
+                {
+                    "code": str(row["code"]),
+                    "trade_date": _date.fromisoformat(
+                        str(row["trade_date"])[:10]
+                    ),
+                    "payload": payload,
+                }
+            )
+            if first:
+                hash_obj.update(b"[")
+                first = False
+            else:
+                hash_obj.update(b", ")
+            hash_obj.update(payload.encode("utf-8"))
+            count += 1
+            if len(batch_rows) >= 50000:
+                writer.write_table(
+                    pa.Table.from_pylist(batch_rows, schema=schema)
+                )
+                batch_rows = []
+    if batch_rows:
+        writer.write_table(pa.Table.from_pylist(batch_rows, schema=schema))
+    writer.close()
+    hash_obj.update(b"]")
+    meta = dict(metadata)
+    meta.pop("rows", None)
+    meta["compact_output_path"] = compact_output_path.name
+    meta["compact_output_row_n"] = count
+    meta["compact_roundtrip_hash"] = hash_obj.hexdigest()
+    meta["compact_roundtrip_hash_match"] = (
+        hash_obj.hexdigest() == metadata.get("output_hash")
+    )
+    write_json_atomic(meta, output_path)
 
 
 def _now_utc() -> datetime:
@@ -205,9 +300,13 @@ def run_screen(
     clock: Callable[[], datetime] = _now_utc,
     strategy_commit: str | None = None,
     manifest_path_override: Path | None = None,
+    states_root: Path | None = None,
+    compact_output_path: Path | None = None,
+    failpoint: str | None = None,
 ) -> ScreenRunResult:
     """Run the offline screen over one canonical snapshot."""
 
+    _SCREEN_FAILPOINT_STATE["saves"] = 0
     if rebuild and start is None:
         raise ValueError("--rebuild requires --start")
     if start is not None and start > as_of:
@@ -242,7 +341,7 @@ def run_screen(
         or layout.root / "screen" / "runs" / f"{run_id}.json"
     )
     cached_exists = output_path.exists()
-    states_root = layout.root / "screen" / "states"
+    states_root = states_root or (layout.root / "screen" / "states")
     states_root.mkdir(parents=True, exist_ok=True)
     layout.root.joinpath("screen", "runs").mkdir(parents=True, exist_ok=True)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -312,7 +411,11 @@ def run_screen(
             as_of=as_of,
         ):
             universe.append(code)
-            state = None if rebuild else load_state(state_path(layout.root, code))
+            state = (
+                None
+                if rebuild
+                else load_state(states_root / f"{code}.json")
+            )
             if state is not None:
                 require_state_snapshot_usable(
                     status_by_snapshot or {},
@@ -368,7 +471,7 @@ def run_screen(
             )
             if final_signal is not None:
                 save_state(
-                    state_path(layout.root, code),
+                    states_root / f"{code}.json",
                     code=code,
                     last_processed_date=min(final_signal.trade_date, as_of),
                     signal=final_signal,
@@ -388,6 +491,7 @@ def run_screen(
                     ),
                     processed_at=processed_at,
                 )
+                _raise_screen_failpoint(failpoint, states_root / f"{code}.json")
             if verify_replay:
                 mismatches = verify_rebuild_incremental(
                     code=code,
@@ -461,6 +565,7 @@ def run_screen(
             spool_file.close()
     hash_obj.update(b"]")
     output_hash = hash_obj.hexdigest()
+    _raise_screen_failpoint(failpoint, None)
     counts = dict(sorted(status_counts.items()))
     if not universe:
         raise ValueError("NO_CONFIRMED_DATA: snapshot has no CONFIRMED daily bars")
@@ -488,11 +593,19 @@ def run_screen(
         "universe_size": len(universe),
         "codes": universe_tuple,
     }
-    _write_streaming_manifest(
-        metadata_with_rows=manifest,
-        spool_path=spool_path,
-        output_path=output_path,
-    )
+    if compact_output_path is not None:
+        _write_compact_output(
+            metadata=manifest,
+            spool_path=spool_path,
+            compact_output_path=Path(compact_output_path),
+            output_path=output_path,
+        )
+    else:
+        _write_streaming_manifest(
+            metadata_with_rows=manifest,
+            spool_path=spool_path,
+            output_path=output_path,
+        )
     spool_path.unlink(missing_ok=True)
     return ScreenRunResult(
         run_id=run_id,
