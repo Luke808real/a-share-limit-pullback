@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 from datetime import date, datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -28,7 +29,11 @@ from limit_pullback.warehouse.snapshot import (
     read_snapshot_daily_table,
     read_snapshot_pool,
 )
-from limit_pullback.warehouse.validate import DAILY_HASH_FIELDS
+from limit_pullback.warehouse.validate import (
+    DAILY_HASH_FIELDS,
+    data_validate,
+    is_asl_authoritative,
+)
 from limit_pullback.warehouse.parquet import row_hash
 
 AS_OF = date(2026, 6, 15)
@@ -448,6 +453,111 @@ def test_cli_without_codes_builds_nonempty_snapshot(tmp_path, capsys):
     assert {row["code"] for row in rows} == {
         "000001", "000010", "000524", "605198",
     }
+
+
+def _tamper_daily_file(
+    layout: WarehouseLayout, snapshot, mutate
+) -> None:
+    """Rewrite the canonical daily parquet with *mutate* applied per row and
+    source_row_hash recomputed (the manifest/file hashes go stale on purpose;
+    the tests assert the ASL contract check fires)."""
+
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    daily_rel = next(
+        key
+        for key in snapshot.canonical_file_hashes
+        if key.endswith("/daily_bars/" + snapshot.snapshot_id + ".parquet")
+    )
+    path = layout.root / daily_rel
+    rows = pq.ParquetFile(path).read().to_pylist()
+    for row in rows:
+        mutate(row)
+    for row in rows:
+        row["source_row_hash"] = row_hash(DAILY_HASH_FIELDS, row)
+    pq.write_table(pa.Table.from_pylist(rows), path)
+
+
+def _issue_codes(layout: WarehouseLayout, snapshot_id: str) -> set[str]:
+    result = data_validate(layout, snapshot_id=snapshot_id)
+    return {issue.check for issue in result.issues}, result.valid
+
+
+def test_asl_candidate_validates_clean(tmp_path):
+    """A. Synthetic ASL candidate snapshot passes data_validate (canonical
+    integrity valid; no legacy traceability required)."""
+
+    lake = tmp_path / "lake"
+    _build_lake(lake)
+    layout, snapshot = _build(tmp_path, lake)
+    codes, valid = _issue_codes(layout, snapshot.snapshot_id)
+    assert valid is True
+    assert "TRACEABILITY" not in codes
+    assert is_asl_authoritative(snapshot) is True
+
+
+def test_asl_provider_mismatch_fails_closed(tmp_path):
+    """B. A canonical row not labelled ASL fails closed (ASL_PROVIDER)."""
+
+    lake = tmp_path / "lake"
+    _build_lake(lake)
+    layout, snapshot = _build(tmp_path, lake)
+    _tamper_daily_file(layout, snapshot, lambda row: row.update(selected_provider="TUSHARE"))
+    codes, valid = _issue_codes(layout, snapshot.snapshot_id)
+    assert valid is False
+    assert "ASL_PROVIDER" in codes
+
+
+def test_asl_turnover_non_null_fails_closed(tmp_path):
+    """C. turnover_rate unexpectedly non-null fails closed (ASL_TURNOVER)."""
+
+    lake = tmp_path / "lake"
+    _build_lake(lake)
+    layout, snapshot = _build(tmp_path, lake)
+    _tamper_daily_file(layout, snapshot, lambda row: row.update(turnover_rate="1.23"))
+    codes, valid = _issue_codes(layout, snapshot.snapshot_id)
+    assert valid is False
+    assert "ASL_TURNOVER" in codes
+
+
+def test_asl_preclose_continuity_detected(tmp_path):
+    """D. Tampered second-row preclose is detected as PRECLOSE_CONTINUITY
+    (source_row_hash recomputed, so this proves continuity, not ROW_HASH)."""
+
+    lake = tmp_path / "lake"
+    _build_lake(lake)
+    layout, snapshot = _build(tmp_path, lake)
+    # 6/11 is MISSING_PRECLOSE, so 6/12 is the first canonical row (its
+    # predecessor lies outside the window and is not invented).  Tamper the
+    # SECOND canonical row (6/15), whose predecessor is the canonical 6/12.
+    tampered = {"code": "000001", "date": date(2026, 6, 15)}
+
+    def mutate(row):
+        if row["code"] == tampered["code"] and row["trade_date"] == tampered["date"]:
+            row["preclose"] = Decimal(row["preclose"]) + Decimal("1.00")
+
+    _tamper_daily_file(layout, snapshot, mutate)
+    codes, valid = _issue_codes(layout, snapshot.snapshot_id)
+    assert valid is False
+    assert "PRECLOSE_CONTINUITY" in codes
+    assert "ROW_HASH" not in codes
+
+
+def test_asl_validation_never_reads_legacy_raw(tmp_path, monkeypatch):
+    """F. ASL validation never calls the legacy raw-provider reader."""
+
+    def _forbidden(*_args, **_kwargs):
+        raise AssertionError("legacy raw-provider read must not happen")
+
+    monkeypatch.setattr(
+        "limit_pullback.warehouse.validate._read_parquet_rows", _forbidden
+    )
+    lake = tmp_path / "lake"
+    _build_lake(lake)
+    layout, snapshot = _build(tmp_path, lake)
+    codes, valid = _issue_codes(layout, snapshot.snapshot_id)
+    assert valid is True
 
 
 def test_cli_asl_snapshot_help_available():

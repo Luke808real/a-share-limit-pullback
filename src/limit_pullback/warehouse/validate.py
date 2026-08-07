@@ -46,6 +46,42 @@ POOL_HASH_FIELDS = (
 PRICE_TOLERANCE = Decimal("0.01")
 PRICE_RELATIVE = Decimal("0.001")
 
+#: ASL authoritative snapshots are DECLARED via provider_versions (never
+#: inferred from filenames).  These keys are written by the Phase 1C-1
+#: builder (asl_snapshot.build_asl_candidate_snapshot).
+ASL_PROVIDER_KEY = "ASL"
+ASL_CONTRACT_PROVENANCE_KEY = "ASL_CONTRACT_VERSION"
+
+
+def is_asl_authoritative(snapshot: Any) -> bool:
+    """True when *snapshot* declares ASL as its authoritative source."""
+
+    return ASL_PROVIDER_KEY in (snapshot.provider_versions or {})
+
+
+def _canonical_previous_close_index(
+    daily_rows: list[dict[str, Any]],
+) -> dict[tuple[str, date], Any]:
+    """Previous canonical VALID close per (code, trade_date).
+
+    ASL continuity reference is the canonical chain itself: for each code
+    sorted by trade_date, the previous canonical row's close.  Never queries
+    legacy raw-provider data, and never invents a predecessor for the first
+    canonical row (its predecessor may lie outside the snapshot window).
+    """
+
+    index: dict[tuple[str, date], Any] = {}
+    previous_by_code: dict[str, Any] = {}
+    for row in sorted(
+        daily_rows, key=lambda item: (str(item["code"]), item["trade_date"])
+    ):
+        code = str(row["code"])
+        previous = previous_by_code.get(code)
+        if previous is not None:
+            index[(code, row["trade_date"])] = previous
+        previous_by_code[code] = row["close"]
+    return index
+
 
 def _issue(check: str, detail: str, severity: str = "error") -> ValidationIssue:
     return ValidationIssue(check=check, severity=severity, detail=detail)
@@ -270,6 +306,17 @@ def data_validate(
             issues=issues,
         )
 
+        asl_authoritative = is_asl_authoritative(snapshot)
+        if asl_authoritative and ASL_CONTRACT_PROVENANCE_KEY not in (
+            snapshot.provider_versions or {}
+        ):
+            issues.append(
+                _issue(
+                    "ASL_PROVENANCE",
+                    "provider_versions missing ASL contract provenance",
+                )
+            )
+
         for row in daily_rows:
             _check_daily_row(
                 row,
@@ -278,13 +325,38 @@ def data_validate(
                 issues=issues,
             )
             provider = str(row["selected_provider"])
-            if row["source_row_hash"] not in raw_hashes_by_provider.get(provider, set()):
-                issues.append(
-                    _issue(
-                        "TRACEABILITY",
-                        f"{row['code']} {row['trade_date']} source row not found in {provider} raw",
+            if asl_authoritative:
+                # ASL authoritative snapshot contract: every canonical row
+                # must carry the ASL provider label and the frozen
+                # turnover=None contract.
+                if provider != ASL_PROVIDER_KEY:
+                    issues.append(
+                        _issue(
+                            "ASL_PROVIDER",
+                            f"{row['code']} {row['trade_date']} "
+                            f"selected_provider={provider!r} != ASL",
+                        )
                     )
-                )
+                if row.get("turnover_rate") is not None:
+                    issues.append(
+                        _issue(
+                            "ASL_TURNOVER",
+                            f"{row['code']} {row['trade_date']} "
+                            "turnover_rate must remain None",
+                        )
+                    )
+            else:
+                # Legacy traceability: the canonical row hash must exist in
+                # the legacy raw provider files.  NOT run for ASL rows —
+                # raw-provider traceability is not this architecture's
+                # provenance and would be a false failure.
+                if row["source_row_hash"] not in raw_hashes_by_provider.get(provider, set()):
+                    issues.append(
+                        _issue(
+                            "TRACEABILITY",
+                            f"{row['code']} {row['trade_date']} source row not found in {provider} raw",
+                        )
+                    )
             if row["reconciliation_status"] not in {
                 "CONFIRMED",
                 "PROVISIONAL",
@@ -297,22 +369,38 @@ def data_validate(
                     )
                 )
 
-        for row in daily_rows:
-            provider = str(row["selected_provider"])
-            # Tushare daily.pre_close is adjusted for corporate actions, so it
-            # is not required to equal the preceding raw close.  The other
-            # daily providers retain the raw-close continuity check below.
-            if provider == "TUSHARE":
-                continue
+        if asl_authoritative:
+            # ASL continuity: canonical chain itself (previous canonical
+            # VALID close per code).  The first canonical row may have its
+            # predecessor outside the window; nothing is invented and no
+            # legacy raw data is queried.
             issues.extend(
                 preclose_continuity_issues(
-                    [row],
-                    previous_close_index=previous_closes_by_provider.get(
-                        provider, {}
+                    daily_rows,
+                    previous_close_index=_canonical_previous_close_index(
+                        daily_rows
                     ),
-                    provider_label=provider,
+                    provider_label="ASL canonical",
                 )
             )
+        else:
+            for row in daily_rows:
+                provider = str(row["selected_provider"])
+                # Tushare daily.pre_close is adjusted for corporate actions,
+                # so it is not required to equal the preceding raw close.
+                # The other daily providers retain the raw-close continuity
+                # check below (legacy behavior unchanged).
+                if provider == "TUSHARE":
+                    continue
+                issues.extend(
+                    preclose_continuity_issues(
+                        [row],
+                        previous_close_index=previous_closes_by_provider.get(
+                            provider, {}
+                        ),
+                        provider_label=provider,
+                    )
+                )
 
         for row in pool_rows:
             if row["limit_price"] <= 0:
