@@ -214,7 +214,7 @@ tests/test_asl_adapter.py        → 31 passed
 tests/test_parity_harness.py     → 5 passed
 test_adr008_data_correctness + test_warehouse_validate +
 test_corporate_action_preclose + test_asl_adapter + test_parity_harness
-                                 → 51 passed (combined run)
+                                 → 65 passed (combined run)
 python3 -m compileall -q src/limit_pullback/warehouse/asl_adapter.py → OK
 git diff --check                 → clean
 parity gate (real ASL vs frozen canonical) → PASS, exit 0
