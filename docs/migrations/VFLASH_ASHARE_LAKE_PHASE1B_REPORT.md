@@ -270,6 +270,61 @@ Committed: this report, `research/asl_phase1b/shadow.py`,
 Raw full results and targeted diagnostics live under the gitignored
 `research/asl_phase1b/artifacts/`.
 
+
+## 19A. Targeted PIT ST closure (post-run evidence — separate task)
+
+After the final full-market run (BLOCKED_PARITY), a targeted closure of the
+decision-relevant historical ST gap was executed for the exact 59-code cohort
+(`decision_relevant_st_unknown_codes`).  This section is supplementary
+evidence; the full-market PHASE1B_GATE was NOT rerun.
+
+* **TARGET_ST_CODE_N = 59** (hash of the frozen summary's
+  `decision_relevant_st_unknown_codes` list; do not broaden).
+* **Official ASL mechanism only**: the ASL CLI does not support symbol-scoped
+  `trading_status` backfill (`--symbols` is restricted to
+  minute_bars/minute_bars_5m/trade_ticks; the step's backfill branch sweeps
+  the full all_a bar universe).  The narrowest official path was used — the
+  exact functions the official step calls:
+  `ashare_lake.adapters.baostock.st_history.fetch_st_history` +
+  `steps.http_common.write_fetched(source="baostock")` +
+  `JobEngine.run_step("compact")` + official `_mark_st_backfilled` resume
+  marker, with the documented safe pacing (batch 20 / rest 120 s,
+  `status-safe.toml`).  Script:
+  `research/asl_phase1b/st_backfill_targeted.py`.
+* **MANUAL_ASL_DATA_EDITS = 0**; core datasets untouched
+  (daily_bars / trading_calendar / instruments / corporate_actions).
+* Window: 2024-01-16 → 2026-08-06.  Fetched **9,007 baostock rows**,
+  0 failed symbols, 59 symbols, all `(is_trading=True, status="st")` — the
+  exact contract the adapter trusts as `BAOSTOCK_ST`.
+* **PIT provenance (adapter-verified)**: TRUSTED_BAOSTOCK_ST_ROW_N = 9,007;
+  TRUSTED_ST_TRUE_CODE_DATE_N = 9,007 (is_st=True with trade_status=True);
+  UNKNOWN_ST_CODE_DATE_N = 0; non-PIT ignored = 0.  An absent baostock row is
+  NOT treated as "trusted normal" — days without a row remain
+  `is_st=None` (unknown preserved).
+
+### Decision-relevant outputs (59-code targeted rerun, PRICE_ONLY, AS_OF=2026-08-06)
+
+* **AS_OF candidates (6) — RESOLVED**: 000826, 002528, 600730, 603398,
+  002512, 600082 all flipped from ASL B2_READY to NORMAL (matching legacy
+  NORMAL); entry candidates 4/6 dropped to False.  In total **21/59 codes**
+  changed ASL AS_OF final stage/entry after trusted ST (all to
+  NORMAL/non-entry, matching legacy).
+* **Top20 (002512, 600082)**: both no longer entry-eligible after trusted ST
+  (NORMAL, entry=False).  Full-market rerank NOT performed (deferred).
+* **Episodes**: 102 previously ST-unknown-associated episode rows →
+  **63 RESOLVED_BY_TRUSTED_ST** (ASL anchors sat on trusted ST days and were
+  removed), **45 ST_STILL_UNKNOWN** (anchors on non-ST days; ASL lake carries
+  no historical "normal" proof, legacy non-PIT snapshot marks them ST),
+  **4 UNCHANGED_DESPITE_ST_EVIDENCE** (non-ST class before and after).
+* **Success/control**: 0 frozen cases belong to the cohort (window), so
+  nothing to resolve there.
+* **Intersection with the 25 AS_OF counterfactual-unknown codes: 0** —
+  targeted ST closure does not touch that blocker group (they remain
+  COUNTERFACTUAL_ATTRIBUTION_UNKNOWN).
+
+Evidence: `research/asl_phase1b/artifacts/st_targeted_evidence.json`
+(gitignored).  Phase-1B status remains PENDING_CHATGPT_FINAL_DECISION.
+
 ## 19. Status statement
 
 This report approves NO production cutover, NO provider deletion, NO
