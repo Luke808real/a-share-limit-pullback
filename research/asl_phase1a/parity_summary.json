@@ -1,0 +1,144 @@
+{
+  "contract": "VFLASH_ASL_PHASE1A_PARITY_SUMMARY_V2",
+  "gate": "PASS",
+  "input": {
+    "tested_compat_revision": "ba5681a",
+    "legacy_snapshot": "snap-2026-08-06-e798f88ff67b.parquet",
+    "legacy_snapshot_sha256": "7cc614bf4e1e7f91f34ed1a866827b3b70772a32ff5ff04a5ad67e205e23813e",
+    "window": {
+      "start": "2026-05-28",
+      "as_of": "2026-08-06"
+    },
+    "codes": [
+      "000001",
+      "000010",
+      "000037",
+      "000524",
+      "000593",
+      "002963",
+      "300750",
+      "600519",
+      "601318",
+      "605179",
+      "605198"
+    ]
+  },
+  "row_counts": {
+    "compared_rows": 354,
+    "sessions": {
+      "BOTH": 354,
+      "LEGACY_ONLY": 10,
+      "ASL_ONLY": 126
+    },
+    "adapter_fail_closed_rows": {
+      "MISSING_PRECLOSE": 10
+    },
+    "missing_required_bars": 10
+  },
+  "tolerances": {
+    "price_abs": "0.01",
+    "price_rel": "0.001",
+    "volume_rel": "0.005",
+    "amount_rel": "0.005",
+    "pct_abs": "0.05",
+    "ma_rel": "0.001"
+  },
+  "observed_maxima": {
+    "PRICE_MAX_ABS_DIFF": "0",
+    "PRICE_MAX_REL_DIFF": "0",
+    "VOLUME_MAX_REL_DIFF": "0.00003865575785402165826890049613",
+    "AMOUNT_MAX_REL_DIFF": "5.714564870131710370544604463E-8",
+    "PCT_MAX_ABS_DIFF": "0"
+  },
+  "field": {
+    "preclose_exact": "354/354",
+    "structure_mismatches": 0
+  },
+  "status_counts": {
+    "STATUS_CATEGORY_TOTAL": 354,
+    "COMPARED_ROW_N": 354,
+    "TRADE_STATUS_EXACT_N": 354,
+    "TRADE_STATUS_CONFLICT_N": 0,
+    "categories": {
+      "EXACT_STATUS_MATCH": 69,
+      "LEGACY_NON_PIT_TO_ASL_TRUSTED_ST": 4,
+      "LEGACY_NON_PIT_TO_ASL_TRUSTED_NORMAL": 0,
+      "LEGACY_NON_PIT_TO_ASL_UNKNOWN": 281,
+      "ASL_TRUSTED_STATUS_INTERNAL_CONFLICT": 0
+    }
+  },
+  "st_semantic_deltas": {
+    "LEGACY_ST_REFERENCE_CLASS": "NON_PIT_CODE_LEVEL_STOCK_BASIC_SNAPSHOT",
+    "EXACT_STATUS_MATCH_N": 69,
+    "LEGACY_NON_PIT_TO_ASL_TRUSTED_ST_N": 4,
+    "LEGACY_NON_PIT_TO_ASL_TRUSTED_NORMAL_N": 0,
+    "LEGACY_NON_PIT_TO_ASL_UNKNOWN_N": 281,
+    "ASL_TRUSTED_STATUS_INTERNAL_CONFLICT_N": 0,
+    "ST_SEMANTIC_DELTA_FATAL_N": 0
+  },
+  "gates": {
+    "FIELD_PARITY_GATE": "PASS",
+    "PIT_STATUS_PROVENANCE_GATE": "PASS",
+    "TRADE_STATUS_PARITY_GATE": "PASS",
+    "ST_LEGACY_REFERENCE": "NON_PIT_CODE_LEVEL_STOCK_BASIC_SNAPSHOT",
+    "ST_SEMANTIC_DELTA_GATE": "PASS_WITH_DOCUMENTED_DELTAS",
+    "STRATEGY_SMOKE_GATE": "PASS",
+    "PHASE1A_GATE": "PASS",
+    "CORPORATE_ACTION_INTERSECTION": "REAL_EX_DATE_INTERSECTION_PARITY_NOT_PROVEN"
+  },
+  "status_provenance": {
+    "PIT_STATUS_PROVENANCE_GATE": "PASS",
+    "TRUSTED_STATUS_BAOSTOCK_N": 50,
+    "TRUSTED_STATUS_DERIVED_GAP_N": 10,
+    "TRUSTED_STATUS_EASTMONEY_SAME_DAY_N": 0,
+    "NON_PIT_EASTMONEY_STATUS_IGNORED_N": 0,
+    "UNKNOWN_STATUS_N": 0
+  },
+  "status_deltas": {
+    "EXACT_STATUS_MATCH": 69,
+    "LEGACY_NON_PIT_TO_ASL_TRUSTED_ST": 4,
+    "LEGACY_NON_PIT_TO_ASL_TRUSTED_NORMAL": 0,
+    "LEGACY_NON_PIT_TO_ASL_UNKNOWN": 281,
+    "ASL_TRUSTED_STATUS_INTERNAL_CONFLICT": 0
+  },
+  "ma": {
+    "MA5": {
+      "CLEAN": 251,
+      "CLEAN_MISMATCH": 0,
+      "HOLE_AFFECTED": 63
+    },
+    "MA10": {
+      "CLEAN": 131,
+      "CLEAN_MISMATCH": 0,
+      "HOLE_AFFECTED": 135
+    },
+    "MA20": {
+      "CLEAN": 38,
+      "CLEAN_MISMATCH": 0,
+      "HOLE_AFFECTED": 131
+    }
+  },
+  "anchor_smoke": {
+    "matched": 10,
+    "total": 10
+  },
+  "stage_smoke": {
+    "matched": 10,
+    "total": 10
+  },
+  "corporate_action_intersection": {
+    "status": "REAL_EX_DATE_INTERSECTION_PARITY_NOT_PROVEN",
+    "reason": "all window ex-dates fall outside the legacy/adapter row intersection",
+    "ex_dates_in_window": [
+      "000001:2026-06-12(cash_dividend)",
+      "000037:2026-06-22(cash_dividend)",
+      "000524:2026-06-18(cash_dividend)",
+      "600519:2026-06-26(cash_dividend)",
+      "601318:2026-06-10(cash_dividend)",
+      "605179:2026-06-08(cash_dividend)",
+      "605198:2026-07-09(cash_dividend)"
+    ]
+  },
+  "legacy_holes_total": 126,
+  "hard_failure_count": 0
+}
