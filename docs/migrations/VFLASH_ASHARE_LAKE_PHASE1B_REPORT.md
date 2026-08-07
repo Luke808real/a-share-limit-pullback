@@ -1,232 +1,278 @@
 # VFLASH × ASHARE-LAKE — PHASE 1B SHADOW STRATEGY VALIDATION REPORT
 
-> Status: **PASS** — Phase-1B shadow validation gate is green (exit 0).
-> This is a SHADOW / RESEARCH validation of the ASL data backend against the
-> frozen V Flash strategy.  It is NOT a production cutover, NOT a provider
-> deletion, NOT approval to begin Phase 1C.
+> Status: **PHASE1B_GATE = BLOCKED_PARITY (exit 2)** — fail-closed, honest.
+> This is the SHADOW / RESEARCH validation of the ASL data backend against the
+> frozen V Flash strategy after independent-review fix round 1 (Draft PR #27,
+> commit b4da284).  It is NOT a production cutover, NOT a provider deletion,
+> NOT approval to begin Phase 1C.
+
+## 0. Review-round provenance
+
+This revision replaces the earlier PASS claims of the initial Phase-1B report.
+Independent ChatGPT review (PR #27 at b4da284) required: coverage skip
+semantics, exhaustive per-date input classes with a reachable UNKNOWN,
+trade_status as a hard field, ASL status-provenance ST semantics, a
+non-vacuous common-calendar control, setup_id-keyed episodes, candidate-date
+success/control comparison, actionable-vs-entry screen populations,
+bounded AS_OF counterfactual attribution, strict volume policy, and an
+aggregate-RSS resource gate.  The 2026-08-03 preclose cascade fix (18 codes)
+was separately authorized for full-market validation after targeted
+five-point proof; it is frozen in this run (section 5).
 
 ## 1. Scope and boundary
 
 | item | value |
 |---|---|
-| comparison window | 2026-04-01 → 2026-08-06 (AS_OF = 2026-08-06) |
-| history window | 2024-01-16 → 2026-08-06 (extension documented below) |
-| strategy required history | **250 trading bars** (MA250 in `moving_average_windows`; position window 120; resistance lookbacks 60 — the maximum dependency) |
-| history extension reason | the frozen strategy needs ≥250 bars before the first eval point; legacy canonical coverage starts 2024-01-02, so the ASL shadow lake was backfilled from 2024-01-02; HISTORY_START=2024-01-16 is the first session with complete ASL bar coverage for the frozen universe (2 codes suspended at the start: 000657 → 01-10, 603958 → 01-16) |
-| frozen universe | Phase-2D0, N=3191, hash `8d1f99b1b9aac72a9ddfbe898def2f12c59938f83f012fe46017951e24ef1afb` (computed with the frozen procedure from `snap-2026-07-31-b5f84004de8a`; matches BASELINE_MANIFEST `codes: 3191`) |
+| comparison window | 2026-04-01 → 2026-08-06 (AS_OF = 2026-08-06; no 2026-08-07 data) |
+| history window | 2024-01-16 → 2026-08-06 (MA250 max lookback; extension documented below) |
+| frozen universe | Phase-2D0, N=3191, hash `8d1f99b1b9aac72a9ddfbe898def2f12c59938f83f012fe46017951e24ef1afb` |
+| full-market runs | **1** (this authorized final run; workers=3, chunk=300) |
+| lake | existing untouched Phase-1B lake `/tmp/asl_phase1b_lake`; **MANUAL_ASL_DATA_EDITS = 0**; no dataset rebuilt |
 
-## 2. ASL shadow lake build (official commands only)
+## 2. Data gate
 
-**MANUAL_ASL_DATA_EDITS = 0.**  Revision `ba5681a` (tested compatibility
-revision; runtime contract validated from the lake).
+* DATA_GATE = **PASS**
+* FROZEN_UNIVERSE_N = 3191 · PROCESSED_CODE_N = 3191 · SKIPPED_CODE_N = 0
+* ASL_CODE_COVERED_N = 3191 · EXPLAINED_MUTUAL_TERMINAL_ABSENCE_N = 1 (000838)
+* LEGACY_ONLY_CODE_DATE_N = 72 (all IPO first days, 69 codes) ·
+  ASL_ONLY_CODE_DATE_N = 118,383 (515 codes)
+* data_blocked = [] · coverage_contract_ok = true
+* Required datasets / columns / v2 / duplicate-PK / status-provenance checks:
+  all clean (trusted_baostock_n=0, trusted_derived_gap_n=2928,
+  trusted_eastmoney_same_day_n=0, non_pit_eastmoney_ignored_n=0,
+  unknown_status_n=0)
 
-```
-asl backfill instruments --config shadow.toml
-asl backfill trading_calendar --config shadow.toml --start 2024-01-02 --end 2026-08-06
-asl backfill daily_bars --config shadow.toml --start 2024-01-02 --end 2026-08-06
-asl backfill trading_status --config shadow.toml                       (historical ST; partial, see 8.7)
-asl derive trading_status --config shadow.toml --start 2024-01-02 --end 2026-08-06
-asl backfill corporate_actions --config shadow.toml --start 2026-04-01 --end 2026-08-06
-```
+## 3. Resource gate
 
-Lake verified: daily_bars 4,202,119 rows, all `data_version=v2`, 0 duplicate
-PKs, 2024-01-02 → 2026-08-06, all 3,191 frozen codes covered; trading_status
-24,170 `derived_bar_gap` suspension rows; corporate_actions 70,274 rows.
+* RESOURCE_GATE = **PASS**
+* AGGREGATE_PEAK_RSS = **3,294 MB** (psutil parent + live children RSS sum,
+  max over 2s samples) ≤ 4,096 MB budget (min(4 GiB, 25% of 16 GiB RAM))
+* HARNESS_WALL_SECONDS = **834.4** (strategy execution only; excludes ASL
+  backfill) · workers=3 · chunk=300
 
-## 3. Resource budget
+## 4. Hard field parity
 
-System: 16 GiB RAM, ~286 GiB free disk.  Target peak RSS ≤ min(4 GiB, 25% RAM)
-= 4 GiB.  Measured: **peak RSS 1,475 MB** (parent + children, platform-aware
-units), wall time 688 s, workers 4, chunk size 400, per-code streaming with
-GC, partition-pruned reads, pyarrow code-predicate pushdown for legacy reads.
-No memory exhaustion.
+* HARD_FIELD_PARITY_GATE = **PASS**: HARD_FIELD_CONFLICT_N = **0**
+* TRADE_STATUS_PARITY_GATE = **PASS**: 0 trade_status conflicts on common rows
+* VOLUME_DIVERGENCE rows = 3 (603007 ×2, 603559), all
+  OUTSIDE_EVAL_HISTORY_VOLUME_DIVERGENCE (proven outside every 250-bar eval
+  window; strategy-inert with explicit reasoning); volume-in-window = 0
+* Preclose is an EXACT contract (relative tolerance removed): 344 per-date
+  LEGACY_PRECLOSE_ERA_DIVERGENCE rows, all with code-specific corporate-action
+  evidence (see section 12)
 
-## 4. Coverage
+## 5. Preclose cascade (authorized fix) — resolved
 
-| metric | value |
-|---|---|
-| FROZEN_UNIVERSE_N | 3191 |
-| ASL_CODE_COVERED_N | 3191 (100% of frozen universe) |
-| evaluated codes | 3191 |
-| eval points | 276,788 |
-| LEGACY_HOLE_N (per-date) | 118,348 (6.1% of history rows) |
-| ASL_ONLY_VALID_BAR_N | 118,348 + 72 IPO-day rows (legacy side) |
-| LEGACY_ONLY_VALID_BAR_N | 72 (all IPO first days) |
-| HARD_FIELD_CONFLICT_N | **0** |
-| STUB_DAY_VOLUME_ANOMALY_N | 3 (documented, non-blocking) |
-| EXPLAINED_MUTUAL_ABSENCES_N | 1 (000838, suspended after 2026-07-31 on both sides) |
-| TRUSTED_ST_N | 0 (partial ST sweep, see 8.7) |
-| NON_PIT_STATUS_IGNORED_N / UNKNOWN_STATUS_N | 0 / 0 |
+The 18 previously-UNKNOWN 2026-08-03 rows are now classified
+**LEGACY_HOLE_REPAIRED_BY_ASL** under the frozen strengthened rule.  The rule
+requires ALL of: both chains sequential; ASL predecessor date differs from
+legacy predecessor date; ASL predecessor date absent from legacy CONFIRMED
+rows; ASL predecessor date exists as a valid ASL row; legacy predecessor date
+exists on the ASL side; preclose difference fully membership-explained.
+Otherwise UNKNOWN_INPUT_DIVERGENCE (no loosening).
 
-All missing/extra rows are explained (below).
+* **UNKNOWN_INPUT_DIVERGENCE_N = 0** (per-date and eval-point)
+* Per-code five-point proof for all 18 rows:
+  `research/asl_phase1b/artifacts/preclose_diagnostic_20260803.json`
+  (all `all_proofs_hold = True`; legacy predecessor 2026-07-30 vs ASL
+  predecessor 2026-07-31, except 002828 2026-07-08 vs 2026-07-24)
+* LEGACY_HOLE_REPAIRED_BY_ASL per-date = 118,401 (+18 vs prior run)
 
-## 5. Input classification
-
-Per-date input deltas over the full history (1.94M rows):
-
-```
-INPUT_EQUIVALENT                1,742,112  (90.0%)
-LEGACY_HOLE_REPAIRED_BY_ASL       118,348  (legacy CONFIRMED holes: CA ex-dates
-                                          + market-wide PROVISIONAL block
-                                          2026-01-28..02-06 + scattered)
-PIT_ST_DATA_UPGRADE                83,406  (legacy name-snapshot ST=True vs
-                                          ASL unknown; legacy reference is
-                                          NON_PIT_CODE_LEVEL_STOCK_BASIC_SNAPSHOT)
-LEGACY_ONLY                            72  (all IPO first days: adapter frozen
-                                          first-row MISSING_PRECLOSE semantics)
-LEGACY_PRECLOSE_ERA_DIVERGENCE         17  (legacy exchange preclose vs ASL
-                                          sequential on real ex-dates)
-STUB_DAY_VOLUME_ANOMALY                 3  (near-zero-volume year-boundary days;
-                                          OHLC/amount exact, volume differs)
-HARD_FIELD_CONFLICT                     0
-UNKNOWN_INPUT_DIVERGENCE               0
-```
-
-Eval-point classes are window-based (last 250 bars).  **INPUT_EQUIVALENT eval
-points are structurally 0**: with a 6.1% legacy hole density, any 250-bar
-window contains at least one legacy hole (including the market-wide
-2026-01-28..02-06 block), so no eval point has a divergence-free lookback.
-This is a data-completeness property of the legacy canonical, not an ASL
-defect — it is reported, not hidden.
-
-## 6. Strategy timeline parity
-
-Both paths run through the SAME production engine (`screen.engine.screen_code`,
-PRICE_ONLY via empty limit-up pool, no turnover, no pool enrichment).
+## 6. Input classification (per-date, exhaustive)
 
 ```
-STRATEGY_ENGINE_PARITY_FAILURES_N   0      (no mismatch on any equivalent input)
-UNKNOWN_INPUT_DIVERGENCE_N          0
-UNKNOWN_EPISODE_DIVERGENCE_N        0
-DIVERGED_BUT_MATCHING_N         205,462   (strategy outputs identical despite
-                                          diverged inputs — the strategy is
-                                          robust to most legacy-hole repair)
-FIRST_RESULT_DIVERGENCE_N        3,190    (every code's first result change is
-                                          attributed to an input class)
+INPUT_EQUIVALENT                 12,737
+LEGACY_HOLE_REPAIRED_BY_ASL     118,401  (legacy CONFIRMED holes incl. the
+                                         18 preclose cascades)
+LEGACY_ONLY                          72  (IPO first days; frozen adapter
+                                         first-row MISSING_PRECLOSE semantics)
+LEGACY_PRECLOSE_ERA_DIVERGENCE      344  (legacy exchange preclose vs ASL
+                                         sequential, code-specific CA evidence)
+VOLUME_DIVERGENCE                     3  (all outside every eval window)
+ST_COVERAGE_UNKNOWN              83,973  (legacy non-PIT ST=True vs ASL None;
+                                         no trusted ASL ST row in the lake)
+LEGACY_NON_PIT_TO_ASL_UNKNOWN 1,729,041  (legacy ST=False vs ASL None;
+                                         expected PIT semantic delta, inert)
+HARD_FIELD_CONFLICT                    0
+UNKNOWN_INPUT_DIVERGENCE              0
+PIT_ST_DATA_UPGRADE / TRUSTED_ASL_NORMAL / TRUSTED_ASL_ST  0 (no trusted ST rows)
 ```
 
-Because INPUT_EQUIVALENT points are structurally 0 (legacy hole density), the
-engine-parity requirement is vacuous but the determinism is additionally
-guaranteed by production hash checks; every result divergence is attributed
-to a documented input class (root causes: LEGACY_HOLE_REPAIRED /
-PIT_ST_UPGRADE / LEGACY_ONLY_DATA / LEGACY_PRECLOSE_ERA / STUB_DAY_VOLUME).
+Eval-point classes are ASSOCIATED_INPUT_CLASS (window-based, 250 bars), NOT
+proven root cause: LEGACY_HOLE_REPAIRED 249,946 · LEGACY_ONLY 2,831 ·
+LEGACY_PRECLOSE_ERA 11,570 · ST_COVERAGE_UNKNOWN 12,523 ·
+INPUT_EQUIVALENT 0 (structurally: legacy hole density) · UNKNOWN 0.
 
-## 7. Episode parity
+## 7. Common-calendar control (non-vacuous)
+
+* COMMON_CALENDAR_CONTROL_GATE = **PASS**
+* CONTROL_EQUIVALENT_EVAL_POINT_N = **224,328** (> 0 required)
+* CONTROL_STRATEGY_MISMATCH_N = **0** (required = 0)
+* control trade_status conflict dates = 0
+
+## 8. Strategy timeline parity
+
+* STRATEGY_ENGINE_PARITY_FAILURES_N = 0 (window-INPUT_EQUIVALENT mismatches)
+* UNKNOWN_EPISODE_DIVERGENCE_N = **0** → EPISODE_PARITY_GATE = **PASS**
+* DIVERGED_BUT_MATCHING_N = 205,522 · DIVERGED_AND_MISMATCHING_N = 71,348
+  (by associated class: LEGACY_HOLE_REPAIRED 64,794 · LEGACY_PRECLOSE_ERA
+  3,077 · ST_COVERAGE_UNKNOWN 2,794 · LEGACY_ONLY 683)
+* FIRST_RESULT_DIVERGENCE_N = 3,191 · FIRST_INPUT_DIVERGENCE_N = 3,191
+
+## 9. Episode parity (setup_id / transition-date model)
 
 ```
-EXACT_EPISODE                      3,100
-LEGACY_HOLE_CHANGED_EPISODE          852   (episode differs because legacy
-                                          holes were repaired by ASL)
-ASL_NEW_VALID_EPISODE                819   (new episodes only visible in ASL's
-                                          complete data)
-LEGACY_ONLY_EPISODE                   79   (legacy-only anchors; IPO-first-day
-                                          lineage)
-PIT_ST_CHANGED_EPISODE                 0
-LEGACY_PRECLOSE_ERA_CHANGED_EPISODE    0
-UNKNOWN_EPISODE_DIVERGENCE             0
+EXACT_EPISODE                       1,473
+LEGACY_HOLE_CHANGED_EPISODE         2,353
+LEGACY_PRECLOSE_ERA_CHANGED_EPISODE   117
+ST_COVERAGE_UNKNOWN_EPISODE             9
+ASL_NEW_VALID_EPISODE                  823
+LEGACY_ONLY_EPISODE                     79
+UNKNOWN_EPISODE_DIVERGENCE               0
 ```
 
-No episode divergence is unexplained.
+Episodes are keyed by the production setup_id with first B1/B2_READY/
+B2_CONFIRMED dates, invalidation date, end date, max/final stage and
+transition scores; different B1/B2 timing is NOT exact.
 
-## 8. Full-market screen at 2026-08-06 (PRICE_ONLY, same config/universe)
+## 10. Success / control cases (at candidate_date)
 
-| metric | legacy | ASL |
+FROZEN_CASE_N = 1,947 (candidate_date in window) · COMPARED_CASE_N = 1,947
+· INCLUSION_CHANGED_N = **165** · ANCHOR_CHANGED_N = 71 ·
+STAGE_CHANGED_N = 199 · legacy_only_sig_n = 0 · asl_only_sig_n = 0.
+Signatures compared AT each case's frozen candidate_date (not AS_OF finals);
+frozen outcomes NOT relabeled.
+
+## 11. Full-market screen at 2026-08-06
+
+| population | legacy | ASL |
 |---|---|---|
-| eligible candidates | 279 | 273 |
-| stage distribution | B1 49 / B2_READY 197 / B2_CONFIRMED 33 | B1 52 / B2_READY 191 / B2_CONFIRMED 30 |
+| ACTIONABLE_STAGE_N (stage-only) | 279 (B1 49 / B2_READY 197 / B2_CONFIRMED 33) | 273 (B1 52 / B2_READY 191 / B2_CONFIRMED 30) |
+| ENTRY_CANDIDATE_N (is_entry_candidate) | 220 | 209 |
 
-TOP20_EXACT_POSITION_N 0 · TOP20_COMMON_N 7 · added candidates 26 · removed
-candidates 32.  Every addition/removal traces to an input class
-(LEGACY_HOLE_REPAIRED / PIT_ST / LEGACY_ONLY / LEGACY_PRECLOSE_ERA) — none are
-unexplained.  ASL-only candidates caused by repaired legacy holes are
-expected and explained, not treated as automatically bad.
+* ADDED_ENTRY/ACTIONABLE candidates = 26 · REMOVED = 32 (full lists in
+  `research/asl_phase1b/shadow_summary.json`)
+* TOP20 (deterministic ranking: normalized_score DESC, setup_quality DESC,
+  entry_quality DESC (None last), code ASC; population = entry candidates):
+  TOP20_COMMON_N = **7** · TOP20_EXACT_POSITION_N = **2**
+  LEGACY_ONLY_TOP20 = 603630, 603779, 002597, 002387, 603058, 002775,
+  603721, 603009, 600236, 002677, 603801, 603577, 002522
+  ASL_ONLY_TOP20 = 001323, 002791, 600513, 002512, 002015, 600082,
+  002580, 002279, 002292, 600578, 603373, 603258, 600702
 
-## 9. Success / control cases
+## 12. Corporate-action intersection (real legacy-vs-ASL evidence)
 
-From the frozen `research/intraday/success_control_cases_v01b.csv` (1,947
-cases with candidate dates inside the window): legacy inclusion 312, ASL
-inclusion 287; anchor changed 73; stage changed 116.  Outcomes are NOT
-relabeled.  Inclusion/anchor/stage changes trace to the documented input
-classes (INPUT_CORRECTION_CHANGE), not unexplained strategy change.
+CORPORATE_ACTION_INTERSECTION = **INTERSECTION_FOUND** — 20 real ex-dates
+where ASL corporate_action + ASL bar + legacy CONFIRMED row all exist; every
+case records code, ex_date, action_type, cash_dividend, and BOTH sides'
+OHLC / preclose / recomputed pct / limit-close, with CA_MATCH_FOR_CODE_DATE
+= True.  Full records in `research/asl_phase1b/artifacts/shadow_full.json`.
 
-## 10. Corporate-action intersection
+Summary: OHLC and close identical on all 20; limit-close state identical on
+all 20; preclose exact on 1/20 (000681 2026-08-03); on the other 19 the
+legacy value is the exchange (dividend-adjusted) reference while ASL
+implements the frozen sequential previous-close — differences equal the
+dividend amount (0.01–0.07 yuan).  pct_change differs accordingly.  These
+are the 344 per-date LEGACY_PRECLOSE_ERA_DIVERGENCE rows, proven by
+code-specific CA evidence (never date-only membership).
 
-Phase-1A's `REAL_EX_DATE_INTERSECTION_PARITY_NOT_PROVEN` is now **PROVEN**:
-20 real ex-dates with ASL corporate_action + ASL bar + legacy CONFIRMED row
-inside the window (evidence in
-`research/asl_phase1b/artifacts/ca_intersection_evidence.json`):
+## 13. AS_OF causal attribution (bounded counterfactuals)
 
-* OHLC/close: exact match on all 20.
-* preclose: exact on 7/20; on the other 13 the legacy value is the exchange
-  reference (dividend-adjusted) while ASL is the frozen sequential
-  previous-close — differences equal the dividend amount (0.01–0.10 yuan).
-  This is the documented LEGACY_PRECLOSE_ERA semantic, not a data defect.
-* pct_change: differs accordingly on those 13; identical on the 7 exact.
-* limit-close state: identical (none on either side).
+Affected codes (added/removed candidates + Top20 membership/rank changes) =
+79.  Ablations per code: MASK_LEGACY_HOLE_ROWS,
+NEUTRALIZE_STATUS_TO_LEGACY, RESTORE_LEGACY_PRECLOSE_CA_ERA (where
+relevant), SUBSTITUTE_LEGACY_VALUES_COMMON_ROWS (last-resort diagnostic).
 
-## 11. Data anomalies (all explained, non-blocking)
+* PROVEN: MASK_LEGACY_HOLE_ROWS 46 · NEUTRALIZE_STATUS_TO_LEGACY 8
+* **AS_OF_ROOT_CAUSE_UNKNOWN_N = 25** → AS_OF_CAUSAL_ATTRIBUTION_GATE = **FAIL**
+  Codes: 000657, 001207, 001388, 002051, 002058, 002112, 002119, 002158,
+  002174, 002292, 002467, 002577, 002597, 002910, 002918, 003020, 600749,
+  600815, 600847, 603313, 603330, 603339, 603630, 603906, 603917
 
-* 3 stub-day volume anomalies (603007 2024-12-31/2025-01-03, 603559
-  2025-01-03): near-zero-volume year-boundary bars; OHLC/amount/preclose
-  exact; volume differs by TDX integer-lot rounding or a single-row TDX
-  volume anomaly.  All are >250 bars before every eval point (zero strategy
-  impact).
-* 1 mutual absence (000838 suspended after 2026-07-31 on both backends; the
-  ASL bar-gap derivation does not cover sessions beyond the bar-series edge).
-* 72 IPO-day LEGACY_ONLY rows (adapter frozen first-row MISSING_PRECLOSE vs
-  legacy bootstrap IPO-day preclose).
+For every affected code the artifact records legacy/asl final signatures,
+associated class at AS_OF, every attempted ablation with its resulting
+stage/entry/anchor and restore result.  The 25 UNKNOWNs share the pattern:
+no SINGLE input-class ablation restores the legacy decision — the strategy
+state differences are compound consequences of the repaired-hole history,
+CA-era preclose rows, and (for some) status coverage (e.g. legacy
+B2_READY/B2_CONFIRMED/INVALID vs ASL INVALID/B2_READY/NORMAL with anchors on
+2026-07-08 / 07-27 / 07-29 / 08-03..05).  No new explanatory classification
+was invented; UNKNOWN remains blocking.
 
-## 12. Phase-1B gate
+## 14. ST decision coverage
 
-**PHASE1B_GATE = PASS** (exit 0).
+* TRUSTED_ASL_ST_N = 0 · TRUSTED_ASL_NORMAL_N = 0 (the lake has no trusted
+  historical ST rows; the official baostock ST sweep is not complete)
+* ST_COVERAGE_UNKNOWN per-date = 83,973 (legacy non-PIT ST=True snapshot vs
+  ASL None) · LEGACY_NON_PIT_TO_ASL_UNKNOWN = 1,729,041 (strategy-inert)
+* **DECISION_RELEVANT_ST_COVERAGE_UNKNOWN_N = 59** →
+  ST_DECISION_COVERAGE_GATE = **FAIL**
+* Breakdown (targeted per-code flags in
+  `research/asl_phase1b/artifacts/st_decision_relevant_59.json`):
+  * AS_OF candidate differences: 000826, 002528, 600730, 603398, 002512,
+    600082 (6)
+  * Top20 membership: 002512, 600082 (2, also candidates)
+  * episode differences with ST coverage unknown association: all 59
+    (53 episode-only)
 
-| criterion | result |
+  Full code list: 000010, 000016, 000056, 000078, 000609, 000632, 000639,
+  000677, 000826, 000838, 000909, 002082, 002109, 002175, 002193, 002207,
+  002217, 002360, 002431, 002485, 002501, 002512, 002514, 002528, 002542,
+  002547, 002581, 002620, 002667, 002726, 002731, 002759, 002856, 002977,
+  600082, 600165, 600180, 600187, 600238, 600243, 600289, 600302, 600337,
+  600370, 600423, 600537, 600678, 600730, 600759, 601010, 603189, 603272,
+  603378, 603398, 603429, 603789, 603843, 603922, 605336
+
+No automatic multi-hour ST sweep was started; the decision on targeted ST
+history for affected codes, broader ST completion, or an approved
+neutralization/control experiment is deferred to ChatGPT.
+
+## 15. PHASE1B_GATE
+
+**PHASE1B_GATE = BLOCKED_PARITY** (exit 2) — fail-closed, not manufactured.
+
+| gate | result |
 |---|---|
-| MANUAL_ASL_DATA_EDITS = 0 | ✓ |
-| ASL required datasets valid | ✓ (instruments/calendar/daily_bars/trading_status) |
-| frozen-universe coverage | ✓ (3,191/3,191) |
-| unexplained missing required bars | 0 (1 explained mutual absence) |
-| PIT status provenance | PASS |
-| duplicate PK / schema / unit violations | 0 |
-| Phase-1A hard field parity on common rows | ✓ (HARD_FIELD_CONFLICT_N = 0) |
-| INPUT_EQUIVALENT strategy mismatches | 0 (structurally vacuous, documented) |
-| UNKNOWN_INPUT_DIVERGENCE_N / UNKNOWN_EPISODE_DIVERGENCE_N | 0 / 0 |
-| strategy smoke / full-screen comparator | ran successfully |
-| resource | 1,475 MB ≤ 4,096 MB budget, bounded deterministic processing |
+| DATA_GATE | PASS |
+| RESOURCE_GATE | PASS (3,294 MB ≤ 4,096 MB) |
+| HARD_FIELD_PARITY_GATE | PASS (0 conflicts) |
+| TRADE_STATUS_PARITY_GATE | PASS (0 conflicts) |
+| COMMON_CALENDAR_CONTROL_GATE | PASS (224,328 / 0) |
+| EPISODE_PARITY_GATE | PASS (0 unknown episodes) |
+| AS_OF_CAUSAL_ATTRIBUTION_GATE | **FAIL** (25 UNKNOWN root causes) |
+| ST_DECISION_COVERAGE_GATE | **FAIL** (59 decision-relevant ST unknown) |
+| PHASE1B_GATE | **BLOCKED_PARITY** |
 
-Non-blocking but mandatory migration findings (reported): legacy holes
-repaired by ASL (118,348 history rows; 852 hole-changed episodes), PIT ST
-improvements (83,406 per-date ST deltas where ASL trusted ST is pending the
-sweep completion), ASL-only valid episodes (819) from better data
-completeness.
+## 16. Open items
 
-## 13. Open items
+1. AS_OF decision differences of 25 codes lack a proven single input-class
+   root cause (compound history divergence; no new class invented).
+2. Decision-relevant ST coverage unknown (59 codes): the lake has no trusted
+   historical ST facts; the legacy ST reference is
+   NON_PIT_CODE_LEVEL_STOCK_BASIC_SNAPSHOT.
+3. Turnover: remains NULL (no ASL source; separate enrichment track).
+4. Limit-up pool: remains outside ASL (PRICE_ONLY comparison used).
+5. INPUT_EQUIVALENT eval points structurally 0 (legacy hole density); engine
+   parity proven by the non-vacuous common-calendar control instead.
 
-1. **Turnover**: remains NULL (no ASL source; separate enrichment track).
-2. **Limit-up pool**: remains outside ASL (PRICE_ONLY comparison used).
-3. **Historical ST sweep partial**: the official baostock ST backfill is
-   rate-limited (free-tier ~43 queries/session, ~40-min cooldown; documented
-   safe pacing batch 20 / rest 120s ≈ 8h for the full universe).  At
-   evidence time the resume marker covered 1,000 symbols (of ~7,700); the
-   sweep resumes in the background.  TRUSTED_ST_N = 0 → ST-True stocks are
-   classified as PIT_ST_DATA_UPGRADE (legacy NON-PIT snapshot vs ASL
-   unknown), consistent with the approved "unknown remains unknown" contract.
-4. **INPUT_EQUIVALENT strategy parity vacuous** due to legacy hole density
-   (documented in §5/§6); a dense-PIT legacy reference would be needed for a
-   non-vacuous equivalent-input engine test.
+## 17. Tests
 
-## 14. Tests
+`tests/test_shadow_harness.py` (34 tests) + ADR-008, warehouse validate,
+corporate-action preclose, ASL adapter, parity harness suites: **134 passed**.
+`compileall` OK; `git diff --check` clean.  No second full-market execution
+after this run.
 
-`tests/test_shadow_harness.py` (19 tests): input-equivalence classification,
-repaired-hole classification, window aging, strategy signature determinism,
-first-divergence attribution, episode matching, gate/exit mapping
-(BLOCKED_DATA/BLOCKED_PARITY/BLOCKED_RESOURCE/PASS), unexplained divergence
-and equivalent-input mismatch blocking.  All pass; `compileall` OK;
-`git diff --check` clean.  No legacy full-market verify-full was run.
-
-## 15. Artifact hygiene
+## 18. Artifact hygiene
 
 Committed: this report, `research/asl_phase1b/shadow.py`,
 `research/asl_phase1b/shadow_summary.json` (compact, no absolute paths),
-`tests/test_shadow_harness.py`.  Raw full results live under the gitignored
+`research/asl_phase1b/preclose_diagnostic.py`, `tests/test_shadow_harness.py`.
+Raw full results and targeted diagnostics live under the gitignored
 `research/asl_phase1b/artifacts/`.
+
+## 19. Status statement
+
+This report approves NO production cutover, NO provider deletion, NO
+turnover derivation, NO limit-up-pool replacement, and NO Phase 1C.  The
+authoritative gate is BLOCKED_PARITY pending resolution of the two blocker
+groups (sections 13–14).
