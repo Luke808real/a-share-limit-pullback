@@ -1,9 +1,15 @@
-# VFLASH × ASHARE-LAKE — PHASE 1A EVIDENCE REPORT (REVIEW ROUND 3 / FINAL PIT)
+# VFLASH × ASHARE-LAKE — PHASE 1A EVIDENCE REPORT (FINAL)
 
 > Status: **field parity PASS with explicit deltas (evidence, not approval)**.
 > This report records the completed Phase 1A work and the review-round-1,
-> round-2 and final-PIT (round-3) fixes that followed independent code
-> review of commit `81146dc`.
+> round-2, final-PIT (round-3) and finalization fixes that followed
+> independent code review of commit `81146dc`.
+
+> **PHASE1A = PASS** — this approves the ASL ADAPTER BOUNDARY only.
+> It does NOT approve production cutover; it does NOT approve provider
+> deletion; it does NOT resolve turnover; it does NOT resolve limit-up-pool
+> enrichment; it does NOT constitute full historical episode parity.
+> Phase 1B (shadow/pilot validation) is the next stage.
 > It is NOT an approval to begin Phase 1B. **Phase 1B has NOT been approved.**
 
 ## 1. Source identity
@@ -214,35 +220,30 @@ Real ASL rows (TDX-sourced; official `asl demo`, 2026-05-28 → 2026-08-06,
 | category | count |
 |---|---|
 | EXACT_STATUS_MATCH | 69 |
-| LEGACY_UNKNOWN_TO_ASL_TRUE | 4 |
-| LEGACY_UNKNOWN_TO_ASL_FALSE | 0 |
-| TRUE_STATUS_CONFLICT | 281 |
+| LEGACY_NON_PIT_TO_ASL_TRUSTED_ST | 4 |
+| LEGACY_NON_PIT_TO_ASL_TRUSTED_NORMAL | 0 |
+| LEGACY_NON_PIT_TO_ASL_UNKNOWN | 281 |
+| ASL_TRUSTED_STATUS_INTERNAL_CONFLICT | 0 |
 
-Round-2 taxonomy (exact chain): None==None counts as EXACT; known→None
-counts as TRUE_STATUS_CONFLICT (a hard parity failure); unknown→known is a
-documented semantic upgrade (non-fatal).  Invariant holds:
-STATUS_CATEGORY_TOTAL (354) == COMPARED_ROW_N (354).
+**LEGACY_ST_REFERENCE_CLASS = NON_PIT_CODE_LEVEL_STOCK_BASIC_SNAPSHOT.**
+The frozen legacy bootstrap derives ``is_st`` from the CURRENT stock_basic
+``name`` via ``_st_from_name`` (warehouse/units.py) and ``_fill_auxiliary``
+(warehouse/pipeline.py) applies ONE ``code -> is_st`` mapping to all
+historical daily rows.  It is NOT an authoritative per-session historical ST
+reference, so it is excluded from hard field parity.
 
-TRADE_STATUS: exact 354, conflict 0 (trade_status mismatch is a hard parity
-failure).
+Finalization taxonomy: legacy/ASL matches are informational; legacy
+non-PIT snapshot → ASL trusted historical ST is a DATA QUALITY UPGRADE
+(non-fatal); legacy non-PIT True/False → ASL None is an EXPECTED PIT
+SEMANTIC DELTA (non-fatal); only contradictions within trusted ASL facts
+(ASL_TRUSTED_STATUS_INTERNAL_CONFLICT) are hard failures.  The 281
+`LEGACY_NON_PIT_TO_ASL_UNKNOWN` rows are legacy name-based `is_st=False`
+vs ASL `is_st=None` (no authoritative historical ST row) — documented,
+non-fatal.  ST_SEMANTIC_DELTA_FATAL_N = 0.
 
-On the round-3 UNTOUCHED pilot lake (sparse authoritative status per the
-PIT contract), the 281 TRUE_STATUS_CONFLICT rows are legacy
-`is_st=False` (Tushare name-based, current-name stamped onto history) versus
-adapter `is_st=None` (no authoritative historical ST row in ASL).  This is
-the expected consequence of the strict round-2 taxonomy applied to the
-round-3 intended sparse-PIT model: unknown must remain unknown.  The
-round-2 dense-EM run (EXACT 314 / UNKNOWN_FALSE 36 / CONFLICT 0) is
-recorded as historical evidence only; that lake was REJECTED as final
-evidence because it required manual curation and non-PIT retroactive EM
-rows.
-
-**Open item for final approval:** the round-2 hard-failure rule for
-known→None combined with the round-3 "sparse authoritative status is
-acceptable, is_st=None preserved" model means the overall parity gate is
-BLOCKED_PARITY on the ST-knowledge delta alone while every other gate
-passes.  Resolution (accept delta as non-fatal, or supply a dense PIT ST
-source) is a review decision, not an adapter defect.
+TRADE_STATUS: exact 354, conflict 0 — trade_status mismatch remains a HARD
+parity failure.  Invariant holds: STATUS_CATEGORY_TOTAL (354) ==
+COMPARED_ROW_N (354).
 
 ### 8.4 PIT status provenance (round 3)
 
@@ -257,6 +258,23 @@ source) is a review decision, not an adapter defect.
 
 No manually curated ASL rows; no trusted historical current-state EastMoney
 ST rows; no missing-bar session accepted from an untrusted status row.
+
+### 8.5 Final Phase-1A gates (same untouched round-3 lake)
+
+| gate | value |
+|---|---|
+| FIELD_PARITY_GATE | **PASS** |
+| PIT_STATUS_PROVENANCE_GATE | **PASS** |
+| TRADE_STATUS_PARITY_GATE | **PASS** |
+| ST_LEGACY_REFERENCE | NON_PIT_CODE_LEVEL_STOCK_BASIC_SNAPSHOT |
+| ST_SEMANTIC_DELTA_GATE | **PASS_WITH_DOCUMENTED_DELTAS** |
+| STRATEGY_SMOKE_GATE | **PASS** |
+| PHASE1A_GATE | **PASS** |
+| CORPORATE_ACTION_INTERSECTION | REAL_EX_DATE_INTERSECTION_PARITY_NOT_PROVEN (Phase-1B evidence item) |
+
+Non-blocking data deltas (data correction ≠ parity failure): legacy holes
+repaired by ASL (126 sessions); legacy non-PIT ST snapshot → ASL trusted
+historical ST (4); legacy non-PIT ST snapshot → ASL unknown (281).
 
 ### 8.4 STRATEGY SMOKE PARITY (latest common date only)
 
@@ -303,17 +321,18 @@ architecture decision.
 ## 12. Review-gate tests run (round 1)
 
 ```
-tests/test_asl_adapter.py        → 43 passed (round 3)
-tests/test_parity_harness.py     → 18 passed
+tests/test_asl_adapter.py        → 43 passed
+tests/test_parity_harness.py     → 22 passed
 test_adr008_data_correctness + test_warehouse_validate +
 test_corporate_action_preclose + test_asl_adapter + test_parity_harness
-                                 → 90 passed (combined run, round 3)
+                                 → 94 passed (combined run, final)
 python3 -m compileall -q src/limit_pullback/warehouse/asl_adapter.py → OK
 git diff --check                 → clean
 parity gate (real ASL, UNTOUCHED lake vs frozen canonical) →
-  BLOCKED_PARITY (281 TRUE_STATUS_CONFLICT ST-knowledge deltas only),
-  PIT_STATUS_PROVENANCE_GATE PASS, trade_status 0 conflicts,
-  invariant 354==354, all other gates green
+  PHASE1A_GATE = PASS (exit 0), hard_failure_count 0,
+  ST_SEMANTIC_DELTA_GATE = PASS_WITH_DOCUMENTED_DELTAS (281 UNKNOWN + 4
+  TRUSTED_ST upgrades), PIT_STATUS_PROVENANCE_GATE PASS,
+  TRADE_STATUS 354/0, invariant 354==354
 ```
 
 No full-market verification; no state generations; no network inside tests.
@@ -368,6 +387,18 @@ built from official ASL commands only (MANUAL_PILOT_DATA_EDITS = 0);
 (5) predecessor duplicate-PK validation is partition-scoped; (6) strict
 Boolean contract for is_trading; (7) trading_status fetched_at must be
 valid, parsed and timezone-aware (UNTRUSTED_STATUS_PROVENANCE).
+
+Finalization fixes: (1) legacy ST reference class frozen as
+NON_PIT_CODE_LEVEL_STOCK_BASIC_SNAPSHOT (cited to units.py `_st_from_name`
+and pipeline.py `_fill_auxiliary`); (2) legacy `is_st` removed from hard
+field parity — new taxonomy EXACT / LEGACY_NON_PIT_TO_ASL_TRUSTED_ST /
+LEGACY_NON_PIT_TO_ASL_TRUSTED_NORMAL / LEGACY_NON_PIT_TO_ASL_UNKNOWN /
+ASL_TRUSTED_STATUS_INTERNAL_CONFLICT (only the last is fatal); (3)
+trade_status remains a hard gate; (4) PIT status provenance remains a hard
+gate; (5) explicit gate block in the summary (FIELD / PIT / TRADE_STATUS /
+ST_LEGACY_REFERENCE / ST_SEMANTIC_DELTA / STRATEGY_SMOKE / PHASE1A /
+CORPORATE_ACTION_INTERSECTION); (6) parity re-run on the SAME untouched
+round-3 lake with no data edits → PHASE1A_GATE = PASS.
 
 ## 16. Phase 1B status
 

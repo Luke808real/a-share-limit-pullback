@@ -74,28 +74,43 @@ def test_ma_window_insufficient_on_short_series():
 
 
 @pytest.mark.parametrize(
-    ("legacy_is_st", "adapter_is_st", "expected"),
+    ("legacy_is_st", "adapter_is_st", "adapter_st_kind", "expected"),
     [
-        (None, None, "EXACT_STATUS_MATCH"),
-        (None, True, "LEGACY_UNKNOWN_TO_ASL_TRUE"),
-        (None, False, "LEGACY_UNKNOWN_TO_ASL_FALSE"),
-        (True, True, "EXACT_STATUS_MATCH"),
-        (False, False, "EXACT_STATUS_MATCH"),
-        (True, False, "TRUE_STATUS_CONFLICT"),
-        (False, True, "TRUE_STATUS_CONFLICT"),
-        (True, None, "TRUE_STATUS_CONFLICT"),
-        (False, None, "TRUE_STATUS_CONFLICT"),
+        (None, None, "UNKNOWN", "EXACT_STATUS_MATCH"),
+        (None, True, "TRUSTED_ST", "LEGACY_NON_PIT_TO_ASL_TRUSTED_ST"),
+        (None, False, "TRUSTED_NORMAL", "LEGACY_NON_PIT_TO_ASL_TRUSTED_NORMAL"),
+        (True, True, "TRUSTED_ST", "EXACT_STATUS_MATCH"),
+        (False, False, "TRUSTED_NORMAL", "EXACT_STATUS_MATCH"),
+        (True, False, "TRUSTED_NORMAL", "LEGACY_NON_PIT_TO_ASL_TRUSTED_NORMAL"),
+        (False, True, "TRUSTED_ST", "LEGACY_NON_PIT_TO_ASL_TRUSTED_ST"),
+        (True, None, "UNKNOWN", "LEGACY_NON_PIT_TO_ASL_UNKNOWN"),
+        (False, None, "UNKNOWN", "LEGACY_NON_PIT_TO_ASL_UNKNOWN"),
+        (True, False, "UNKNOWN", "ASL_TRUSTED_STATUS_INTERNAL_CONFLICT"),
+        (False, True, "UNKNOWN", "ASL_TRUSTED_STATUS_INTERNAL_CONFLICT"),
     ],
 )
-def test_classify_status_all_combinations(
-    legacy_is_st, adapter_is_st, expected
+def test_classify_status_finalization_taxonomy(
+    legacy_is_st, adapter_is_st, adapter_st_kind, expected
 ):
-    assert classify_status(legacy_is_st, adapter_is_st) == expected
+    assert (
+        classify_status(legacy_is_st, adapter_is_st, adapter_st_kind)
+        == expected
+    )
 
 
-def test_status_gate_issues_unknown_to_known_non_fatal():
-    category, issues = status_gate_issues(None, True, True, True)
-    assert category == "LEGACY_UNKNOWN_TO_ASL_TRUE"
+def test_status_gate_issues_legacy_delta_non_fatal():
+    """Legacy non-PIT snapshot deltas must not produce hard failures."""
+
+    for legacy_is_st in (True, False):
+        category, issues = status_gate_issues(
+            legacy_is_st, None, "UNKNOWN", True, True
+        )
+        assert category == "LEGACY_NON_PIT_TO_ASL_UNKNOWN"
+        assert issues == []
+    category, issues = status_gate_issues(
+        False, True, "TRUSTED_ST", True, True
+    )
+    assert category == "LEGACY_NON_PIT_TO_ASL_TRUSTED_ST"
     assert issues == []
 
 
@@ -113,6 +128,7 @@ def _row_dict(code, day, close="10.00", preclose="9.90", is_st=None, trade_statu
         "pct_change": None,
         "trade_status": trade_status,
         "is_st": is_st,
+        "status_trust": None,
     }
 
 
@@ -124,7 +140,13 @@ def _config():
     )
 
 
-def _run_compare(legacy_is_st, adapter_is_st, legacy_trade=True, adapter_trade=True):
+def _run_compare(
+    legacy_is_st,
+    adapter_is_st,
+    legacy_trade=True,
+    adapter_trade=True,
+    adapter_trust=None,
+):
     day = date(2026, 6, 15)
     prev = date(2026, 6, 11)
     legacy_rows = [
@@ -132,8 +154,8 @@ def _run_compare(legacy_is_st, adapter_is_st, legacy_trade=True, adapter_trade=T
         _row_dict("000001", day, is_st=legacy_is_st, trade_status=legacy_trade),
     ]
     adapter_rows = [
-        _row_dict("000001", prev, is_st=adapter_is_st, trade_status=adapter_trade),
-        _row_dict("000001", day, is_st=adapter_is_st, trade_status=adapter_trade),
+        {**_row_dict("000001", prev, is_st=adapter_is_st, trade_status=adapter_trade), "status_trust": adapter_trust},
+        {**_row_dict("000001", day, is_st=adapter_is_st, trade_status=adapter_trade), "status_trust": adapter_trust},
     ]
     adapter_by_date = {row["trade_date"]: row for row in adapter_rows}
     hard_failures: list[str] = []
@@ -157,16 +179,33 @@ def test_trade_status_mismatch_is_hard_failure():
     assert any("TRADE_STATUS_CONFLICT" in failure for failure in failures)
 
 
-def test_known_is_st_conflict_is_hard_failure():
-    """Known legacy is_st mapped to a different known adapter value must
-    produce a hard parity failure (BLOCKED)."""
+def test_legacy_false_asl_none_non_fatal():
+    """Legacy False + ASL None under the NON-PIT legacy reference class is a
+    non-fatal semantic delta (not TRUE_STATUS_CONFLICT)."""
 
-    failures = _run_compare(True, False)
-    assert any("TRUE_STATUS_CONFLICT" in failure for failure in failures)
+    failures = _run_compare(False, None)
+    assert not any("CONFLICT" in failure for failure in failures)
 
 
-def test_known_is_st_to_none_is_hard_failure():
-    """Known legacy is_st mapped to adapter None must be a conflict."""
-
+def test_legacy_true_asl_none_non_fatal():
     failures = _run_compare(True, None)
-    assert any("TRUE_STATUS_CONFLICT" in failure for failure in failures)
+    assert not any("CONFLICT" in failure for failure in failures)
+
+
+def test_legacy_false_asl_trusted_st_non_fatal():
+    """Legacy False + trusted ASL ST=True is a data-quality semantic delta
+    (LEGACY_NON_PIT_TO_ASL_TRUSTED_ST), never fatal."""
+
+    failures = _run_compare(False, True, adapter_trust="BAOSTOCK_ST")
+    assert not any("CONFLICT" in failure for failure in failures)
+
+
+def test_asl_internal_status_conflict_is_hard_failure():
+    """Adapter claiming is_st without a trusted status source is an internal
+    contradiction and must be a hard parity failure."""
+
+    failures = _run_compare(True, False, adapter_trust=None)
+    assert any(
+        "ASL_TRUSTED_STATUS_INTERNAL_CONFLICT" in failure
+        for failure in failures
+    )

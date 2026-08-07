@@ -141,45 +141,86 @@ def classify_ma_window(
     return f"HOLE_AFFECTED_MA{n}"
 
 
+LEGACY_ST_REFERENCE_CLASS = "NON_PIT_CODE_LEVEL_STOCK_BASIC_SNAPSHOT"
+
+
+def _field_hard_failures(failures: list[str]) -> list[str]:
+    """Hard failures that belong to FIELD_PARITY (excludes the separately
+    gated trade-status and ASL-internal-status categories)."""
+
+    return [
+        failure
+        for failure in failures
+        if "TRADE_STATUS_CONFLICT" not in failure
+        and "ASL_TRUSTED_STATUS_INTERNAL_CONFLICT" not in failure
+    ]
+
+
 def classify_status(
     legacy_is_st: bool | None,
     adapter_is_st: bool | None,
+    adapter_st_kind: str,
 ) -> str:
-    """Review-round-2 status taxonomy (exact chain).
+    """Finalization taxonomy.
 
-    None == None counts as EXACT_STATUS_MATCH; a known value mapped to
-    adapter None counts as TRUE_STATUS_CONFLICT (the adapter must not lose
-    known ST knowledge).
+    The legacy ``is_st`` is a NON-PIT code-level stock_basic name snapshot
+    (see warehouse/units.py ``_st_from_name`` and warehouse/pipeline.py
+    ``_fill_auxiliary``): it is NOT historical ground truth.  Only
+    contradictions WITHIN trusted ASL facts are fatal.
+
+    * EXACT_STATUS_MATCH                    legacy and ASL happen to match
+    * LEGACY_NON_PIT_TO_ASL_TRUSTED_ST      legacy snapshot differs; ASL has
+                                            a trusted historical ST fact
+    * LEGACY_NON_PIT_TO_ASL_TRUSTED_NORMAL  legacy snapshot differs; ASL has
+                                            a trusted normal fact
+    * LEGACY_NON_PIT_TO_ASL_UNKNOWN         legacy has a code-level value;
+                                            ASL has no trusted ST fact -> None
+    * ASL_TRUSTED_STATUS_INTERNAL_CONFLICT  adapter claims is_st without a
+                                            trusted status source (bug)
     """
 
+    if adapter_is_st is not None and adapter_st_kind == "UNKNOWN":
+        return "ASL_TRUSTED_STATUS_INTERNAL_CONFLICT"
+    if legacy_is_st is None:
+        if adapter_is_st is None:
+            return "EXACT_STATUS_MATCH"
+        if adapter_is_st is True:
+            return "LEGACY_NON_PIT_TO_ASL_TRUSTED_ST"
+        return "LEGACY_NON_PIT_TO_ASL_TRUSTED_NORMAL"
+    if adapter_is_st is None:
+        return "LEGACY_NON_PIT_TO_ASL_UNKNOWN"
     if legacy_is_st == adapter_is_st:
         return "EXACT_STATUS_MATCH"
-    if legacy_is_st is None and adapter_is_st is True:
-        return "LEGACY_UNKNOWN_TO_ASL_TRUE"
-    if legacy_is_st is None and adapter_is_st is False:
-        return "LEGACY_UNKNOWN_TO_ASL_FALSE"
-    return "TRUE_STATUS_CONFLICT"
+    if adapter_is_st is True:
+        return "LEGACY_NON_PIT_TO_ASL_TRUSTED_ST"
+    return "LEGACY_NON_PIT_TO_ASL_TRUSTED_NORMAL"
 
 
 def status_gate_issues(
     legacy_is_st: bool | None,
     adapter_is_st: bool | None,
+    adapter_st_kind: str,
     legacy_trade_status: bool,
     adapter_trade_status: bool,
 ) -> tuple[str, list[str]]:
-    """Status category plus the hard-failure triggers for one compared row."""
+    """Status category plus hard-failure triggers for one compared row.
 
-    category = classify_status(legacy_is_st, adapter_is_st)
+    trade_status mismatch is ALWAYS fatal; only ASL-internal status
+    contradictions are fatal among the ST categories.  Legacy non-PIT
+    snapshot deltas are non-fatal semantic deltas.
+    """
+
+    category = classify_status(legacy_is_st, adapter_is_st, adapter_st_kind)
     issues: list[str] = []
     if legacy_trade_status != adapter_trade_status:
         issues.append(
             f"TRADE_STATUS_CONFLICT(legacy={legacy_trade_status},"
             f"adapter={adapter_trade_status})"
         )
-    if category == "TRUE_STATUS_CONFLICT":
+    if category == "ASL_TRUSTED_STATUS_INTERNAL_CONFLICT":
         issues.append(
-            f"TRUE_STATUS_CONFLICT(legacy_is_st={legacy_is_st},"
-            f"adapter_is_st={adapter_is_st})"
+            f"ASL_TRUSTED_STATUS_INTERNAL_CONFLICT("
+            f"adapter_is_st={adapter_is_st},adapter_st_kind={adapter_st_kind})"
         )
     return category, issues
 
@@ -255,9 +296,10 @@ def _compare_code(
     }
     status_totals = {
         "EXACT_STATUS_MATCH": 0,
-        "LEGACY_UNKNOWN_TO_ASL_TRUE": 0,
-        "LEGACY_UNKNOWN_TO_ASL_FALSE": 0,
-        "TRUE_STATUS_CONFLICT": 0,
+        "LEGACY_NON_PIT_TO_ASL_TRUSTED_ST": 0,
+        "LEGACY_NON_PIT_TO_ASL_TRUSTED_NORMAL": 0,
+        "LEGACY_NON_PIT_TO_ASL_UNKNOWN": 0,
+        "ASL_TRUSTED_STATUS_INTERNAL_CONFLICT": 0,
     }
     trade_status_counts = {"EXACT": 0, "CONFLICT": 0}
     maxima = {
@@ -347,11 +389,19 @@ def _compare_code(
             bool(legacy["is_st"]) if legacy.get("is_st") is not None else None
         )
         adapter_is_st = adapter["is_st"]
+        adapter_st_kind = adapter.get("status_trust")
+        if adapter_st_kind in ("BAOSTOCK_ST", "EASTMONEY_SAME_DAY"):
+            adapter_st_kind = "TRUSTED_ST"
+        elif adapter_st_kind == "DERIVED_GAP_SUSPENDED":
+            adapter_st_kind = "TRUSTED_NORMAL"
+        else:
+            adapter_st_kind = "UNKNOWN"
         legacy_trade_status = bool(legacy.get("trade_status", True))
         adapter_trade_status = bool(adapter["trade_status"])
         category, status_issues = status_gate_issues(
             legacy_is_st,
             adapter_is_st,
+            adapter_st_kind,
             legacy_trade_status,
             adapter_trade_status,
         )
@@ -691,6 +741,7 @@ def main(argv: list[str] | None = None) -> int:
             "volume": row.volume, "amount": row.amount,
             "pct_change": row.pct_change,
             "trade_status": row.trade_status, "is_st": row.is_st,
+            "status_trust": row.asl_status_trust,
             "code": row.code, "trade_date": row.trade_date,
         }
     adapter_rows_by_code: dict[str, list[dict[str, Any]]] = {}
@@ -809,11 +860,13 @@ def main(argv: list[str] | None = None) -> int:
         )
         for key in (
             "EXACT_STATUS_MATCH",
-            "LEGACY_UNKNOWN_TO_ASL_TRUE",
-            "LEGACY_UNKNOWN_TO_ASL_FALSE",
-            "TRUE_STATUS_CONFLICT",
+            "LEGACY_NON_PIT_TO_ASL_TRUSTED_ST",
+            "LEGACY_NON_PIT_TO_ASL_TRUSTED_NORMAL",
+            "LEGACY_NON_PIT_TO_ASL_UNKNOWN",
+            "ASL_TRUSTED_STATUS_INTERNAL_CONFLICT",
         )
     }
+    st_delta_fatal_n = status_totals["ASL_TRUSTED_STATUS_INTERNAL_CONFLICT"]
     status_category_total = sum(status_totals.values())
     if status_category_total != compared_rows:
         hard_failures.append(
@@ -916,6 +969,41 @@ def main(argv: list[str] | None = None) -> int:
             "TRADE_STATUS_EXACT_N": trade_status_exact,
             "TRADE_STATUS_CONFLICT_N": trade_status_conflict,
             "categories": status_totals,
+        },
+        "st_semantic_deltas": {
+            "LEGACY_ST_REFERENCE_CLASS": LEGACY_ST_REFERENCE_CLASS,
+            "EXACT_STATUS_MATCH_N": status_totals["EXACT_STATUS_MATCH"],
+            "LEGACY_NON_PIT_TO_ASL_TRUSTED_ST_N": status_totals["LEGACY_NON_PIT_TO_ASL_TRUSTED_ST"],
+            "LEGACY_NON_PIT_TO_ASL_TRUSTED_NORMAL_N": status_totals["LEGACY_NON_PIT_TO_ASL_TRUSTED_NORMAL"],
+            "LEGACY_NON_PIT_TO_ASL_UNKNOWN_N": status_totals["LEGACY_NON_PIT_TO_ASL_UNKNOWN"],
+            "ASL_TRUSTED_STATUS_INTERNAL_CONFLICT_N": st_delta_fatal_n,
+            "ST_SEMANTIC_DELTA_FATAL_N": st_delta_fatal_n,
+        },
+        "gates": {
+            "FIELD_PARITY_GATE": (
+                "PASS" if not _field_hard_failures(hard_failures) else "BLOCKED"
+            ),
+            "PIT_STATUS_PROVENANCE_GATE": status_provenance["PIT_STATUS_PROVENANCE_GATE"],
+            "TRADE_STATUS_PARITY_GATE": (
+                "PASS" if trade_status_conflict == 0 else "BLOCKED"
+            ),
+            "ST_LEGACY_REFERENCE": LEGACY_ST_REFERENCE_CLASS,
+            "ST_SEMANTIC_DELTA_GATE": (
+                "PASS_WITH_DOCUMENTED_DELTAS"
+                if st_delta_fatal_n == 0
+                else "BLOCKED"
+            ),
+            "STRATEGY_SMOKE_GATE": (
+                "PASS"
+                if anchor_smoke["matched"] == anchor_smoke["total"]
+                and stage_smoke["matched"] == stage_smoke["total"]
+                and stage_smoke["total"] > 0
+                else "BLOCKED"
+            ),
+            "PHASE1A_GATE": (
+                gate if st_delta_fatal_n == 0 else "BLOCKED_PARITY"
+            ),
+            "CORPORATE_ACTION_INTERSECTION": ca_result["status"],
         },
         "status_provenance": status_provenance,
         "status_deltas": status_totals,

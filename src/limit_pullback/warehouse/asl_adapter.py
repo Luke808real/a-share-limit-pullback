@@ -233,6 +233,11 @@ class AslDailyBarRow:
     asl_source: str | None
     asl_data_version: str | None
     asl_fetched_at: datetime | None
+    #: Trust class of the status row that produced is_st/trade_status
+    #: (BAOSTOCK_ST | DERIVED_GAP_SUSPENDED | EASTMONEY_SAME_DAY), or None
+    #: when no trusted status row exists (is_st=None semantics).  Evidence
+    #: only; does not change PIT behavior.
+    asl_status_trust: str | None = None
     #: Always None in Phase 1A.  ASL has no PIT-safe per-stock turnover field;
     #: no estimate may enter this contract.
     turnover_rate: Decimal | None = None
@@ -991,6 +996,12 @@ def load_asl_daily_slice(
                     asl_source=str(bar.get("source") or ""),
                     asl_data_version=str(bar.get("data_version") or ""),
                     asl_fetched_at=_parse_fetched_at(bar.get("fetched_at")),
+                    asl_status_trust=(
+                        status_rows[(code, day)].trust
+                        if status_rows.get((code, day)) is not None
+                        and status_rows[(code, day)].trust in TRUSTED_STATUS_KINDS
+                        else None
+                    ),
                 )
             )
             if close > 0:
