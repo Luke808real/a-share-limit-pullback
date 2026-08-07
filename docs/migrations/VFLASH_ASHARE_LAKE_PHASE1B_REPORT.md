@@ -331,3 +331,39 @@ This report approves NO production cutover, NO provider deletion, NO
 turnover derivation, NO limit-up-pool replacement, and NO Phase 1C.  The
 authoritative gate is BLOCKED_PARITY pending resolution of the two blocker
 groups (sections 13–14).
+
+
+# FINAL MIGRATION REVIEW / CLOSURE
+
+> Dated final section (2026-08-08).  The historical evidence above is
+> preserved unmodified; this section records the final closure state.
+
+Reference lineage:
+
+* corrected Phase 1B harness: `bb3358a` (and the full fix chain
+  `b4da284 → bb3358a`)
+* targeted ST closure: `49564ee` (official ASL Baostock historical ST path,
+  9,007 trusted rows for the 59-code cohort)
+* universe simplification: `0f80ef5`
+* eligibility history semantics (mask, no history deletion): `33c396e`
+* ST positive-exclusion-set + dataset-level readiness: `648e509`, `8b95117`
+* final ST scope (tradable main-board only): `60c470c`
+
+```
+PHASE1B_HARNESS = ACCEPTED
+ASL_DATA_FOUNDATION = ACCEPTED
+DATA_FOUNDATION_MIGRATION = CLOSED
+
+PHASE1C = GO
+PRODUCTION_CUTOVER = NO-GO
+LEGACY_BACKEND_DELETION = NO-GO
+```
+
+ST coverage readiness (`ST_DATA_NOT_READY`, 2,521 required AS_OF symbols
+missing from official completion scope) is an operational prerequisite for a
+strict screen publication, NOT an ASL migration acceptance blocker.
+Equivalent-input strategy parity is proven (224,328 common-calendar
+equivalent eval points, 0 mismatches), which is the acceptance criterion that
+matters for the data foundation.
+
+Full narrative: `docs/migrations/VFLASH_ASHARE_LAKE_MIGRATION_CLOSURE.md`.
