@@ -35,11 +35,11 @@ import pyarrow.parquet as pq  # noqa: E402
 from limit_pullback.config import load_strategy_config  # noqa: E402
 from eligibility import (  # noqa: E402
     classify_rows_evidence,
-    eligibility_for_date,
     is_asof_strategy_eligible,
     is_mainboard_instrument,
     load_instruments,
     mask_timeline_dates,
+    screen_gate,
 )
 from shadow import (  # noqa: E402
     AS_OF,
@@ -117,6 +117,10 @@ def main(argv: list[str] | None = None) -> int:
     status_asof = _read_status_at_asof(args.asl_root)
     config = load_strategy_config(args.config)
 
+    # Dataset-level ST exclusion readiness gate: the screen for AS_OF is
+    # published only when READY; otherwise ST_DATA_NOT_READY.
+    gate = screen_gate(args.asl_root, AS_OF)
+
     smoke: list[dict[str, Any]] = []
     for code in SMOKE_CODES:
         inst = instruments.get(code)
@@ -180,17 +184,19 @@ def main(argv: list[str] | None = None) -> int:
         smoke.append(record)
 
     out = {
-        "contract": "VFLASH_MAINBOARD_UNIVERSE_FIX_V2",
+        "contract": "VFLASH_MAINBOARD_UNIVERSE_FIX_V3",
         "universe_contract": (
-            "SH/SZ MAINBOARD NORMAL A-SHARES ONLY; eligibility is a MASK, "
-            "never a price-history deletion; ST/*ST exclusion flag only; "
-            "status unknown fails closed (EXCLUDED_STATUS_UNKNOWN); excluded "
-            "evaluation dates produce no user-facing candidates"
+            "SH/SZ MAINBOARD NORMAL A-SHARES ONLY; ST is a POSITIVE "
+            "exclusion set (trusted ST/*ST fact excludes; missing per-stock "
+            "status rows never exclude); fail-closed at DATASET level "
+            "(ST_DATA_NOT_READY blocks publishing the screen); eligibility "
+            "is a MASK, never a price-history deletion"
         ),
         "strategy_model": (
             "all real ASL bars -> screen_code (complete history) -> "
             "eligibility mask on evaluation date -> candidates"
         ),
+        "screen_gate": gate,
         "smoke": {"code_n": len(smoke), "rows": smoke},
     }
     args.out.parent.mkdir(parents=True, exist_ok=True)

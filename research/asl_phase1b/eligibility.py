@@ -2,9 +2,23 @@
 
 Frozen universe contract (no redesign): SH/SZ MAINBOARD NORMAL A-SHARES ONLY.
 
-ELIGIBILITY IS A MASK, NOT A HISTORY-DELETION RULE.
+ST IS A POSITIVE EXCLUSION SET, NOT A PER-ROW STATUS REQUIREMENT.
 
-Correct strategy model:
+Baostock historical ST rows are positive ST exclusion facts; ordinary
+non-ST dates generally have no status row, and that is NORMAL.  A missing
+per-stock status row is never turned into an exclusion.
+
+    ASL ST dataset / ST exclusion set
+            |
+            +-- code-date is trusted ST/*ST -> EXCLUDED_ST
+            |
+            +-- otherwise                   -> continue eligibility checks
+
+Fail-closed applies at DATASET LEVEL: if the required ST exclusion dataset
+for an evaluation date is not ready / not sufficiently covered, the screen
+for that date is NOT published (``ST_DATA_NOT_READY``).
+
+ELIGIBILITY IS A MASK, NOT A HISTORY-DELETION RULE.
 
     all real ASL bars
             |
@@ -17,34 +31,20 @@ Correct strategy model:
             v
     only eligible dates may produce user-facing candidates
 
-ST bars are NEVER deleted from the price series: moving averages, volume
-averages, preclose continuity, trading-day distances and support/resistance
-history must see the real market.  The production strategy already rejects
-``is_st=True`` bars as limit-up anchors; this module only gates user-facing
-output.
+ST bars are NEVER deleted from the price series; the production strategy
+already rejects ``is_st=True`` bars as limit-up anchors.
 
-ST status policy (fail closed):
+One code-date eligibility (in order):
 
-    is_st == True                        -> EXCLUDED_ST
-    trusted explicit non-ST status       -> may be ELIGIBLE
-    ST status unknown / unproven         -> EXCLUDED_STATUS_UNKNOWN
-
-An absent status row is NEVER treated as non-ST ("we prefer missing a
-candidate over accidentally trading an ST stock").
+1. non-main-board -> EXCLUDED_NON_MAINBOARD
+2. not listed / delisted -> EXCLUDED_NOT_LISTED
+3. no trading bar / suspended -> EXCLUDED_SUSPENDED
+4. trusted ST/*ST exclusion fact -> EXCLUDED_ST
+5. otherwise -> ELIGIBLE
 
 Data source: ASL curated instruments (exchange / asset_type / list_date /
-delist_date) for main-board membership and listing state; ASL PIT
-trading-status facts for ST / suspension / same-day non-ST.  No legacy stock
-names, no extra providers, no Parquet edits.
-
-Exclusion reasons:
-
-* EXCLUDED_NON_MAINBOARD  — not SH/SZ main-board A-share (ChiNext / STAR /
-  BSE / ETF / CDR / other)
-* EXCLUDED_NOT_LISTED     — before list_date or on/after delist_date
-* EXCLUDED_ST             — trusted PIT is_st=True on that date
-* EXCLUDED_SUSPENDED      — PIT trade_status=False / no bar that date
-* EXCLUDED_STATUS_UNKNOWN — no trusted ST status evidence for that date
+delist_date) and ASL trading_status (trusted Baostock ST facts).  No legacy
+stock names, no extra providers, no Parquet edits.
 """
 
 from __future__ import annotations
@@ -101,6 +101,58 @@ def is_mainboard_instrument(
     return code.startswith(FROZEN_MAINBOARD_PREFIXES)
 
 
+def st_exclusion_ready(asl_root: Path, as_of: date) -> bool:
+    """Dataset-level ST exclusion readiness for *as_of*.
+
+    True only when the ASL trading_status dataset is present and carries at
+    least one trusted ST exclusion row (``source=baostock``) for *as_of* —
+    evidence that the ST exclusion pipeline has run for that date.  This is
+    a MINIMAL operator gate: it does not judge per-stock coverage
+    sufficiency (a day with genuinely zero ST names and zero rows is
+    indistinguishable from "not fetched" and therefore stays NOT_READY).
+    """
+
+    status_root = Path(asl_root) / "curated" / "trading_status"
+    if not status_root.exists():
+        return False
+    partitions = sorted(status_root.glob("trade_date=*-*"))
+    if not partitions:
+        return False
+    for partition in partitions:
+        key = partition.name.removeprefix("trade_date=")
+        try:
+            month_start = date(int(key[:4]), int(key[5:7]), 1)
+        except ValueError:
+            continue
+        month_end = date(
+            month_start.year + 1, 1, 1
+        ) if month_start.month == 12 else date(
+            month_start.year, month_start.month + 1, 1
+        )
+        if not (month_start <= as_of < month_end):
+            continue
+        for file_path in sorted(partition.glob("*.parquet")):
+            table = pq.ParquetFile(file_path).read(
+                columns=["symbol", "trade_date", "source"]
+            )
+            for symbol, day, source in zip(
+                table.column("symbol").to_pylist(),
+                table.column("trade_date").to_pylist(),
+                table.column("source").to_pylist(),
+                strict=True,
+            ):
+                if day == as_of and str(source).lower() == "baostock":
+                    return True
+    return False
+
+
+def screen_gate(asl_root: Path, as_of: date) -> str:
+    """``READY`` or ``ST_DATA_NOT_READY`` — the screen for *as_of* is
+    published only when the ST exclusion dataset is ready."""
+
+    return "READY" if st_exclusion_ready(asl_root, as_of) else "ST_DATA_NOT_READY"
+
+
 def eligibility_for_date(
     code: str,
     day: date,
@@ -109,11 +161,11 @@ def eligibility_for_date(
 ) -> str:
     """``ELIGIBLE`` or ``EXCLUDED_<reason>`` for one code-date (the mask).
 
-    Precedence: NON_MAINBOARD > NOT_LISTED > ST > SUSPENDED > STATUS_UNKNOWN.
-    ``ELIGIBLE`` requires a TRUSTED explicit non-ST fact (``is_st is False``,
-    which the adapter only emits from a trusted same-day status row);
-    ``is_st is None`` (unproven) is ``EXCLUDED_STATUS_UNKNOWN`` and never
-    guessed normal.  A missing row (no bar that date) is suspended.
+    In order: NON_MAINBOARD > NOT_LISTED > SUSPENDED > ST > ELIGIBLE.  ST is
+    a positive exclusion set: a trusted ``is_st=True`` fact excludes; the
+    absence of a per-stock status row never excludes (ordinary non-ST dates
+    generally have no status row).  Dataset-level readiness is a separate
+    gate (``screen_gate`` / ``st_exclusion_ready``).
 
     This function NEVER shortens the strategy history — it only decides
     whether that evaluation date may produce a user-facing candidate.
@@ -127,17 +179,11 @@ def eligibility_for_date(
         delist_date is not None and day >= delist_date
     ):
         return "EXCLUDED_NOT_LISTED"
-    if row is None:
+    if row is None or row.get("trade_status") is False:
         return "EXCLUDED_SUSPENDED"
     if row.get("is_st") is True:
         return "EXCLUDED_ST"
-    if row.get("trade_status") is False:
-        return "EXCLUDED_SUSPENDED"
-    if row.get("is_st") is False:
-        # Trusted explicit non-ST status (adapter emits is_st=False only
-        # from a trusted same-day status row).
-        return "ELIGIBLE"
-    return "EXCLUDED_STATUS_UNKNOWN"
+    return "ELIGIBLE"
 
 
 def is_asof_strategy_eligible(
@@ -150,7 +196,8 @@ def is_asof_strategy_eligible(
 
     If the AS_OF date is excluded, no candidate is returned for the code; if
     it is eligible, the strategy still runs on the COMPLETE historical bar
-    series (never on a shortened series).
+    series (never on a shortened series).  Dataset-level ST readiness is
+    checked separately via ``screen_gate`` before the screen is published.
     """
 
     return eligibility_for_date(code, as_of, instrument, asof_row)
