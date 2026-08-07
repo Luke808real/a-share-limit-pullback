@@ -36,6 +36,7 @@ from limit_pullback.warehouse.asl_adapter import (
     AslDailyBarRow,
     FROZEN_UNIVERSE_PREFIXES,
     load_asl_daily_slice,
+    resolve_asl_asof_scope,
 )
 from limit_pullback.warehouse.layout import WarehouseLayout
 from limit_pullback.warehouse.metadata import WarehouseMetadata
@@ -89,82 +90,6 @@ def asl_rows_to_canonical_rows(
         canonical["source_row_hash"] = row_hash(DAILY_HASH_FIELDS, canonical)
         out.append(canonical)
     return out
-
-
-def resolve_asl_asof_scope(
-    asl_root: str | Path,
-    as_of: date,
-    universe_prefixes: Sequence[str] = FROZEN_UNIVERSE_PREFIXES,
-) -> tuple[str, ...]:
-    """AS_OF pre-ST market scope from ASL ONLY.
-
-    Production scope is determined at the EVALUATION DATE first.  Each code
-    must satisfy (VFLASH_MAINBOARD_UNIVERSE_V1 evaluation-date pre-ST scope):
-
-    1. allowed SH/SZ main-board prefix
-    2. instrument exists in ASL curated instruments
-    3. list_date is None OR list_date <= as_of
-    4. delist_date is None OR as_of < delist_date
-    5. AS_OF daily bar exists
-    6. AS_OF volume > 0
-
-    ST is NOT applied here (positive exclusion / readiness stays a later
-    layer).  Historical bars are never filtered by this resolver.
-
-    Uses ONLY ASL curated/instruments + the AS_OF daily_bars partition; no
-    legacy snapshot, no old universe JSON, no provider calls.
-    """
-
-    import pyarrow.parquet as pq
-
-    instruments_path = (
-        Path(asl_root) / "curated" / "instruments" / "part-merged.parquet"
-    )
-    instruments: list[tuple[str, Any, Any]] = []
-    if instruments_path.exists():
-        table = pq.ParquetFile(instruments_path).read(
-            columns=["symbol", "list_date", "delist_date"]
-        )
-        for symbol, list_date, delist_date in zip(
-            table.column("symbol").to_pylist(),
-            table.column("list_date").to_pylist(),
-            table.column("delist_date").to_pylist(),
-            strict=True,
-        ):
-            instruments.append((str(symbol), list_date, delist_date))
-
-    asof_volume: dict[str, Any] = {}
-    asof_partition = (
-        Path(asl_root)
-        / "curated"
-        / "daily_bars"
-        / f"trade_date={as_of.isoformat()}"
-    )
-    for file_path in sorted(asof_partition.glob("*.parquet")):
-        table = pq.ParquetFile(file_path).read(
-            columns=["symbol", "volume"]
-        )
-        for symbol, volume in zip(
-            table.column("symbol").to_pylist(),
-            table.column("volume").to_pylist(),
-            strict=True,
-        ):
-            asof_volume[str(symbol).split(".")[0].zfill(6)] = volume
-
-    out: list[str] = []
-    for symbol, list_date, delist_date in instruments:
-        code = symbol.split(".")[0].zfill(6)
-        if not code.startswith(tuple(universe_prefixes)):
-            continue
-        if list_date is not None and as_of < list_date:
-            continue
-        if delist_date is not None and as_of >= delist_date:
-            continue
-        volume = asof_volume.get(code)
-        if volume is None or (volume or 0) <= 0:
-            continue
-        out.append(code)
-    return tuple(sorted(out))
 
 
 def build_asl_candidate_snapshot(

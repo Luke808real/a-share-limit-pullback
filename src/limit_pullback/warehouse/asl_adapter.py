@@ -768,6 +768,70 @@ def _status_mapping(
     return True, True  # st / *st and trading
 
 
+def resolve_asl_asof_scope(
+    asl_root: str | Path,
+    as_of: date,
+    universe_prefixes: Sequence[str] = FROZEN_UNIVERSE_PREFIXES,
+) -> tuple[str, ...]:
+    """AS_OF pre-ST market scope from ASL ONLY — FAIL CLOSED.
+
+    Uses the SAME dataset contract as :func:`load_asl_daily_slice` (no second
+    independent parser):
+
+    * required datasets present and readable with required columns
+      (:func:`_validate_required_datasets`; missing dataset, missing columns,
+      missing/empty in-range AS_OF daily_bars partition all raise)
+    * duplicate ``instruments`` PK raises (``_read_instruments``)
+    * ``daily_bars.data_version == v2`` enforced on the AS_OF partition
+    * duplicate AS_OF daily_bars PK for a relevant symbol raises
+    * malformed / unparsable AS_OF volume raises
+
+    Physical compaction filenames are never required: dataset discovery uses
+    the adapter's deterministic ``rglob``/partition scan.
+
+    Scope rules (unchanged): allowed SH/SZ main-board prefix, instrument
+    exists, listed on *as_of*, not delisted, AS_OF bar exists with positive
+    volume.  ST is NOT applied here (positive exclusion / readiness stays a
+    later layer); historical bars are never filtered.
+    """
+
+    root = Path(asl_root).expanduser().resolve()
+    _validate_required_datasets(root, as_of, as_of)
+    instruments = _read_instruments(root)
+    prefix_tuple = tuple(universe_prefixes)
+    universe_codes = {
+        code
+        for code, (_symbol, _list_date, _delist_date) in instruments.items()
+        if code.startswith(prefix_tuple)
+    }
+    asof_rows = _read_bars(root, universe_codes, as_of, as_of)
+    asof_volume: dict[str, Decimal] = {}
+    for row in asof_rows:
+        code = str(row["code"])
+        volume = _to_decimal(
+            row.get("volume"), code=code, day=as_of, field="volume"
+        )
+        if volume is None:
+            raise AslAdapterError(
+                f"UNPARSABLE_VALUE:{code}:{as_of}:volume:{row.get('volume')!r}"
+            )
+        asof_volume[code] = volume
+
+    out: list[str] = []
+    for code, (symbol, list_date, delist_date) in instruments.items():
+        if code not in universe_codes:
+            continue
+        if list_date is not None and as_of < list_date:
+            continue
+        if delist_date is not None and as_of >= delist_date:
+            continue
+        volume = asof_volume.get(code)
+        if volume is None or volume <= 0:
+            continue
+        out.append(code)
+    return tuple(sorted(out))
+
+
 def load_asl_daily_slice(
     asl_root: str | Path,
     *,

@@ -399,7 +399,7 @@ def test_build_path_never_calls_legacy_providers(tmp_path, monkeypatch):
 
 
 def _resolved_scope(lake: Path) -> set[str]:
-    from limit_pullback.warehouse.asl_snapshot import resolve_asl_asof_scope
+    from limit_pullback.warehouse.asl_adapter import resolve_asl_asof_scope
 
     return set(resolve_asl_asof_scope(lake, AS_OF))
 
@@ -436,6 +436,133 @@ def test_asof_scope_excludes_by_listing_and_bar_rules(tmp_path):
     assert "600002" not in scope  # D: no AS_OF bar
     assert "600003" not in scope  # E: zero-volume AS_OF bar
     assert "300750" not in scope  # F: ChiNext / non-main-board
+
+
+def test_scope_fails_closed_missing_instruments_dataset(tmp_path):
+    """B. instruments dataset missing -> typed fail-closed error."""
+
+    lake = tmp_path / "lake"
+    _build_lake(lake, drop_datasets=("instruments",))
+    from limit_pullback.warehouse.asl_adapter import (
+        AslAdapterError,
+        resolve_asl_asof_scope,
+    )
+
+    with pytest.raises(AslAdapterError):
+        resolve_asl_asof_scope(lake, AS_OF)
+
+
+def test_scope_accepts_alternate_instruments_filename(tmp_path):
+    """C. Physical compaction filename is NOT required: renamed instruments
+    parquet still resolves the scope."""
+
+    lake = tmp_path / "lake"
+    _build_lake(lake)
+    src = lake / "curated" / "instruments" / "part-merged.parquet"
+    dst = lake / "curated" / "instruments" / "part-renamed.parquet"
+    src.rename(dst)
+    scope = _resolved_scope(lake)
+    assert scope == {"000001", "000010", "000524", "605198"}
+
+
+def test_scope_fails_closed_missing_asof_partition(tmp_path):
+    """D. AS_OF daily_bars partition missing -> fail closed."""
+
+    import shutil
+
+    lake = tmp_path / "lake"
+    _build_lake(lake)
+    partition = lake / "curated" / "daily_bars" / f"trade_date={AS_OF.isoformat()}"
+    shutil.rmtree(partition)
+    from limit_pullback.warehouse.asl_adapter import (
+        AslAdapterError,
+        resolve_asl_asof_scope,
+    )
+
+    with pytest.raises(AslAdapterError):
+        resolve_asl_asof_scope(lake, AS_OF)
+
+
+def test_scope_fails_closed_empty_asof_partition(tmp_path):
+    """E. AS_OF partition exists but holds no readable parquet -> fail closed."""
+
+    lake = tmp_path / "lake"
+    _build_lake(lake)
+    partition = lake / "curated" / "daily_bars" / f"trade_date={AS_OF.isoformat()}"
+    for child in partition.glob("*.parquet"):
+        child.unlink()
+    from limit_pullback.warehouse.asl_adapter import (
+        AslAdapterError,
+        resolve_asl_asof_scope,
+    )
+
+    with pytest.raises(AslAdapterError):
+        resolve_asl_asof_scope(lake, AS_OF)
+
+
+def test_scope_fails_closed_duplicate_asof_bar_pk(tmp_path):
+    """F. Duplicate AS_OF daily_bars PK for a relevant symbol -> fail closed."""
+
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    lake = tmp_path / "lake"
+    _build_lake(lake)
+    partition = lake / "curated" / "daily_bars" / f"trade_date={AS_OF.isoformat()}"
+    pq.write_table(
+        pa.Table.from_pylist(
+            [
+                {
+                    "symbol": "000001.SZ",
+                    "trade_date": AS_OF,
+                    "open": 11.21,
+                    "high": 11.21,
+                    "low": 10.98,
+                    "close": 11.06,
+                    "volume": 999,
+                    "amount": 1.0,
+                    "source": "tdx_protocol",
+                    "data_version": "v2",
+                    "fetched_at": "2026-08-07T00:00:00Z",
+                }
+            ]
+        ),
+        partition / "part-duplicate.parquet",
+    )
+    from limit_pullback.warehouse.asl_adapter import (
+        AslAdapterError,
+        resolve_asl_asof_scope,
+    )
+
+    with pytest.raises(AslAdapterError) as excinfo:
+        resolve_asl_asof_scope(lake, AS_OF)
+    assert "duplicate daily_bars PK" in str(excinfo.value)
+
+
+def test_scope_fails_closed_non_v2_asof_bar(tmp_path):
+    """G. AS_OF bar with data_version != v2 -> fail closed."""
+
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    lake = tmp_path / "lake"
+    _build_lake(lake)
+    partition = lake / "curated" / "daily_bars" / f"trade_date={AS_OF.isoformat()}"
+    path = partition / "part-merged.parquet"
+    table = pq.ParquetFile(path).read()
+    rows = table.to_pylist()
+    for row in rows:
+        row["data_version"] = "v1"
+    path.unlink()
+    pq.write_table(pa.Table.from_pylist(rows), path)
+    from limit_pullback.warehouse.asl_adapter import (
+        AslAdapterError,
+        resolve_asl_asof_scope,
+    )
+
+    with pytest.raises(AslAdapterError) as excinfo:
+        resolve_asl_asof_scope(lake, AS_OF)
+    assert "data_version" in str(excinfo.value)
 
 
 def test_asof_scope_keeps_st_history_intact(tmp_path):
