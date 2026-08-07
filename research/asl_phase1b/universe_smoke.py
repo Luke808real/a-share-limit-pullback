@@ -41,6 +41,7 @@ from eligibility import (  # noqa: E402
     is_mainboard_instrument,
     load_instruments,
     official_st_completed_symbols,
+    required_st_codes_for_asof,
     screen_gate,
 )
 from shadow import AS_OF  # noqa: E402  (date constant only; no strategy run)
@@ -75,22 +76,25 @@ def _read_st_set_at_asof(asl_root: Path) -> set[str]:
     return out
 
 
-def _read_bars_at_asof(asl_root: Path) -> set[str]:
-    """Codes with a daily bar on AS_OF (metadata read)."""
+def _read_bars_at_asof(asl_root: Path) -> dict[str, int]:
+    """{code: volume} for AS_OF daily bars (metadata read)."""
 
     partition = Path(asl_root) / "curated" / "daily_bars" / f"trade_date={AS_OF.isoformat()}"
-    out: set[str] = set()
+    out: dict[str, int] = {}
     if not partition.exists():
         return out
     for file_path in sorted(partition.glob("*.parquet")):
-        table = pq.ParquetFile(file_path).read(columns=["symbol", "trade_date"])
-        for symbol, day in zip(
+        table = pq.ParquetFile(file_path).read(
+            columns=["symbol", "trade_date", "volume"]
+        )
+        for symbol, day, volume in zip(
             table.column("symbol").to_pylist(),
             table.column("trade_date").to_pylist(),
+            table.column("volume").to_pylist(),
             strict=True,
         ):
             if day == AS_OF:
-                out.add(str(symbol).split(".")[0].zfill(6))
+                out[str(symbol).split(".")[0].zfill(6)] = volume
     return out
 
 
@@ -106,8 +110,23 @@ def main(argv: list[str] | None = None) -> int:
         code for code, inst in instruments.items()
         if is_mainboard_instrument(inst)
     )
+    bars_volume = _read_bars_at_asof(args.asl_root)
+    required_st_codes = required_st_codes_for_asof(
+        instruments, bars_volume, AS_OF
+    )
+    listed = {
+        code
+        for code in mainboard
+        if not (
+            (instruments[code]["list_date"] is not None
+             and AS_OF < instruments[code]["list_date"])
+            or (instruments[code]["delist_date"] is not None
+                and AS_OF >= instruments[code]["delist_date"])
+        )
+    }
     required_symbols = {
-        code + (".SH" if code.startswith("6") else ".SZ") for code in mainboard
+        code + (".SH" if code.startswith("6") else ".SZ")
+        for code in required_st_codes
     }
     completed = official_st_completed_symbols(args.asl_root)
     frozen = set(json.loads(args.universe.read_text())["members"])
@@ -122,11 +141,10 @@ def main(argv: list[str] | None = None) -> int:
         code + (".SH" if code.startswith("6") else ".SZ") for code in targeted_codes
     }
 
-    gate = screen_gate(args.asl_root, AS_OF, mainboard)
+    gate = screen_gate(args.asl_root, AS_OF, required_st_codes)
 
     # Per-stock eligibility table (metadata only; no strategy).
     st_asof = _read_st_set_at_asof(args.asl_root)
-    bars_asof = _read_bars_at_asof(args.asl_root)
     rows: list[dict[str, Any]] = []
     for code in SMOKE_CODES:
         inst = instruments.get(code)
@@ -139,7 +157,7 @@ def main(argv: list[str] | None = None) -> int:
                 }
             )
             continue
-        bar = code in bars_asof
+        bar = code in bars_volume and (bars_volume[code] or 0) > 0
         row = (
             {
                 "trade_date": AS_OF,
@@ -175,9 +193,17 @@ def main(argv: list[str] | None = None) -> int:
             "targeted_st_completed_code_n": len(
                 targeted_symbols & completed
             ),
-            "required_mainboard_code_n": len(mainboard),
-            "required_mainboard_symbol_n": len(required_symbols),
             "frozen_universe_n": len(frozen),
+        },
+        "required_scope": {
+            "mainboard_instrument_n": len(mainboard),
+            "not_listed_or_delisted_n": len(mainboard) - len(listed),
+            "suspended_or_no_bar_n": len(listed) - len(required_st_codes),
+            "required_st_code_n": len(required_st_codes),
+            "completed_st_code_n_within_required": len(
+                required_symbols & completed
+            ),
+            "missing_st_coverage_n": len(required_symbols - completed),
         },
         "screen_gate": gate,
         "per_stock_smoke": {"code_n": len(rows), "rows": rows},

@@ -209,6 +209,44 @@ def eligibility_for_date(
     return "ELIGIBLE"
 
 
+def required_st_codes_for_asof(
+    instruments: Mapping[str, Mapping[str, Any]],
+    bars_at_asof: Mapping[str, Any],
+    as_of: date,
+) -> list[str]:
+    """Required ST coverage scope for *as_of* — the codes that actually reach
+    the ST check (frozen eligibility order steps 1-3 passed).
+
+    Codes eliminated before the ST check are NOT part of the required ST
+    coverage scope:
+
+    * step 1  non-main-board                          -> excluded
+    * step 2  not listed / delisted on *as_of*        -> excluded
+    * step 3  suspended / no valid trading AS_OF bar  -> excluded
+
+    ``bars_at_asof`` maps code -> volume (or row dict with ``volume``); a
+    missing entry or volume <= 0 means no valid trading bar.  Sorted for
+    determinism.
+    """
+
+    out: list[str] = []
+    for code, instrument in instruments.items():
+        if not is_mainboard_instrument(instrument):
+            continue
+        list_date = instrument.get("list_date")
+        delist_date = instrument.get("delist_date")
+        if (list_date is not None and as_of < list_date) or (
+            delist_date is not None and as_of >= delist_date
+        ):
+            continue
+        bar = bars_at_asof.get(code)
+        volume = bar.get("volume") if isinstance(bar, dict) else bar
+        if bar is None or (volume or 0) <= 0:
+            continue
+        out.append(code)
+    return out
+
+
 def is_asof_strategy_eligible(
     code: str,
     as_of: date,

@@ -28,6 +28,7 @@ from eligibility import (  # noqa: E402
     is_asof_strategy_eligible,
     is_mainboard_instrument,
     mask_timeline_dates,
+    required_st_codes_for_asof,
     screen_gate,
     st_exclusion_ready,
 )
@@ -196,6 +197,67 @@ def test_zero_st_rows_with_proven_scope_ready(tmp_path):
     _write_marker(lake, ["600519.SH", "601318.SH"])
     required = ["600519", "601318"]
     assert st_exclusion_ready(lake, AS_OF, required) is True
+    assert screen_gate(lake, AS_OF, required) == "READY"
+
+
+def _scope_instruments():
+    """Synthetic instruments for the required-scope tests: one ordinary,
+    one delisted, one not-yet-listed, one suspended, one non-main-board."""
+
+    return {
+        "600519": _instrument(code="600519", exchange="SH"),                          # ordinary
+        "601318": _instrument(code="601318", exchange="SH"),                          # ordinary
+        "600000": _instrument(code="600000", exchange="SH", delist_date=date(2026, 1, 1)),  # delisted
+        "600001": _instrument(code="600001", exchange="SH", list_date=date(2026, 8, 7)),    # not yet listed
+        "600002": _instrument(code="600002", exchange="SH"),                          # suspended (no bar)
+        "300750": _instrument(code="300750", exchange="SZ"),                          # non-main-board
+    }
+
+
+def test_delisted_code_not_required_for_st_coverage():
+    instruments = _scope_instruments()
+    bars = {"600519": 100000, "601318": 100000, "600002": 0}
+    required = required_st_codes_for_asof(instruments, bars, AS_OF)
+    assert "600000" not in required  # delisted before AS_OF
+
+
+def test_not_yet_listed_code_not_required():
+    instruments = _scope_instruments()
+    bars = {"600519": 100000, "601318": 100000}
+    required = required_st_codes_for_asof(instruments, bars, AS_OF)
+    assert "600001" not in required  # lists after AS_OF
+
+
+def test_suspended_or_no_bar_code_not_required():
+    instruments = _scope_instruments()
+    bars = {"600519": 100000, "601318": 100000, "600002": 0}
+    required = required_st_codes_for_asof(instruments, bars, AS_OF)
+    assert "600002" not in required  # no valid trading bar
+
+
+def test_listed_trading_mainboard_code_required():
+    instruments = _scope_instruments()
+    bars = {"600519": 100000, "601318": 100000, "600002": 0}
+    required = required_st_codes_for_asof(instruments, bars, AS_OF)
+    assert "600519" in required
+    assert "601318" in required
+    assert "300750" not in required  # non-main-board
+
+
+def test_incomplete_required_set_not_ready(tmp_path):
+    """Incomplete coverage of the REQUIRED scope -> ST_DATA_NOT_READY (a
+    completed marker that omits required codes cannot publish the screen)."""
+
+    lake = tmp_path / "lake"
+    _write_marker(lake, ["600519.SH"])  # official completion: one symbol
+    required = ["600519", "601318"]
+    assert screen_gate(lake, AS_OF, required) == "ST_DATA_NOT_READY"
+
+
+def test_complete_required_set_ready(tmp_path):
+    lake = tmp_path / "lake"
+    _write_marker(lake, ["600519.SH", "601318.SH"])
+    required = ["600519", "601318"]
     assert screen_gate(lake, AS_OF, required) == "READY"
 
 
