@@ -1,8 +1,9 @@
-# VFLASH × ASHARE-LAKE — PHASE 1A EVIDENCE REPORT (REVIEW ROUND 1)
+# VFLASH × ASHARE-LAKE — PHASE 1A EVIDENCE REPORT (REVIEW ROUND 2)
 
 > Status: **field parity PASS with explicit deltas (evidence, not approval)**.
-> This report records the completed Phase 1A work and the review-round-1
-> fixes that followed independent code review of commit `81146dc`.
+> This report records the completed Phase 1A work and the review-round-1 and
+> review-round-2 fixes that followed independent code review of commit
+> `81146dc`.
 > It is NOT an approval to begin Phase 1B. **Phase 1B has NOT been approved.**
 
 ## 1. Source identity
@@ -50,11 +51,16 @@ ADR-008 production rule (evidence: `warehouse/continuity.py`,
 - rounding: prices 0.0001 ROUND_HALF_UP; pct_change (close−preclose)/preclose×100
   quantized 0.0001 ROUND_HALF_UP.
 
-**Review-round-1 clarification:** the predecessor is the LAST VALID CLOSE PER
-CODE before the window (possibly several sessions earlier: suspension, halt,
-holiday); the adapter searches a bounded 400-calendar-day predecessor window
-with partition pruning and classifies MISSING_PRECLOSE (never guesses) when
-no predecessor exists.
+**Review-round-2 semantics (no day-count cutoff):** the predecessor is the
+LAST VALID CLOSE PER CODE before the window (possibly thousands of sessions
+earlier: suspension, halt, holiday).  The adapter enumerates ASL daily-bar
+day partitions strictly before `start`, traverses newest → oldest, keeps a
+set of unresolved requested codes, records the first valid positive close
+per code as its predecessor, stops once all codes are resolved, and stops per
+code at its instrument listing boundary.  Codes with no predecessor anywhere
+in the available ASL history are classified MISSING_PRECLOSE, never guessed.
+Regression: a predecessor ~517 calendar days before the window is found
+(`test_predecessor_far_beyond_400_days_still_found`).
 
 ## 4. ASL input contract (Phase 1A)
 
@@ -77,18 +83,24 @@ never opened (proven by test with corrupt out-of-range files).
   guards (`daily_bars`, `trading_status`, `trading_calendar`, `instruments`);
   missing-bar gate (absent bar allowed ONLY when explicitly proven
   suspended/not-listed/delisted, otherwise raises); review-round-1 status
-  semantics; bounded predecessor seeding; Decimal quantization; frozen
-  pct_change; `turnover_rate` field present and always None; timezone-aware
-  parsed `asl_fetched_at`; `AslAdapterError` (adapter-specific, narrow).
-- `tests/test_asl_adapter.py` — 31 offline unit tests.
+  semantics; **round-2 backward predecessor search (no day-count cutoff)**;
+  **centralized status-vocabulary validation applied BEFORE missing-bar
+  interpretation**; Decimal quantization with parsable-value fail-closed;
+  frozen pct_change; `turnover_rate` field present and always None;
+  timezone-aware parsed `asl_fetched_at`; `AslAdapterError`
+  (adapter-specific, narrow).
+- `tests/test_asl_adapter.py` — 33 offline unit tests.
 - `research/asl_phase1a/parity.py` — read-only parity GATE
-  (PASS / BLOCKED_PARITY / BLOCKED_DATA; exit 0 only for PASS).
+  (PASS / BLOCKED_PARITY / BLOCKED_DATA; exit 0 only for PASS) with
+  round-2 strict status taxonomy, trade-status gate and observed maxima.
 - `research/asl_phase1a/parity_summary.json` — compact deterministic summary
-  (committed; no absolute machine paths).
+  (committed; no absolute machine paths) with observed maxima and
+  status/trade-status counts (self-sufficient).
 - `research/asl_phase1a/artifacts/.gitignore` — full row-level report lives
   under the gitignored artifacts dir.
 - `tests/test_parity_harness.py` — MA-window classifier tests incl. the
-  hole-aging regression (MA5 → MA10 → MA20).
+  hole-aging regression (MA5 → MA10 → MA20), the 9-combination status
+  taxonomy tests, and the trade-status/known-is_st hard-failure tests.
 - `docs/migrations/VFLASH_ASHARE_LAKE_PHASE1A_REPORT.md` — this file.
 
 The old ~23k-line `parity_report.json` was removed from the branch and
@@ -131,6 +143,7 @@ Real ASL rows (TDX-sourced; official `asl demo`, 2026-05-28 → 2026-08-06,
 | pct_change (frozen rule) | max abs diff 0.0 |
 | structure (limit-close / one-word / T-word) | 0 mismatches |
 | MA5/10/20 on CLEAN windows | 0 mismatches (CLEAN counts below) |
+| observed maxima | PRICE abs 0.0000 / rel 0; VOLUME rel 3.9e-05; AMOUNT rel 5.7e-08; PCT abs 0.0 |
 | hard failure count | **0** |
 
 ### 8.2 DATA COMPLETENESS DELTA (non-fatal, explicitly classified)
@@ -155,15 +168,26 @@ Real ASL rows (TDX-sourced; official `asl demo`, 2026-05-28 → 2026-08-06,
 
 | category | count |
 |---|---|
-| EXACT_STATUS_MATCH | 33 |
+| EXACT_STATUS_MATCH | 314 |
 | LEGACY_UNKNOWN_TO_ASL_TRUE | 4 |
-| LEGACY_UNKNOWN_TO_ASL_FALSE | 281 |
+| LEGACY_UNKNOWN_TO_ASL_FALSE | 36 |
 | TRUE_STATUS_CONFLICT | 0 |
 
-Legacy ADR-008-era rows carry `is_st=None`; the adapter derives ST from ASL
-status rows. Unknown→known is a documented semantic upgrade, NOT exact
-parity. Missing status row + positive bar → trade_status=True, is_st=None
-(the adapter never claims normal from absence).
+Round-2 taxonomy (exact chain): None==None counts as EXACT; known→None
+counts as TRUE_STATUS_CONFLICT (a hard parity failure); unknown→known is a
+documented semantic upgrade (non-fatal).  Invariant holds:
+STATUS_CATEGORY_TOTAL (354) == COMPARED_ROW_N (354).
+
+TRADE_STATUS: exact 354, conflict 0 (trade_status mismatch is a hard parity
+failure).
+
+The status dataset used for the round-2 run is PIT-correct: dense EM daily
+rows for the window (fetched per official `asl run daily --group core
+--trade-date`; ST semantics match for the sample) plus bar-gap-derived
+suspension rows for 000524 6/24–7/7.  The retroactively-stamped EM rows for
+those 10 suspended sessions were non-PIT (current-state stamped) and were
+removed from the throwaway pilot lake, after which the official derive
+restored the authoritative suspended rows (pilot-lake curation, documented).
 
 ### 8.4 STRATEGY SMOKE PARITY (latest common date only)
 
@@ -210,14 +234,14 @@ architecture decision.
 ## 12. Review-gate tests run (round 1)
 
 ```
-tests/test_asl_adapter.py        → 31 passed
-tests/test_parity_harness.py     → 5 passed
+tests/test_asl_adapter.py        → 33 passed
+tests/test_parity_harness.py     → 18 passed
 test_adr008_data_correctness + test_warehouse_validate +
 test_corporate_action_preclose + test_asl_adapter + test_parity_harness
-                                 → 65 passed (combined run)
+                                 → 80 passed (combined run, round 2)
 python3 -m compileall -q src/limit_pullback/warehouse/asl_adapter.py → OK
 git diff --check                 → clean
-parity gate (real ASL vs frozen canonical) → PASS, exit 0
+parity gate (real ASL vs frozen canonical) → PASS, exit 0, hard_failures 0
 ```
 
 No full-market verification; no state generations; no network inside tests.
@@ -247,9 +271,20 @@ finalization (self-hash excluded).
 ## 15. Repair-round provenance
 
 This revision of the report and the accompanying code changes were produced
-in response to independent code review of commit `81146dc` (round 1).
-Blocker-by-blocker resolution is recorded in the PR body
-(`CHATGPT_REVIEW_ROUND_1 = FIXED_PENDING_REREVIEW`).
+in response to independent code review of commit `81146dc` (round 1) and its
+rereview (round 2).  Blocker-by-blocker resolution is recorded in the PR body
+(`CHATGPT_REVIEW_ROUND_1 = FIXED_PENDING_REREVIEW`; round 2 =
+`CHATGPT_REVIEW_ROUND_2 = FIXED_PENDING_FINAL_REVIEW`).
+
+Round-2 fixes: (A) 400-day predecessor cutoff removed — partition-pruned
+backward search, newest → oldest, per-code listing boundary, no day-count
+cutoff; (B) status vocabulary validated before missing-bar interpretation;
+(C) strict status taxonomy (None==None → EXACT, known→None → CONFLICT) with
+the per-row invariant; (D) trade_status mismatch and TRUE_STATUS_CONFLICT are
+hard parity failures; (E) summary carries observed maxima and
+status/trade-status counts; (F) runtime-contract wording corrected to
+exactly what is implemented (datasets, columns, parsable values,
+`data_version==v2`, unit semantics — no claim of Arrow type validation).
 
 ## 16. Phase 1B status
 

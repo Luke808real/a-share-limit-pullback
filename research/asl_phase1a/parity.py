@@ -141,6 +141,49 @@ def classify_ma_window(
     return f"HOLE_AFFECTED_MA{n}"
 
 
+def classify_status(
+    legacy_is_st: bool | None,
+    adapter_is_st: bool | None,
+) -> str:
+    """Review-round-2 status taxonomy (exact chain).
+
+    None == None counts as EXACT_STATUS_MATCH; a known value mapped to
+    adapter None counts as TRUE_STATUS_CONFLICT (the adapter must not lose
+    known ST knowledge).
+    """
+
+    if legacy_is_st == adapter_is_st:
+        return "EXACT_STATUS_MATCH"
+    if legacy_is_st is None and adapter_is_st is True:
+        return "LEGACY_UNKNOWN_TO_ASL_TRUE"
+    if legacy_is_st is None and adapter_is_st is False:
+        return "LEGACY_UNKNOWN_TO_ASL_FALSE"
+    return "TRUE_STATUS_CONFLICT"
+
+
+def status_gate_issues(
+    legacy_is_st: bool | None,
+    adapter_is_st: bool | None,
+    legacy_trade_status: bool,
+    adapter_trade_status: bool,
+) -> tuple[str, list[str]]:
+    """Status category plus the hard-failure triggers for one compared row."""
+
+    category = classify_status(legacy_is_st, adapter_is_st)
+    issues: list[str] = []
+    if legacy_trade_status != adapter_trade_status:
+        issues.append(
+            f"TRADE_STATUS_CONFLICT(legacy={legacy_trade_status},"
+            f"adapter={adapter_trade_status})"
+        )
+    if category == "TRUE_STATUS_CONFLICT":
+        issues.append(
+            f"TRUE_STATUS_CONFLICT(legacy_is_st={legacy_is_st},"
+            f"adapter_is_st={adapter_is_st})"
+        )
+    return category, issues
+
+
 def _read_legacy(
     legacy_root: Path, snapshot: str, codes: set[str], start: date, as_of: date
 ) -> dict[str, list[dict[str, Any]]]:
@@ -210,6 +253,20 @@ def _compare_code(
         "MA10": {"CLEAN": 0, "CLEAN_MISMATCH": 0, "HOLE_AFFECTED": 0},
         "MA20": {"CLEAN": 0, "CLEAN_MISMATCH": 0, "HOLE_AFFECTED": 0},
     }
+    status_totals = {
+        "EXACT_STATUS_MATCH": 0,
+        "LEGACY_UNKNOWN_TO_ASL_TRUE": 0,
+        "LEGACY_UNKNOWN_TO_ASL_FALSE": 0,
+        "TRUE_STATUS_CONFLICT": 0,
+    }
+    trade_status_counts = {"EXACT": 0, "CONFLICT": 0}
+    maxima = {
+        "price_abs": Decimal("0"),
+        "price_rel": Decimal("0"),
+        "volume_rel": Decimal("0"),
+        "amount_rel": Decimal("0"),
+        "pct_abs": Decimal("0"),
+    }
     legacy_holes: list[str] = []
 
     for day in all_sessions:
@@ -245,6 +302,8 @@ def _compare_code(
                 "abs_diff": str(abs(lv - av)), "rel_diff": str(_rel(lv, av)),
                 "ok": ok,
             }
+            maxima["price_abs"] = max(maxima["price_abs"], abs(lv - av))
+            maxima["price_rel"] = max(maxima["price_rel"], _rel(lv, av))
         for field in ("volume", "amount"):
             lv = Decimal(str(legacy[field]))
             av = Decimal(str(adapter[field]))
@@ -258,6 +317,8 @@ def _compare_code(
                 "legacy": str(lv), "adapter": str(av),
                 "rel_diff": str(_rel(lv, av)), "ok": ok,
             }
+            key = "volume_rel" if field == "volume" else "amount_rel"
+            maxima[key] = max(maxima[key], _rel(lv, av))
 
         preclose_total += 1
         if Decimal(str(legacy["preclose"])) == Decimal(str(adapter["preclose"])):
@@ -278,28 +339,35 @@ def _compare_code(
         fields["pct_change_recomputed"] = {
             "legacy": str(lpct), "adapter": str(apct), "ok": pct_ok,
         }
+        if lpct is not None and apct is not None:
+            maxima["pct_abs"] = max(maxima["pct_abs"], abs(lpct - apct))
 
-        # Status semantic delta categories (never hidden).
+        # Status semantic delta categories (never hidden) + trade_status gate.
         legacy_is_st = (
             bool(legacy["is_st"]) if legacy.get("is_st") is not None else None
         )
         adapter_is_st = adapter["is_st"]
-        if legacy_is_st is None:
-            if adapter_is_st is True:
-                status_deltas["LEGACY_UNKNOWN_TO_ASL_TRUE"] += 1
-            elif adapter_is_st is False:
-                status_deltas["LEGACY_UNKNOWN_TO_ASL_FALSE"] += 1
-        elif adapter_is_st is None:
-            status_deltas["LEGACY_UNKNOWN_TO_ASL_FALSE"] += 1
-        elif legacy_is_st == adapter_is_st:
-            status_deltas["EXACT_STATUS_MATCH"] += 1
+        legacy_trade_status = bool(legacy.get("trade_status", True))
+        adapter_trade_status = bool(adapter["trade_status"])
+        category, status_issues = status_gate_issues(
+            legacy_is_st,
+            adapter_is_st,
+            legacy_trade_status,
+            adapter_trade_status,
+        )
+        status_totals[category] += 1
+        if legacy_trade_status == adapter_trade_status:
+            trade_status_counts["EXACT"] += 1
         else:
-            status_deltas["TRUE_STATUS_CONFLICT"] += 1
+            trade_status_counts["CONFLICT"] += 1
+        for issue in status_issues:
+            hard_failures.append(f"{code}:{day}:{issue}")
         fields["status"] = {
             "legacy_is_st": legacy_is_st,
             "adapter_is_st": adapter_is_st,
-            "legacy_trade_status": bool(legacy.get("trade_status", True)),
-            "adapter_trade_status": adapter["trade_status"],
+            "legacy_trade_status": legacy_trade_status,
+            "adapter_trade_status": adapter_trade_status,
+            "category": category,
         }
 
         legacy_bar = _to_bar(legacy)
@@ -462,7 +530,9 @@ def _compare_code(
         "ma_details": ma_report,
         "anchor": anchor_report,
         "stage_smoke": stage_smoke,
-        "status_deltas": status_deltas,
+        "status_deltas": status_totals,
+        "trade_status_counts": trade_status_counts,
+        "maxima": {key: str(value) for key, value in maxima.items()},
         "turnover_not_comparable": turnover_not_comparable,
         "legacy_holes": legacy_holes,
     }
@@ -730,6 +800,29 @@ def main(argv: list[str] | None = None) -> int:
             "TRUE_STATUS_CONFLICT",
         )
     }
+    status_category_total = sum(status_totals.values())
+    if status_category_total != compared_rows:
+        hard_failures.append(
+            f"STATUS_CATEGORY_TOTAL({status_category_total}) != "
+            f"COMPARED_ROW_N({compared_rows})"
+        )
+    trade_status_exact = sum(
+        r["trade_status_counts"]["EXACT"]
+        for r in results
+        if "trade_status_counts" in r
+    )
+    trade_status_conflict = sum(
+        r["trade_status_counts"]["CONFLICT"]
+        for r in results
+        if "trade_status_counts" in r
+    )
+    global_maxima = {
+        key: max(
+            (Decimal(r["maxima"][key]) for r in results if "maxima" in r),
+            default=Decimal("0"),
+        )
+        for key in ("price_abs", "price_rel", "volume_rel", "amount_rel", "pct_abs")
+    }
     ma_totals = {
         key: {
             metric: sum(
@@ -792,9 +885,23 @@ def main(argv: list[str] | None = None) -> int:
             "pct_abs": str(PCT_ABS),
             "ma_rel": str(MA_REL),
         },
+        "observed_maxima": {
+            "PRICE_MAX_ABS_DIFF": str(global_maxima["price_abs"]),
+            "PRICE_MAX_REL_DIFF": str(global_maxima["price_rel"]),
+            "VOLUME_MAX_REL_DIFF": str(global_maxima["volume_rel"]),
+            "AMOUNT_MAX_REL_DIFF": str(global_maxima["amount_rel"]),
+            "PCT_MAX_ABS_DIFF": str(global_maxima["pct_abs"]),
+        },
         "field": {
             "preclose_exact": f"{preclose_exact}/{compared_rows}",
             "structure_mismatches": structure_mismatch,
+        },
+        "status_counts": {
+            "STATUS_CATEGORY_TOTAL": status_category_total,
+            "COMPARED_ROW_N": compared_rows,
+            "TRADE_STATUS_EXACT_N": trade_status_exact,
+            "TRADE_STATUS_CONFLICT_N": trade_status_conflict,
+            "categories": status_totals,
         },
         "status_deltas": status_totals,
         "ma": ma_totals,

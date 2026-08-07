@@ -341,6 +341,26 @@ def test_unknown_status_fails_closed(tmp_path):
         _load(tmp_path)
 
 
+def test_unknown_status_with_missing_bar_still_blocks(tmp_path):
+    """Review round 2: status vocabulary is validated BEFORE missing-bar
+    interpretation, so an unknown status must raise even when the bar is
+    absent and is_trading=False."""
+
+    bars = {"600999.SZ": _bar_rows("600999.SZ", [date(2026, 6, 11)], "5.00")}
+    _build_lake(
+        tmp_path,
+        bars=bars,
+        instruments=[
+            {"symbol": "600999.SZ", "list_date": None, "delist_date": None},
+        ],
+        status_rows=[
+            {"symbol": "600999.SZ", "trade_date": date(2026, 6, 12), "is_trading": False, "status": "halted"},
+        ],
+    )
+    with pytest.raises(AslAdapterError, match="UNSUPPORTED_STATUS:600999:2026-06-12"):
+        _load(tmp_path, codes=["600999"])
+
+
 def test_preclose_seed_previous_session_valid(tmp_path):
     _build_lake(tmp_path)
     result = load_asl_daily_slice(
@@ -471,21 +491,28 @@ def test_duplicate_trading_status_pk_fails_closed(tmp_path):
 
 def test_partition_pruning_out_of_range_not_read(tmp_path):
     _build_lake(tmp_path)
-    # Valid bar outside the predecessor/window range: must not be emitted.
-    _write(
-        tmp_path / "curated" / "daily_bars" / "trade_date=2025-01-02" / "part-merged.parquet",
-        [
+    # Valid predecessor bars for EVERY code far before the window: the
+    # backward search resolves all codes here and stops, so older partitions
+    # (including corrupt ones) are never opened.
+    predecessor_bars = []
+    for symbol in ("000001.SZ", "000010.SZ", "000524.SZ", "605198.SH", "300750.SZ"):
+        predecessor_bars.append(
             {
-                "symbol": "000001.SZ", "trade_date": date(2025, 1, 2),
+                "symbol": symbol, "trade_date": date(2025, 1, 3),
                 "open": 10.0, "high": 10.1, "low": 9.9, "close": 10.0,
                 "volume": 1000, "amount": 10000.0, "source": "tdx_protocol",
                 "data_version": "v2", "fetched_at": "2026-08-07T00:00:00Z",
             }
-        ],
+        )
+    _write(
+        tmp_path / "curated" / "daily_bars" / "trade_date=2025-01-03" / "part-merged.parquet",
+        predecessor_bars,
     )
-    # Corrupt files in out-of-range partitions: any read would raise.
+    # Corrupt files in partitions that must never be opened: the search stops
+    # at 2025-01-03 (all codes resolved), the window reads stay in 2026-06,
+    # so any read of these would raise and fail the test.
     out_of_range = [
-        tmp_path / "curated" / "daily_bars" / "trade_date=2025-01-03" / "part-bad.parquet",
+        tmp_path / "curated" / "daily_bars" / "trade_date=2025-01-02" / "part-bad.parquet",
         tmp_path / "curated" / "trading_calendar" / "trade_date=2019" / "part-bad.parquet",
         tmp_path / "curated" / "trading_status" / "trade_date=2025-05" / "part-bad.parquet",
     ]
@@ -494,7 +521,42 @@ def test_partition_pruning_out_of_range_not_read(tmp_path):
         path.write_bytes(b"NOT A PARQUET FILE" * 100)
     result = _load(tmp_path)
     assert all(row.trade_date >= date(2026, 6, 11) for row in result.rows)
-    assert all(row.trade_date != date(2025, 1, 2) for row in result.rows)
+    assert all(row.trade_date != date(2025, 1, 3) for row in result.rows)
+    # The far-back predecessor feeds the first window session's preclose.
+    first = _row(result, "000001", date(2026, 6, 11))
+    assert first.preclose == Decimal("10.0000")
+
+
+def test_predecessor_far_beyond_400_days_still_found(tmp_path):
+    """Review round 2: no day-count cutoff.  A predecessor more than 400
+    calendar days before the window must still seed the chain."""
+
+    bars = {
+        "600999.SZ": [
+            {"trade_date": date(2025, 1, 10), "open": 7.00, "high": 7.10, "low": 6.95, "close": 7.00, "volume": 50000, "amount": 350000.0},
+            {"trade_date": date(2026, 6, 12), "open": 7.50, "high": 7.60, "low": 7.40, "close": 7.50, "volume": 60000, "amount": 450000.0},
+            {"trade_date": date(2026, 6, 15), "open": 7.60, "high": 7.70, "low": 7.50, "close": 7.60, "volume": 60000, "amount": 456000.0},
+        ],
+    }
+    _build_lake(
+        tmp_path,
+        bars=bars,
+        instruments=[
+            {"symbol": "600999.SZ", "list_date": None, "delist_date": None},
+        ],
+        status_rows=[],
+    )
+    result = load_asl_daily_slice(
+        tmp_path,
+        as_of=date(2026, 6, 15),
+        start=date(2026, 6, 12),
+        codes=["600999"],
+    )
+    row = _row(result, "600999", date(2026, 6, 12))
+    assert row.row_status == "VALID_ROW"
+    # 2025-01-10 is ~517 calendar days before 2026-06-12 and there is no bar
+    # in between: the frozen contract still requires THIS close as preclose.
+    assert row.preclose == Decimal("7.0000")
 
 
 def test_turnover_rate_always_none(tmp_path):

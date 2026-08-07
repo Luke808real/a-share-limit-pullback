@@ -16,6 +16,8 @@ Fail-closed contract (review round 1):
 * All four required datasets must exist and expose the required columns;
   any missing dataset raises :class:`AslAdapterError` (no empty valid slice).
 * ``daily_bars.data_version`` must be ``v2`` (shares); any other value raises.
+* All scalar values must be parsable into the expected Decimal/int forms;
+  unparsable values raise :class:`AslAdapterError` (no silent NaN).
 * Duplicate primary keys in ``daily_bars`` / ``trading_status`` /
   ``trading_calendar`` / ``instruments`` raise with deterministic evidence.
 * A calendar trading session without a daily bar raises unless the absence
@@ -36,25 +38,29 @@ Status semantics (review round 1):
 * zero-volume bar with no status row -> treated as a suspended placeholder
   (trade_status=False).
 
-Preclose seeding (review round 1): the frozen contract's predecessor is the
-last valid close per code BEFORE the requested window -- possibly several
-sessions earlier (suspension, halt, holiday).  The search is bounded by
-``PREDECESSOR_LOOKBACK_DAYS`` behind ``start`` and uses partition pruning; a
-code with no predecessor inside the bound is classified MISSING_PRECLOSE,
-never guessed.
+Preclose seeding (review round 2): the frozen contract's predecessor is the
+LAST VALID CLOSE PER CODE before the requested window -- possibly thousands
+of sessions earlier (suspension, halt, holiday).  The search traverses ASL
+daily-bar day partitions newest -> oldest, pruning by requested code and by
+the instrument listing boundary, and stops as soon as every relevant code is
+resolved; there is NO day-count correctness cutoff.  A code with no
+predecessor anywhere in the available ASL history (or before its listing
+boundary) is classified MISSING_PRECLOSE, never guessed.
 
 Determinism: the returned slice is a pure function of
 (asl_root, tested_compat_revision, start, as_of, universe prefixes).
 ``tested_compat_revision`` is declarative provenance for the ASL revision the
 adapter was developed and parity-tested against; the actual runtime contract
-(datasets, columns, types, data_version) is validated from the lake itself.
+validated from the lake itself is: required datasets present, required
+columns present, scalar values parsable, ``daily_bars.data_version == v2``
+(shares unit semantics).  Arrow schema *types* are not explicitly validated.
 """
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 from typing import Literal, Sequence
@@ -78,11 +84,6 @@ PCT_QUANTUM = Decimal("0.0001")
 #: volume in shares (see ASL docs/datasets/schema.md "成交量单位").
 DAILY_BARS_SHARES_VERSION = "v2"
 
-#: Bounded predecessor-search window behind the requested start.  This is a
-#: search bound, not a correctness boundary: no predecessor inside the bound
-#: yields MISSING_PRECLOSE, never a guess.
-PREDECESSOR_LOOKBACK_DAYS = 400
-
 KNOWN_STATUS = frozenset({"normal", "st", "*st", "suspended"})
 
 RowStatus = Literal[
@@ -104,6 +105,36 @@ class AslAdapterError(RuntimeError):
 
 def _quantize(value: Decimal, quantum: Decimal) -> Decimal:
     return value.quantize(quantum, rounding=ROUND_HALF_UP)
+
+
+def _to_decimal(
+    value: object | None,
+    *,
+    code: str,
+    day: date,
+    field: str,
+) -> Decimal | None:
+    """Parse one scalar into Decimal; unparsable values fail closed."""
+
+    if value is None:
+        return None
+    try:
+        return Decimal(str(value))
+    except Exception as exc:  # noqa: BLE001 — any malformed value fails closed
+        raise AslAdapterError(
+            f"UNPARSABLE_VALUE:{code}:{day}:{field}:{value!r}"
+        ) from exc
+
+
+def _checked_status(status: str, *, code: str, day: date) -> str:
+    """Validate the status vocabulary BEFORE any branch uses it."""
+
+    status_lower = status.lower()
+    if status_lower not in KNOWN_STATUS:
+        raise AslAdapterError(
+            f"UNSUPPORTED_STATUS:{code}:{day}:{status!r}"
+        )
+    return status_lower
 
 
 def _pct_change(close: Decimal, preclose: Decimal) -> Decimal | None:
@@ -213,7 +244,7 @@ REQUIRED_COLUMNS = {
 
 
 def _validate_required_datasets(
-    root: Path, lo: date | None, start: date | None, hi: date
+    root: Path, start: date | None, hi: date
 ) -> None:
     """Fail closed unless every required dataset exists with its columns.
 
@@ -238,13 +269,13 @@ def _validate_required_datasets(
                 "trading_status": "month",
             }[dataset]
             partitions = _hive_partitions(root / "curated" / dataset, kind)
-            # daily_bars is read over [lo, hi] (predecessor + window);
-            # calendar/status are only read over the requested window.
-            range_lo = lo if dataset == "daily_bars" else start
+            # daily_bars/calendar/status probes cover the requested window;
+            # the predecessor search reads older partitions with its own
+            # bounds and validates the same contract at read time.
             in_range = [
                 path
                 for key, path in sorted(partitions.items())
-                if _overlaps(key, kind, range_lo, hi)
+                if _overlaps(key, kind, start, hi)
             ]
             if not in_range:
                 raise AslAdapterError(
@@ -418,7 +449,7 @@ def _read_status_rows(
 def _read_bars(
     root: Path,
     codes: set[str],
-    lo: date | None,
+    lo: date,
     hi: date,
 ) -> list[dict[str, object]]:
     """ASL daily_bars rows for *codes* in [lo, hi] (day partitions, pruned)."""
@@ -467,6 +498,85 @@ def _read_bars(
     return rows
 
 
+def _find_predecessor_closes(
+    root: Path,
+    codes: set[str],
+    instruments: dict[str, tuple[str, date | None, date | None]],
+    start: date,
+) -> dict[str, Decimal]:
+    """Last valid close per code strictly before *start* (partition-pruned
+    backward search, newest -> oldest).  No day-count cutoff.
+
+    The search stops per code at its listing boundary (no bars can exist
+    before ``list_date``) and globally once every relevant code is resolved.
+    Codes with no predecessor anywhere in the available ASL history are left
+    out of the result (-> MISSING_PRECLOSE at row construction).
+    """
+
+    partitions = _hive_partitions(root / "curated" / "daily_bars", "day")
+    before_start = sorted(
+        (
+            (date.fromisoformat(key), path)
+            for key, path in partitions.items()
+            if date.fromisoformat(key) < start
+        ),
+        key=lambda item: item[0],
+        reverse=True,
+    )
+
+    unresolved = set(codes)
+    predecessor_close: dict[str, Decimal] = {}
+    seen: dict[tuple[str, date], int] = {}
+    for partition_date, path in before_start:
+        if not unresolved:
+            break
+        # Listing boundary: a code listed at/after *start* can never have a
+        # predecessor; a partition older than list_date cannot contain its bars.
+        for code in list(unresolved):
+            list_date = instruments[code][1]
+            if list_date is not None and list_date >= start:
+                unresolved.discard(code)
+            elif list_date is not None and partition_date < list_date:
+                unresolved.discard(code)
+        if not unresolved:
+            break
+        for file_path in sorted(path.glob("*.parquet")):
+            table = pq.ParquetFile(file_path).read(
+                columns=["symbol", "trade_date", "close", "data_version"]
+            )
+            for symbol, trade_date, close, data_version in zip(
+                table.column("symbol").to_pylist(),
+                table.column("trade_date").to_pylist(),
+                table.column("close").to_pylist(),
+                table.column("data_version").to_pylist(),
+                strict=True,
+            ):
+                match = _SYMBOL_RE.match(str(symbol))
+                if match is None or match.group(1) not in unresolved:
+                    continue
+                code = match.group(1)
+                day = trade_date if isinstance(trade_date, date) else date.fromisoformat(str(trade_date))
+                if str(data_version or "") != DAILY_BARS_SHARES_VERSION:
+                    raise AslAdapterError(
+                        f"daily_bars.data_version={data_version!r} != v2 "
+                        f"(first at {code} {day}); volume unit not guaranteed"
+                    )
+                pk = (code, day)
+                seen[pk] = seen.get(pk, 0) + 1
+                if seen[pk] > 1:
+                    raise AslAdapterError(
+                        f"duplicate daily_bars PK: {code} {day} "
+                        f"(count {seen[pk]})"
+                    )
+                close_value = _to_decimal(
+                    close, code=code, day=day, field="predecessor_close"
+                )
+                if close_value is not None and close_value > 0:
+                    predecessor_close[code] = close_value
+                    unresolved.discard(code)
+    return predecessor_close
+
+
 def _status_mapping(
     status_row: tuple[bool, str] | None,
     *,
@@ -481,11 +591,7 @@ def _status_mapping(
             return False, None  # zero-volume placeholder without status row
         return True, None  # positive bar, ST unknown: never claim normal
     is_trading, status = status_row
-    status_lower = status.lower()
-    if status_lower not in KNOWN_STATUS:
-        raise AslAdapterError(
-            f"UNSUPPORTED_STATUS:{code}:{day}:{status!r}"
-        )
+    status_lower = _checked_status(status, code=code, day=day)
     if not is_trading or status_lower == "suspended":
         return False, True if status_lower in {"st", "*st"} else None
     if status_lower == "normal":
@@ -514,8 +620,7 @@ def load_asl_daily_slice(
     if not root.exists():
         raise FileNotFoundError(f"asl root does not exist: {root}")
     prefixes = tuple(universe_prefixes)
-    lo = start - timedelta(days=PREDECESSOR_LOOKBACK_DAYS) if start else None
-    _validate_required_datasets(root, lo, start, as_of)
+    _validate_required_datasets(root, start, as_of)
 
     instruments = _read_instruments(root)
     if codes is None:
@@ -538,7 +643,12 @@ def load_asl_daily_slice(
 
     sessions = _read_calendar_sessions(root, start, as_of)
     status_rows = _read_status_rows(root, universe_codes, start, as_of)
-    bars = _read_bars(root, universe_codes, lo, as_of)
+    bars = _read_bars(root, universe_codes, start, as_of)
+    predecessor_close = (
+        _find_predecessor_closes(root, universe_codes, instruments, start)
+        if start is not None
+        else {}
+    )
 
     sessions_with_status = {
         key for key in status_rows
@@ -559,15 +669,9 @@ def load_asl_daily_slice(
     )
 
     bars_by_code: dict[str, dict[date, dict[str, object]]] = {}
-    predecessor_close: dict[str, Decimal] = {}
     for row in bars:
         code = str(row["code"])
         day = row["trade_date"]
-        close = Decimal(str(row["close"]))
-        if start is not None and day < start:
-            if close > 0:
-                predecessor_close[code] = close
-            continue
         bars_by_code.setdefault(code, {})[day] = row
 
     emitted: list[AslDailyBarRow] = []
@@ -582,15 +686,21 @@ def load_asl_daily_slice(
             bar = bars_by_code.get(code, {}).get(day)
             if bar is None:
                 status_row = status_rows.get((code, day))
-                if status_row is not None and (
-                    status_row[0] is False
-                    or str(status_row[1]).lower() == "suspended"
-                ):
-                    missing_required_bars.append(
-                        MissingRequiredBar(code, day, "SUSPENDED_BY_STATUS")
+                if status_row is not None:
+                    # Validate the vocabulary BEFORE interpreting the row,
+                    # even when the daily bar is absent (review round 2).
+                    status_lower = _checked_status(
+                        status_row[1], code=code, day=day
                     )
-                    suspended_sessions.append((code, day))
-                    continue
+                    if (
+                        status_row[0] is False
+                        or status_lower == "suspended"
+                    ):
+                        missing_required_bars.append(
+                            MissingRequiredBar(code, day, "SUSPENDED_BY_STATUS")
+                        )
+                        suspended_sessions.append((code, day))
+                        continue
                 if list_date is not None and day < list_date:
                     missing_required_bars.append(
                         MissingRequiredBar(code, day, "NOT_LISTED")
@@ -606,17 +716,29 @@ def load_asl_daily_slice(
                     f"status_row={status_row}"
                 )
 
-            open_value = Decimal(str(bar["open"]))
-            high = Decimal(str(bar["high"]))
-            low = Decimal(str(bar["low"]))
-            close = Decimal(str(bar["close"]))
-            volume = Decimal(str(bar["volume"]))
+            open_value = _to_decimal(bar["open"], code=code, day=day, field="open")
+            high = _to_decimal(bar["high"], code=code, day=day, field="high")
+            low = _to_decimal(bar["low"], code=code, day=day, field="low")
+            close = _to_decimal(bar["close"], code=code, day=day, field="close")
+            volume = _to_decimal(bar["volume"], code=code, day=day, field="volume")
             amount_raw = bar.get("amount")
             amount = (
-                _quantize(Decimal(str(amount_raw)), AMOUNT_QUANTUM)
+                _quantize(
+                    _to_decimal(
+                        amount_raw, code=code, day=day, field="amount"
+                    ),
+                    AMOUNT_QUANTUM,
+                )
                 if amount_raw is not None
                 else None
             )
+            if (
+                open_value is None or high is None or low is None
+                or close is None or volume is None
+            ):
+                raise AslAdapterError(
+                    f"MISSING_REQUIRED_BAR_FIELDS:{code}:{day}"
+                )
 
             trade_status, is_st = _status_mapping(
                 status_rows.get((code, day)),
@@ -631,8 +753,8 @@ def load_asl_daily_slice(
             if preclose is None:
                 row_status: RowStatus = "MISSING_PRECLOSE"
                 reason = (
-                    "no valid predecessor bar for this code within "
-                    f"{PREDECESSOR_LOOKBACK_DAYS} days before start"
+                    "no valid predecessor bar for this code anywhere in the "
+                    "available ASL history before the requested window"
                 )
                 pct_change = None
             elif amount is None:

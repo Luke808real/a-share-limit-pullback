@@ -43,14 +43,33 @@
     "pct_abs": "0.05",
     "ma_rel": "0.001"
   },
+  "observed_maxima": {
+    "PRICE_MAX_ABS_DIFF": "0",
+    "PRICE_MAX_REL_DIFF": "0",
+    "VOLUME_MAX_REL_DIFF": "0.00003865575785402165826890049613",
+    "AMOUNT_MAX_REL_DIFF": "5.714564870131710370544604463E-8",
+    "PCT_MAX_ABS_DIFF": "0"
+  },
   "field": {
     "preclose_exact": "354/354",
     "structure_mismatches": 0
   },
+  "status_counts": {
+    "STATUS_CATEGORY_TOTAL": 354,
+    "COMPARED_ROW_N": 354,
+    "TRADE_STATUS_EXACT_N": 354,
+    "TRADE_STATUS_CONFLICT_N": 0,
+    "categories": {
+      "EXACT_STATUS_MATCH": 314,
+      "LEGACY_UNKNOWN_TO_ASL_TRUE": 4,
+      "LEGACY_UNKNOWN_TO_ASL_FALSE": 36,
+      "TRUE_STATUS_CONFLICT": 0
+    }
+  },
   "status_deltas": {
-    "EXACT_STATUS_MATCH": 33,
+    "EXACT_STATUS_MATCH": 314,
     "LEGACY_UNKNOWN_TO_ASL_TRUE": 4,
-    "LEGACY_UNKNOWN_TO_ASL_FALSE": 281,
+    "LEGACY_UNKNOWN_TO_ASL_FALSE": 36,
     "TRUE_STATUS_CONFLICT": 0
   },
   "ma": {
