@@ -104,6 +104,24 @@ B condition =
 - **002112 三变科技**：FORWARD CASE / HUMAN_SELECTED（盘中人工观察）
 - **大连电瓷**：MANUAL_REVIEW（仓库内无完整时间轴，待人工补证；不自行补造事实）
 
+## 项目状态 / Project Status
+
+```text
+Market data foundation:
+rootSunc/ashare-lake (ASL) — ACCEPTED
+
+Current migration phase:
+Data foundation validation CLOSED
+Production wiring NEXT
+
+Legacy provider backend:
+deprecated / audit-only
+```
+
+- 迁移收口文档：[docs/migrations/VFLASH_ASHARE_LAKE_MIGRATION_CLOSURE.md](docs/migrations/VFLASH_ASHARE_LAKE_MIGRATION_CLOSURE.md)
+- Phase 1B 报告：[docs/migrations/VFLASH_ASHARE_LAKE_PHASE1B_REPORT.md](docs/migrations/VFLASH_ASHARE_LAKE_PHASE1B_REPORT.md)
+- ADR：[docs/adr/ADR-ASL-AUTHORITATIVE-MARKET-DATA.md](docs/adr/ADR-ASL-AUTHORITATIVE-MARKET-DATA.md)
+
 ## 更多文档
 
 - [docs/strategy-overview.md](docs/strategy-overview.md) — 策略概览（更详细）
