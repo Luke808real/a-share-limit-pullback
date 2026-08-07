@@ -734,6 +734,19 @@ def main(argv: list[str] | None = None) -> int:
 
     gate = GATE_PASS if not hard_failures else GATE_BLOCKED_PARITY
 
+    status_coverage = slice_.status_coverage
+    pit_status_gate = (
+        "PASS" if status_coverage.unknown_status_n == 0 else "BLOCKED"
+    )
+    status_provenance = {
+        "PIT_STATUS_PROVENANCE_GATE": pit_status_gate,
+        "TRUSTED_STATUS_BAOSTOCK_N": status_coverage.trusted_baostock_n,
+        "TRUSTED_STATUS_DERIVED_GAP_N": status_coverage.trusted_derived_gap_n,
+        "TRUSTED_STATUS_EASTMONEY_SAME_DAY_N": status_coverage.trusted_eastmoney_same_day_n,
+        "NON_PIT_EASTMONEY_STATUS_IGNORED_N": status_coverage.non_pit_eastmoney_ignored_n,
+        "UNKNOWN_STATUS_N": status_coverage.unknown_status_n,
+    }
+
     full = {
         "gate": gate,
         "hard_failures": hard_failures,
@@ -743,10 +756,11 @@ def main(argv: list[str] | None = None) -> int:
         "window": {"start": start.isoformat(), "as_of": as_of.isoformat()},
         "codes": list(codes),
         "status_coverage": {
-            "mode": slice_.status_coverage.mode,
-            "status_rows_in_window": slice_.status_coverage.status_rows_in_window,
-            "sessions_with_status_row": slice_.status_coverage.sessions_with_status_row,
-            "sessions_without_status_row": slice_.status_coverage.sessions_without_status_row,
+            "mode": status_coverage.mode,
+            "status_rows_in_window": status_coverage.status_rows_in_window,
+            "sessions_with_status_row": status_coverage.sessions_with_status_row,
+            "sessions_without_status_row": status_coverage.sessions_without_status_row,
+            **status_provenance,
         },
         "suspended_sessions": [
             f"{code}:{day.isoformat()}"
@@ -903,6 +917,7 @@ def main(argv: list[str] | None = None) -> int:
             "TRADE_STATUS_CONFLICT_N": trade_status_conflict,
             "categories": status_totals,
         },
+        "status_provenance": status_provenance,
         "status_deltas": status_totals,
         "ma": ma_totals,
         "anchor_smoke": anchor_smoke,

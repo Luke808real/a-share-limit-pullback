@@ -133,16 +133,41 @@ def _build_lake(
             )
 
     if with_status and "trading_status" not in drop_datasets:
-        _write(
-            root / "curated" / "trading_status" / "trade_date=2026-06" / "part-merged.parquet",
-            status_rows
-            or [
-                {"symbol": "000010.SZ", "trade_date": date(2026, 6, 12), "is_trading": True, "status": "st"},
-                {"symbol": "000010.SZ", "trade_date": date(2026, 6, 15), "is_trading": True, "status": "*st"},
-                {"symbol": "000524.SZ", "trade_date": date(2026, 6, 12), "is_trading": False, "status": "suspended"},
-                {"symbol": "000524.SZ", "trade_date": date(2026, 6, 15), "is_trading": True, "status": "normal"},
-            ],
+        default_status = [
+            {"symbol": "000010.SZ", "trade_date": date(2026, 6, 12), "is_trading": True, "status": "st", "source": "baostock", "data_version": "v1", "fetched_at": "2026-08-07T00:00:00Z"},
+            {"symbol": "000010.SZ", "trade_date": date(2026, 6, 15), "is_trading": True, "status": "*st", "source": "baostock", "data_version": "v1", "fetched_at": "2026-08-07T00:00:00Z"},
+            {"symbol": "000524.SZ", "trade_date": date(2026, 6, 12), "is_trading": False, "status": "suspended", "source": "derived_bar_gap", "data_version": "v1", "fetched_at": "2026-08-07T00:00:00Z"},
+        ]
+        if status_rows is not None:
+            filled = []
+            for row in status_rows:
+                filled_row = dict(row)
+                filled_row.setdefault("source", "baostock")
+                filled_row.setdefault("data_version", "v1")
+                filled_row.setdefault("fetched_at", "2026-08-07T00:00:00Z")
+                filled.append(filled_row)
+            status_rows = filled
+        else:
+            status_rows = default_status
+        status_path = (
+            root / "curated" / "trading_status" / "trade_date=2026-06" / "part-merged.parquet"
         )
+        if status_rows:
+            _write(status_path, status_rows)
+        else:
+            status_path.parent.mkdir(parents=True, exist_ok=True)
+            empty_schema = pa.schema(
+                [
+                    ("symbol", pa.string()),
+                    ("trade_date", pa.date32()),
+                    ("is_trading", pa.bool_()),
+                    ("status", pa.string()),
+                    ("source", pa.string()),
+                    ("data_version", pa.string()),
+                    ("fetched_at", pa.timestamp("us", tz="UTC")),
+                ]
+            )
+            pq.write_table(pa.Table.from_pylist([], schema=empty_schema), status_path)
 
 
 def _load(root: Path, **kwargs) -> AslDailySlice:
@@ -245,7 +270,7 @@ def test_missing_bar_normal_status_blocks(tmp_path):
             {"symbol": "600999.SZ", "list_date": None, "delist_date": None},
         ],
         status_rows=[
-            {"symbol": "600999.SZ", "trade_date": date(2026, 6, 12), "is_trading": True, "status": "normal"},
+            {"symbol": "600999.SZ", "trade_date": date(2026, 6, 12), "is_trading": True, "status": "normal", "source": "eastmoney", "fetched_at": "2026-06-12T15:30:00+08:00"},
         ],
     )
     with pytest.raises(AslAdapterError, match="MISSING_REQUIRED_BAR:600999:2026-06-12"):
@@ -292,10 +317,10 @@ def test_status_semantics_explicit_cases(tmp_path):
     _build_lake(
         tmp_path,
         status_rows=[
-            {"symbol": "000001.SZ", "trade_date": date(2026, 6, 11), "is_trading": True, "status": "normal"},
-            {"symbol": "000010.SZ", "trade_date": date(2026, 6, 12), "is_trading": True, "status": "st"},
-            {"symbol": "000524.SZ", "trade_date": date(2026, 6, 12), "is_trading": False, "status": "suspended"},
-            {"symbol": "605198.SH", "trade_date": date(2026, 6, 11), "is_trading": False, "status": "st"},
+            {"symbol": "000001.SZ", "trade_date": date(2026, 6, 11), "is_trading": True, "status": "normal", "source": "eastmoney", "fetched_at": "2026-06-11T15:30:00+08:00"},
+            {"symbol": "000010.SZ", "trade_date": date(2026, 6, 12), "is_trading": True, "status": "st", "source": "baostock"},
+            {"symbol": "000524.SZ", "trade_date": date(2026, 6, 12), "is_trading": False, "status": "suspended", "source": "derived_bar_gap"},
+            {"symbol": "605198.SH", "trade_date": date(2026, 6, 11), "is_trading": False, "status": "st", "source": "eastmoney", "fetched_at": "2026-06-11T15:30:00+08:00"},
         ],
     )
     result = _load(tmp_path)
@@ -307,6 +332,149 @@ def test_status_semantics_explicit_cases(tmp_path):
     assert (suspended.trade_status, suspended.is_st) == (False, None)
     st_not_trading = _row(result, "605198", date(2026, 6, 11))
     assert (st_not_trading.trade_status, st_not_trading.is_st) == (False, True)
+
+
+def test_historical_eastmoney_status_ignored(tmp_path):
+    """A current-state EastMoney row stamped on a historical date must be
+    classified NON_PIT_EASTMONEY and must NOT set is_st / trade_status."""
+
+    _build_lake(
+        tmp_path,
+        status_rows=[
+            {"symbol": "000001.SZ", "trade_date": date(2026, 6, 12), "is_trading": True, "status": "normal", "source": "eastmoney", "fetched_at": "2026-08-07T00:00:00Z"},
+        ],
+    )
+    result = _load(tmp_path)
+    row = _row(result, "000001", date(2026, 6, 12))
+    assert row.trade_status is True
+    assert row.is_st is None  # unknown stays unknown; never normal, never False
+    assert result.status_coverage.non_pit_eastmoney_ignored_n == 1
+    assert result.status_coverage.trusted_eastmoney_same_day_n == 0
+
+
+def test_historical_eastmoney_suspended_cannot_authorize_missing_bar(tmp_path):
+    bars = {"600999.SZ": _bar_rows("600999.SZ", [date(2026, 6, 11)], "5.00")}
+    _build_lake(
+        tmp_path,
+        bars=bars,
+        instruments=[
+            {"symbol": "600999.SZ", "list_date": None, "delist_date": None},
+        ],
+        status_rows=[
+            {"symbol": "600999.SZ", "trade_date": date(2026, 6, 12), "is_trading": False, "status": "suspended", "source": "eastmoney", "fetched_at": "2026-08-07T00:00:00Z"},
+        ],
+    )
+    with pytest.raises(AslAdapterError, match="MISSING_REQUIRED_BAR:600999:2026-06-12"):
+        _load(tmp_path, codes=["600999"])
+
+
+def test_malformed_status_fetched_at_fails_closed(tmp_path):
+    _build_lake(
+        tmp_path,
+        status_rows=[
+            {"symbol": "000010.SZ", "trade_date": date(2026, 6, 12), "is_trading": True, "status": "st", "source": "eastmoney", "fetched_at": "not-a-timestamp"},
+        ],
+    )
+    with pytest.raises(AslAdapterError, match="UNTRUSTED_STATUS_PROVENANCE"):
+        _load(tmp_path)
+
+
+def test_missing_status_fetched_at_fails_closed(tmp_path):
+    _build_lake(
+        tmp_path,
+        status_rows=[
+            {"symbol": "000010.SZ", "trade_date": date(2026, 6, 12), "is_trading": True, "status": "st", "source": "eastmoney", "fetched_at": None},
+        ],
+    )
+    with pytest.raises(AslAdapterError, match="UNTRUSTED_STATUS_PROVENANCE"):
+        _load(tmp_path)
+
+
+def test_is_trading_string_false_fails_closed(tmp_path):
+    _build_lake(
+        tmp_path,
+        status_rows=[
+            {"symbol": "000010.SZ", "trade_date": date(2026, 6, 12), "is_trading": "False", "status": "st", "source": "baostock"},
+        ],
+    )
+    with pytest.raises(AslAdapterError, match="INVALID_BOOL"):
+        _load(tmp_path)
+
+
+def test_baostock_unexpected_semantics_fails_closed(tmp_path):
+    _build_lake(
+        tmp_path,
+        status_rows=[
+            {"symbol": "000010.SZ", "trade_date": date(2026, 6, 12), "is_trading": True, "status": "normal", "source": "baostock"},
+        ],
+    )
+    with pytest.raises(AslAdapterError, match="UNEXPECTED_STATUS_SEMANTICS"):
+        _load(tmp_path)
+
+
+def test_derived_gap_unexpected_semantics_fails_closed(tmp_path):
+    _build_lake(
+        tmp_path,
+        status_rows=[
+            {"symbol": "000524.SZ", "trade_date": date(2026, 6, 12), "is_trading": True, "status": "suspended", "source": "derived_bar_gap"},
+        ],
+    )
+    with pytest.raises(AslAdapterError, match="UNEXPECTED_STATUS_SEMANTICS"):
+        _load(tmp_path)
+
+
+def test_same_day_eastmoney_trusted(tmp_path):
+    _build_lake(
+        tmp_path,
+        status_rows=[
+            {"symbol": "000001.SZ", "trade_date": date(2026, 6, 11), "is_trading": True, "status": "normal", "source": "eastmoney", "fetched_at": "2026-06-11T15:30:00+08:00"},
+            {"symbol": "000010.SZ", "trade_date": date(2026, 6, 11), "is_trading": True, "status": "st", "source": "tdx_protocol", "fetched_at": "2026-06-11T15:30:00+08:00"},
+        ],
+    )
+    result = _load(tmp_path)
+    normal = _row(result, "000001", date(2026, 6, 11))
+    assert (normal.trade_status, normal.is_st) == (True, False)
+    st = _row(result, "000010", date(2026, 6, 11))
+    assert (st.trade_status, st.is_st) == (True, True)
+    assert result.status_coverage.trusted_eastmoney_same_day_n == 2
+
+
+def test_status_provenance_counts_deterministic(tmp_path):
+    _build_lake(
+        tmp_path,
+        status_rows=[
+            {"symbol": "000010.SZ", "trade_date": date(2026, 6, 12), "is_trading": True, "status": "st", "source": "baostock"},
+            {"symbol": "000524.SZ", "trade_date": date(2026, 6, 12), "is_trading": False, "status": "suspended", "source": "derived_bar_gap"},
+            {"symbol": "000001.SZ", "trade_date": date(2026, 6, 11), "is_trading": True, "status": "normal", "source": "eastmoney", "fetched_at": "2026-08-07T00:00:00Z"},
+        ],
+    )
+    first = _load(tmp_path)
+    second = _load(tmp_path)
+    assert first.status_coverage == second.status_coverage
+    assert first.status_coverage.trusted_baostock_n == 1
+    assert first.status_coverage.trusted_derived_gap_n == 1
+    assert first.status_coverage.non_pit_eastmoney_ignored_n == 1
+
+
+def test_duplicate_predecessor_pk_fails_closed(tmp_path):
+    _build_lake(tmp_path)
+    part = tmp_path / "curated" / "daily_bars" / "trade_date=2025-01-03"
+    # First file has a valid positive close; the duplicate in the same
+    # partition must still fail closed (partition-scoped validation).
+    _write(
+        part / "part-merged.parquet",
+        [
+            {"symbol": "000001.SZ", "trade_date": date(2025, 1, 3), "open": 10.0, "high": 10.1, "low": 9.9, "close": 10.0, "volume": 1000, "amount": 10000.0, "source": "tdx_protocol", "data_version": "v2", "fetched_at": "2026-08-07T00:00:00Z"},
+        ],
+    )
+    _write(
+        part / "part-duplicate.parquet",
+        [
+            {"symbol": "000001.SZ", "trade_date": date(2025, 1, 3), "open": 10.2, "high": 10.3, "low": 10.1, "close": 10.2, "volume": 2000, "amount": 20000.0, "source": "tdx_protocol", "data_version": "v2", "fetched_at": "2026-08-07T00:00:00Z"},
+        ],
+    )
+    with pytest.raises(AslAdapterError, match="duplicate daily_bars PK: 000001 2025-01-03"):
+        _load(tmp_path)
 
 
 def test_missing_status_row_positive_bar_unknown_st(tmp_path):
@@ -387,7 +555,7 @@ def test_preclose_seed_earlier_valid_after_suspension(tmp_path):
             {"symbol": "600999.SZ", "list_date": None, "delist_date": None},
         ],
         status_rows=[
-            {"symbol": "600999.SZ", "trade_date": date(2026, 6, 12), "is_trading": False, "status": "suspended"},
+            {"symbol": "600999.SZ", "trade_date": date(2026, 6, 12), "is_trading": False, "status": "suspended", "source": "derived_bar_gap"},
         ],
     )
     result = load_asl_daily_slice(
@@ -415,8 +583,8 @@ def test_preclose_seed_multiple_session_gap(tmp_path):
             {"symbol": "600999.SZ", "list_date": None, "delist_date": None},
         ],
         status_rows=[
-            {"symbol": "600999.SZ", "trade_date": date(2026, 6, 12), "is_trading": False, "status": "suspended"},
-            {"symbol": "600999.SZ", "trade_date": date(2026, 6, 15), "is_trading": False, "status": "suspended"},
+            {"symbol": "600999.SZ", "trade_date": date(2026, 6, 12), "is_trading": False, "status": "suspended", "source": "derived_bar_gap"},
+            {"symbol": "600999.SZ", "trade_date": date(2026, 6, 15), "is_trading": False, "status": "suspended", "source": "derived_bar_gap"},
         ],
     )
     result = load_asl_daily_slice(
@@ -482,7 +650,7 @@ def test_duplicate_trading_status_pk_fails_closed(tmp_path):
     _write(
         part / "part-duplicate.parquet",
         [
-            {"symbol": "000010.SZ", "trade_date": date(2026, 6, 12), "is_trading": True, "status": "st"},
+            {"symbol": "000010.SZ", "trade_date": date(2026, 6, 12), "is_trading": True, "status": "st", "source": "baostock", "data_version": "v1", "fetched_at": "2026-08-07T00:00:00Z"},
         ],
     )
     with pytest.raises(AslAdapterError, match="duplicate trading_status PK: 000010 2026-06-12"):

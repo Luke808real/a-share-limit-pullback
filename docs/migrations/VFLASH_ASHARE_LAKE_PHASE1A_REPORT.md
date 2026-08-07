@@ -1,9 +1,9 @@
-# VFLASH × ASHARE-LAKE — PHASE 1A EVIDENCE REPORT (REVIEW ROUND 2)
+# VFLASH × ASHARE-LAKE — PHASE 1A EVIDENCE REPORT (REVIEW ROUND 3 / FINAL PIT)
 
 > Status: **field parity PASS with explicit deltas (evidence, not approval)**.
-> This report records the completed Phase 1A work and the review-round-1 and
-> review-round-2 fixes that followed independent code review of commit
-> `81146dc`.
+> This report records the completed Phase 1A work and the review-round-1,
+> round-2 and final-PIT (round-3) fixes that followed independent code
+> review of commit `81146dc`.
 > It is NOT an approval to begin Phase 1B. **Phase 1B has NOT been approved.**
 
 ## 1. Source identity
@@ -88,7 +88,11 @@ never opened (proven by test with corrupt out-of-range files).
   interpretation**; Decimal quantization with parsable-value fail-closed;
   frozen pct_change; `turnover_rate` field present and always None;
   timezone-aware parsed `asl_fetched_at`; `AslAdapterError`
-  (adapter-specific, narrow).
+  (adapter-specific, narrow); **round-3 PIT status-provenance contract**
+  (trusted sources baostock / derived_bar_gap / same-day EastMoney;
+  NON_PIT_EASTMONEY and UNKNOWN_STATUS rows ignored and counted; strict
+  Boolean contract; UNTRUSTED_STATUS_PROVENANCE fail-closed;
+  partition-scoped predecessor duplicate validation).
 - `tests/test_asl_adapter.py` — 33 offline unit tests.
 - `research/asl_phase1a/parity.py` — read-only parity GATE
   (PASS / BLOCKED_PARITY / BLOCKED_DATA; exit 0 only for PASS) with
@@ -111,6 +115,47 @@ the gitignored artifacts path.
 
 **NONE.** No production module imports the adapter; no config file changed;
 no CLI wiring; no snapshots, generations, or promotions; no provider deletion.
+
+## 6a. PIT_STATUS_CONTRACT (round 3)
+
+ASL upstream documents that EastMoney daily status is the CURRENT ST list,
+historical ST comes from the Baostock ST-history backfill, and historical
+suspension comes from `derived_bar_gap`.  The adapter therefore reads
+`trading_status` WITH provenance (`source`, `data_version`, `fetched_at`)
+and classifies every row before use:
+
+| source | accepted semantics | trust |
+|---|---|---|
+| `baostock` | `status ∈ {st, *st}` AND `is_trading == True` | BAOSTOCK_ST (trusted historical ST); any other combination raises |
+| `derived_bar_gap` | `status == "suspended"` AND `is_trading == False` | DERIVED_GAP_SUSPENDED (trusted historical suspension); any other combination raises |
+| `eastmoney` / daily-status label `tdx_protocol` | fetched_at converted to Asia/Shanghai; trusted ONLY if `trade_date == fetched Shanghai date` (same-session observation) | EASTMONEY_SAME_DAY; otherwise NON_PIT_EASTMONEY (ignored, counted) |
+| any other source | — | UNKNOWN_STATUS (ignored, counted) |
+
+Consequences:
+
+* Historical EastMoney current-state rows never set is_st / trade_status /
+  suspension and are never called normal; a missing daily bar may be
+  authorized ONLY by a trusted non-trading row (derived_bar_gap suspended or
+  same-day observation) — otherwise MISSING_REQUIRED_BAR blocks.
+* `trading_status.fetched_at` must exist, parse, and be timezone-aware
+  (UNTRUSTED_STATUS_PROVENANCE otherwise).
+* `is_trading` accepts actual Booleans only ("False" string fails closed).
+* Sparse authoritative status is the intended historical model: positive
+  bar + no trusted historical status → trade_status=True, is_st=None
+  (unknown stays unknown; frozen strategy contract preserved).
+
+**Untouched pilot build (official commands only, no hand edits):**
+
+```
+asl demo --symbols 000001.SZ,600519.SH,601318.SH,000010.SZ,000524.SZ,000593.SZ,002963.SZ,605179.SH,605198.SH,000037.SZ,300750.SZ --days 50 --trade-date 2026-08-06 --data-root /tmp/asl_phase1a_lake_r3 --config-out /tmp/asl_phase1a_lake_r3/demo.toml
+asl compact --config /tmp/asl_phase1a_lake_r3/demo.toml --run-id <demo trading_calendar run>
+asl backfill trading_status --config /tmp/asl_phase1a_lake_r3/demo.toml --start 2026-05-20 --end 2026-08-06
+asl derive trading_status --config /tmp/asl_phase1a_lake_r3/demo.toml --start 2026-05-20 --end 2026-08-06
+asl backfill corporate_actions --config /tmp/asl_phase1a_lake_r3/demo.toml --start 2026-05-01 --end 2026-08-06   (CA-intersection evidence)
+```
+
+**MANUAL_PILOT_DATA_EDITS = 0.**  Lake state: 501 baostock ST rows + 10
+derived_bar_gap suspended rows; zero EastMoney rows; zero duplicate PKs.
 
 ## 7. Parity sample
 
@@ -168,10 +213,10 @@ Real ASL rows (TDX-sourced; official `asl demo`, 2026-05-28 → 2026-08-06,
 
 | category | count |
 |---|---|
-| EXACT_STATUS_MATCH | 314 |
+| EXACT_STATUS_MATCH | 69 |
 | LEGACY_UNKNOWN_TO_ASL_TRUE | 4 |
-| LEGACY_UNKNOWN_TO_ASL_FALSE | 36 |
-| TRUE_STATUS_CONFLICT | 0 |
+| LEGACY_UNKNOWN_TO_ASL_FALSE | 0 |
+| TRUE_STATUS_CONFLICT | 281 |
 
 Round-2 taxonomy (exact chain): None==None counts as EXACT; known→None
 counts as TRUE_STATUS_CONFLICT (a hard parity failure); unknown→known is a
@@ -181,13 +226,37 @@ STATUS_CATEGORY_TOTAL (354) == COMPARED_ROW_N (354).
 TRADE_STATUS: exact 354, conflict 0 (trade_status mismatch is a hard parity
 failure).
 
-The status dataset used for the round-2 run is PIT-correct: dense EM daily
-rows for the window (fetched per official `asl run daily --group core
---trade-date`; ST semantics match for the sample) plus bar-gap-derived
-suspension rows for 000524 6/24–7/7.  The retroactively-stamped EM rows for
-those 10 suspended sessions were non-PIT (current-state stamped) and were
-removed from the throwaway pilot lake, after which the official derive
-restored the authoritative suspended rows (pilot-lake curation, documented).
+On the round-3 UNTOUCHED pilot lake (sparse authoritative status per the
+PIT contract), the 281 TRUE_STATUS_CONFLICT rows are legacy
+`is_st=False` (Tushare name-based, current-name stamped onto history) versus
+adapter `is_st=None` (no authoritative historical ST row in ASL).  This is
+the expected consequence of the strict round-2 taxonomy applied to the
+round-3 intended sparse-PIT model: unknown must remain unknown.  The
+round-2 dense-EM run (EXACT 314 / UNKNOWN_FALSE 36 / CONFLICT 0) is
+recorded as historical evidence only; that lake was REJECTED as final
+evidence because it required manual curation and non-PIT retroactive EM
+rows.
+
+**Open item for final approval:** the round-2 hard-failure rule for
+known→None combined with the round-3 "sparse authoritative status is
+acceptable, is_st=None preserved" model means the overall parity gate is
+BLOCKED_PARITY on the ST-knowledge delta alone while every other gate
+passes.  Resolution (accept delta as non-fatal, or supply a dense PIT ST
+source) is a review decision, not an adapter defect.
+
+### 8.4 PIT status provenance (round 3)
+
+| metric | value |
+|---|---|
+| PIT_STATUS_PROVENANCE_GATE | **PASS** |
+| TRUSTED_STATUS_BAOSTOCK_N | 50 |
+| TRUSTED_STATUS_DERIVED_GAP_N | 10 |
+| TRUSTED_STATUS_EASTMONEY_SAME_DAY_N | 0 |
+| NON_PIT_EASTMONEY_STATUS_IGNORED_N | 0 |
+| UNKNOWN_STATUS_N | 0 |
+
+No manually curated ASL rows; no trusted historical current-state EastMoney
+ST rows; no missing-bar session accepted from an untrusted status row.
 
 ### 8.4 STRATEGY SMOKE PARITY (latest common date only)
 
@@ -234,14 +303,17 @@ architecture decision.
 ## 12. Review-gate tests run (round 1)
 
 ```
-tests/test_asl_adapter.py        → 33 passed
+tests/test_asl_adapter.py        → 43 passed (round 3)
 tests/test_parity_harness.py     → 18 passed
 test_adr008_data_correctness + test_warehouse_validate +
 test_corporate_action_preclose + test_asl_adapter + test_parity_harness
-                                 → 80 passed (combined run, round 2)
+                                 → 90 passed (combined run, round 3)
 python3 -m compileall -q src/limit_pullback/warehouse/asl_adapter.py → OK
 git diff --check                 → clean
-parity gate (real ASL vs frozen canonical) → PASS, exit 0, hard_failures 0
+parity gate (real ASL, UNTOUCHED lake vs frozen canonical) →
+  BLOCKED_PARITY (281 TRUE_STATUS_CONFLICT ST-knowledge deltas only),
+  PIT_STATUS_PROVENANCE_GATE PASS, trade_status 0 conflicts,
+  invariant 354==354, all other gates green
 ```
 
 No full-market verification; no state generations; no network inside tests.
@@ -271,10 +343,10 @@ finalization (self-hash excluded).
 ## 15. Repair-round provenance
 
 This revision of the report and the accompanying code changes were produced
-in response to independent code review of commit `81146dc` (round 1) and its
-rereview (round 2).  Blocker-by-blocker resolution is recorded in the PR body
-(`CHATGPT_REVIEW_ROUND_1 = FIXED_PENDING_REREVIEW`; round 2 =
-`CHATGPT_REVIEW_ROUND_2 = FIXED_PENDING_FINAL_REVIEW`).
+in response to independent code review of commit `81146dc` (round 1), its
+rereview (round 2) and the final PIT status review (round 3).  Blocker
+resolution is recorded in the PR body (`CHATGPT_REVIEW_ROUND_3 =
+FIXED_PENDING_FINAL_APPROVAL`).
 
 Round-2 fixes: (A) 400-day predecessor cutoff removed — partition-pruned
 backward search, newest → oldest, per-code listing boundary, no day-count
@@ -285,6 +357,17 @@ hard parity failures; (E) summary carries observed maxima and
 status/trade-status counts; (F) runtime-contract wording corrected to
 exactly what is implemented (datasets, columns, parsable values,
 `data_version==v2`, unit semantics — no claim of Arrow type validation).
+
+Round-3 fixes (final PIT): (1) PIT status-source contract frozen — baostock
+historical ST, derived_bar_gap suspension, same-day EastMoney only;
+NON_PIT_EASTMONEY / UNKNOWN_STATUS ignored and counted; (2) sparse
+authoritative status is the intended model — no dense historical EastMoney
+required; (3) provenance counts exposed on the slice and in the parity
+summary; (4) final parity evidence runs against a NEW untouched pilot lake
+built from official ASL commands only (MANUAL_PILOT_DATA_EDITS = 0);
+(5) predecessor duplicate-PK validation is partition-scoped; (6) strict
+Boolean contract for is_trading; (7) trading_status fetched_at must be
+valid, parsed and timezone-aware (UNTRUSTED_STATUS_PROVENANCE).
 
 ## 16. Phase 1B status
 

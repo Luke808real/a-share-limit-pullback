@@ -38,6 +38,32 @@ Status semantics (review round 1):
 * zero-volume bar with no status row -> treated as a suspended placeholder
   (trade_status=False).
 
+PIT status provenance contract (review round 3):
+
+* ASL upstream documents: EastMoney daily status is the CURRENT ST list
+  (not historical); historical ST comes from the Baostock ST-history
+  backfill; historical suspension comes from ``derived_bar_gap``.
+* Every ``trading_status`` row is read WITH provenance (``source``,
+  ``data_version``, ``fetched_at``) and classified before use:
+  - ``source == "baostock"``: trusted historical ST; accepted ONLY as
+    ``status in {st, *st}`` with ``is_trading == True``; any other
+    combination raises.
+  - ``source == "derived_bar_gap"``: trusted historical suspension; accepted
+    ONLY as ``status == "suspended"`` with ``is_trading == False``; any other
+    combination raises.
+  - daily current-state sources (``eastmoney`` / the daily status step label
+    ``tdx_protocol``): trusted ONLY when the observation is same-session,
+    i.e. ``trade_date == fetched_at`` converted to Asia/Shanghai.  Any other
+    row is classified NON_PIT_EASTMONEY_STATUS and IGNORED (never used for
+    is_st / trade_status / suspension, never called normal).
+  - unknown source: classified UNKNOWN_STATUS, ignored, counted.
+* A missing daily bar may be authorized ONLY by a TRUSTED non-trading status
+  row (derived_bar_gap suspended, or same-day daily-status suspended);
+  historical/current-state rows can never authorize an absence.
+* ``trading_status.fetched_at`` must exist, parse, and be timezone-aware;
+  malformed provenance raises (UNTRUSTED_STATUS_PROVENANCE).
+* ``is_trading`` accepts actual Booleans only (strict bool contract).
+
 Preclose seeding (review round 2): the frozen contract's predecessor is the
 LAST VALID CLOSE PER CODE before the requested window -- possibly thousands
 of sessions earlier (suspension, halt, holiday).  The search traverses ASL
@@ -60,7 +86,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 from typing import Literal, Sequence
@@ -85,6 +111,16 @@ PCT_QUANTUM = Decimal("0.0001")
 DAILY_BARS_SHARES_VERSION = "v2"
 
 KNOWN_STATUS = frozenset({"normal", "st", "*st", "suspended"})
+BAOSTOCK_STATUS_SOURCE = "baostock"
+DERIVED_BAR_GAP_STATUS_SOURCE = "derived_bar_gap"
+#: The daily trading-status step currently stamps the tdx_protocol client
+#: label although the data is the EastMoney current-state ST/suspend feed.
+DAILY_STATUS_SOURCES = frozenset({"eastmoney", "tdx_protocol"})
+SHANGHAI_TZ = timezone(timedelta(hours=8))
+
+TRUSTED_STATUS_KINDS = frozenset(
+    {"BAOSTOCK_ST", "DERIVED_GAP_SUSPENDED", "EASTMONEY_SAME_DAY"}
+)
 
 RowStatus = Literal[
     "VALID_ROW",
@@ -135,6 +171,14 @@ def _checked_status(status: str, *, code: str, day: date) -> str:
             f"UNSUPPORTED_STATUS:{code}:{day}:{status!r}"
         )
     return status_lower
+
+
+def _strict_bool(value: object, *, where: str) -> bool:
+    """Accept actual Booleans only; strings like ``"False"`` fail closed."""
+
+    if not isinstance(value, bool):
+        raise AslAdapterError(f"INVALID_BOOL:{where}:{value!r}")
+    return value
 
 
 def _pct_change(close: Decimal, preclose: Decimal) -> Decimal | None:
@@ -203,6 +247,28 @@ class AslStatusCoverage:
     sessions_with_status_row: int
     sessions_without_status_row: int
     mode: str
+    # PIT provenance counts (review round 3).
+    trusted_baostock_n: int
+    trusted_derived_gap_n: int
+    trusted_eastmoney_same_day_n: int
+    non_pit_eastmoney_ignored_n: int
+    unknown_status_n: int
+
+
+@dataclass(frozen=True)
+class AslStatusRow:
+    """One trading_status row with validated provenance and trust class."""
+
+    code: str
+    trade_date: date
+    is_trading: bool
+    status: str
+    source: str
+    data_version: str
+    fetched_at: datetime
+    #: BAOSTOCK_ST | DERIVED_GAP_SUSPENDED | EASTMONEY_SAME_DAY |
+    #: NON_PIT_EASTMONEY | UNKNOWN_STATUS
+    trust: str
 
 
 @dataclass(frozen=True)
@@ -390,6 +456,7 @@ def _read_calendar_sessions(
                 table.column("is_trading").to_pylist(),
                 strict=True,
             ):
+                _strict_bool(is_trading, where=f"trading_calendar:{trade_date}")
                 if not is_trading:
                     continue
                 day = trade_date if isinstance(trade_date, date) else date.fromisoformat(str(trade_date))
@@ -410,23 +477,35 @@ def _read_status_rows(
     codes: set[str],
     start: date | None,
     as_of: date,
-) -> dict[tuple[str, date], tuple[bool, str]]:
-    """{(code, trade_date): (is_trading, status)}; duplicate PK -> fail closed."""
+) -> dict[tuple[str, date], AslStatusRow]:
+    """{(code, trade_date): AslStatusRow with validated provenance}.
 
-    result: dict[tuple[str, date], tuple[bool, str]] = {}
+    Raises on: duplicate PK, non-Boolean is_trading, unknown status
+    vocabulary, unexpected source/semantics combinations, or malformed
+    fetched_at.  NON_PIT_EASTMONEY / UNKNOWN_STATUS rows are classified (not
+    raised) and later ignored.
+    """
+
+    result: dict[tuple[str, date], AslStatusRow] = {}
     partitions = _hive_partitions(root / "curated" / "trading_status", "month")
     for key, path in sorted(partitions.items()):
         if not _overlaps(key, "month", start, as_of):
             continue
         for file_path in sorted(path.glob("*.parquet")):
             table = pq.ParquetFile(file_path).read(
-                columns=["symbol", "trade_date", "is_trading", "status"]
+                columns=[
+                    "symbol", "trade_date", "is_trading", "status",
+                    "source", "data_version", "fetched_at",
+                ]
             )
-            for symbol, trade_date, is_trading, status in zip(
+            for symbol, trade_date, is_trading, status, source, data_version, fetched_at in zip(
                 table.column("symbol").to_pylist(),
                 table.column("trade_date").to_pylist(),
                 table.column("is_trading").to_pylist(),
                 table.column("status").to_pylist(),
+                table.column("source").to_pylist(),
+                table.column("data_version").to_pylist(),
+                table.column("fetched_at").to_pylist(),
                 strict=True,
             ):
                 match = _SYMBOL_RE.match(str(symbol))
@@ -442,8 +521,76 @@ def _read_status_rows(
                     raise AslAdapterError(
                         f"duplicate trading_status PK: {key_row[0]} {day}"
                     )
-                result[key_row] = (bool(is_trading), str(status or ""))
+                code = match.group(1)
+                is_trading_bool = _strict_bool(
+                    is_trading, where=f"trading_status:{code}:{day}"
+                )
+                status_text = _checked_status(str(status or ""), code=code, day=day)
+                source_text = str(source or "").lower()
+                parsed_fetched_at = _parse_fetched_at(fetched_at)
+                if parsed_fetched_at is None:
+                    raise AslAdapterError(
+                        f"UNTRUSTED_STATUS_PROVENANCE:{code}:{day}:"
+                        f"fetched_at={fetched_at!r}"
+                    )
+                trust = _classify_status_provenance(
+                    code=code,
+                    day=day,
+                    status=status_text,
+                    is_trading=is_trading_bool,
+                    source=source_text,
+                    fetched_at=parsed_fetched_at,
+                )
+                result[key_row] = AslStatusRow(
+                    code=code,
+                    trade_date=day,
+                    is_trading=is_trading_bool,
+                    status=status_text,
+                    source=source_text,
+                    data_version=str(data_version or ""),
+                    fetched_at=parsed_fetched_at,
+                    trust=trust,
+                )
     return result
+
+
+def _classify_status_provenance(
+    *,
+    code: str,
+    day: date,
+    status: str,
+    is_trading: bool,
+    source: str,
+    fetched_at: datetime,
+) -> str:
+    """PIT trust classification for one trading_status row.
+
+    Raises on known-source rows with unexpected semantic combinations; a
+    daily current-state row whose fetched Shanghai date differs from
+    trade_date is classified NON_PIT_EASTMONEY (ignored later); an
+    unrecognized source is classified UNKNOWN_STATUS (ignored later).
+    """
+
+    if source == BAOSTOCK_STATUS_SOURCE:
+        if status not in {"st", "*st"} or not is_trading:
+            raise AslAdapterError(
+                f"UNEXPECTED_STATUS_SEMANTICS:{code}:{day}:"
+                f"source=baostock status={status!r} is_trading={is_trading}"
+            )
+        return "BAOSTOCK_ST"
+    if source == DERIVED_BAR_GAP_STATUS_SOURCE:
+        if status != "suspended" or is_trading:
+            raise AslAdapterError(
+                f"UNEXPECTED_STATUS_SEMANTICS:{code}:{day}:"
+                f"source=derived_bar_gap status={status!r} is_trading={is_trading}"
+            )
+        return "DERIVED_GAP_SUSPENDED"
+    if source in DAILY_STATUS_SOURCES:
+        shanghai_date = fetched_at.astimezone(SHANGHAI_TZ).date()
+        if shanghai_date == day:
+            return "EASTMONEY_SAME_DAY"
+        return "NON_PIT_EASTMONEY"
+    return "UNKNOWN_STATUS"
 
 
 def _read_bars(
@@ -526,7 +673,6 @@ def _find_predecessor_closes(
 
     unresolved = set(codes)
     predecessor_close: dict[str, Decimal] = {}
-    seen: dict[tuple[str, date], int] = {}
     for partition_date, path in before_start:
         if not unresolved:
             break
@@ -540,6 +686,12 @@ def _find_predecessor_closes(
                 unresolved.discard(code)
         if not unresolved:
             break
+        # Partition-scoped duplicate validation: snapshot the unresolved
+        # codes, read ALL of their rows in this partition, validate every PK,
+        # and only then choose the positive-close candidate per code.
+        partition_codes = set(unresolved)
+        partition_rows: list[tuple[str, date, Decimal]] = []
+        seen_in_partition: dict[tuple[str, date], int] = {}
         for file_path in sorted(path.glob("*.parquet")):
             table = pq.ParquetFile(file_path).read(
                 columns=["symbol", "trade_date", "close", "data_version"]
@@ -552,7 +704,7 @@ def _find_predecessor_closes(
                 strict=True,
             ):
                 match = _SYMBOL_RE.match(str(symbol))
-                if match is None or match.group(1) not in unresolved:
+                if match is None or match.group(1) not in partition_codes:
                     continue
                 code = match.group(1)
                 day = trade_date if isinstance(trade_date, date) else date.fromisoformat(str(trade_date))
@@ -562,39 +714,51 @@ def _find_predecessor_closes(
                         f"(first at {code} {day}); volume unit not guaranteed"
                     )
                 pk = (code, day)
-                seen[pk] = seen.get(pk, 0) + 1
-                if seen[pk] > 1:
+                seen_in_partition[pk] = seen_in_partition.get(pk, 0) + 1
+                if seen_in_partition[pk] > 1:
                     raise AslAdapterError(
                         f"duplicate daily_bars PK: {code} {day} "
-                        f"(count {seen[pk]})"
+                        f"(count {seen_in_partition[pk]})"
                     )
                 close_value = _to_decimal(
                     close, code=code, day=day, field="predecessor_close"
                 )
                 if close_value is not None and close_value > 0:
-                    predecessor_close[code] = close_value
-                    unresolved.discard(code)
+                    partition_rows.append((code, day, close_value))
+        # Whole partition passed validation: resolve candidates now.
+        for code, day, close_value in partition_rows:
+            if code in unresolved:
+                predecessor_close[code] = close_value
+                unresolved.discard(code)
     return predecessor_close
 
 
 def _status_mapping(
-    status_row: tuple[bool, str] | None,
+    status_row: AslStatusRow | None,
     *,
     code: str,
     day: date,
     volume: Decimal,
 ) -> tuple[bool | None, bool | None]:
-    """Review-round-1 status semantics; unknown vocabulary fails closed."""
+    """Provenance-aware status semantics.
+
+    ``status_row`` must already be trust-classified by the caller (only
+    TRUSTED_STATUS_KINDS reach this function); NON_PIT_EASTMONEY and
+    UNKNOWN_STATUS rows are never passed here.
+    """
 
     if status_row is None:
         if volume == 0:
             return False, None  # zero-volume placeholder without status row
         return True, None  # positive bar, ST unknown: never claim normal
-    is_trading, status = status_row
-    status_lower = _checked_status(status, code=code, day=day)
-    if not is_trading or status_lower == "suspended":
-        return False, True if status_lower in {"st", "*st"} else None
-    if status_lower == "normal":
+    if status_row.trust == "BAOSTOCK_ST":
+        return True, True
+    if status_row.trust == "DERIVED_GAP_SUSPENDED":
+        return False, None
+    # EASTMONEY_SAME_DAY
+    if not status_row.is_trading or status_row.status == "suspended":
+        return False, True if status_row.status in {"st", "*st"} else None
+    if status_row.status == "normal":
         return True, False
     return True, True  # st / *st and trading
 
@@ -650,23 +814,52 @@ def load_asl_daily_slice(
         else {}
     )
 
-    sessions_with_status = {
-        key for key in status_rows
-        if start is None or key[1] >= start
+    trusted_rows = {
+        key: row
+        for key, row in status_rows.items()
+        if row.trust in TRUSTED_STATUS_KINDS
     }
     sessions_without_status = sum(
         1
         for code in sorted(universe_codes)
         for day in sessions
-        if (code, day) not in sessions_with_status
+        if (code, day) not in trusted_rows
     )
     status_coverage = AslStatusCoverage(
         dataset_present=True,
-        status_rows_in_window=len(sessions_with_status),
-        sessions_with_status_row=len(sessions_with_status),
+        status_rows_in_window=len(status_rows),
+        sessions_with_status_row=len(trusted_rows),
         sessions_without_status_row=sessions_without_status,
-        mode="MISSING_STATUS_ROW_MEANS_UNKNOWN_ST",
+        mode="PIT_PROVENANCE_CLASSIFIED",
+        trusted_baostock_n=sum(
+            1 for row in status_rows.values() if row.trust == "BAOSTOCK_ST"
+        ),
+        trusted_derived_gap_n=sum(
+            1 for row in status_rows.values() if row.trust == "DERIVED_GAP_SUSPENDED"
+        ),
+        trusted_eastmoney_same_day_n=sum(
+            1 for row in status_rows.values() if row.trust == "EASTMONEY_SAME_DAY"
+        ),
+        non_pit_eastmoney_ignored_n=sum(
+            1 for row in status_rows.values() if row.trust == "NON_PIT_EASTMONEY"
+        ),
+        unknown_status_n=sum(
+            1 for row in status_rows.values() if row.trust == "UNKNOWN_STATUS"
+        ),
     )
+    if status_coverage.non_pit_eastmoney_ignored_n:
+        warnings_note = (
+            f"{status_coverage.non_pit_eastmoney_ignored_n} "
+            "NON_PIT_EASTMONEY status row(s) ignored (fetched Shanghai date "
+            "!= trade_date)"
+        )
+    else:
+        warnings_note = ""
+    if status_coverage.unknown_status_n:
+        warnings_note = (
+            (warnings_note + "; " if warnings_note else "")
+            + f"{status_coverage.unknown_status_n} UNKNOWN status source row(s) ignored"
+        )
 
     bars_by_code: dict[str, dict[date, dict[str, object]]] = {}
     for row in bars:
@@ -678,6 +871,8 @@ def load_asl_daily_slice(
     suspended_sessions: list[tuple[str, date]] = []
     missing_required_bars: list[MissingRequiredBar] = []
     warnings: list[str] = []
+    if warnings_note:
+        warnings.append(warnings_note)
 
     for code in sorted(universe_codes):
         previous_close = predecessor_close.get(code)
@@ -686,21 +881,26 @@ def load_asl_daily_slice(
             bar = bars_by_code.get(code, {}).get(day)
             if bar is None:
                 status_row = status_rows.get((code, day))
-                if status_row is not None:
-                    # Validate the vocabulary BEFORE interpreting the row,
-                    # even when the daily bar is absent (review round 2).
-                    status_lower = _checked_status(
-                        status_row[1], code=code, day=day
+                trusted = (
+                    status_row
+                    if status_row is not None
+                    and status_row.trust in TRUSTED_STATUS_KINDS
+                    else None
+                )
+                if trusted is not None and (
+                    trusted.trust == "DERIVED_GAP_SUSPENDED"
+                    or (
+                        trusted.trust == "EASTMONEY_SAME_DAY"
+                        and (not trusted.is_trading or trusted.status == "suspended")
                     )
-                    if (
-                        status_row[0] is False
-                        or status_lower == "suspended"
-                    ):
-                        missing_required_bars.append(
-                            MissingRequiredBar(code, day, "SUSPENDED_BY_STATUS")
-                        )
-                        suspended_sessions.append((code, day))
-                        continue
+                ):
+                    # Absence authorized ONLY by a trusted non-trading row
+                    # (PIT contract: derived_bar_gap or same-day observation).
+                    missing_required_bars.append(
+                        MissingRequiredBar(code, day, "SUSPENDED_BY_STATUS")
+                    )
+                    suspended_sessions.append((code, day))
+                    continue
                 if list_date is not None and day < list_date:
                     missing_required_bars.append(
                         MissingRequiredBar(code, day, "NOT_LISTED")
@@ -741,7 +941,12 @@ def load_asl_daily_slice(
                 )
 
             trade_status, is_st = _status_mapping(
-                status_rows.get((code, day)),
+                (
+                    status_rows.get((code, day))
+                    if status_rows.get((code, day)) is not None
+                    and status_rows[(code, day)].trust in TRUSTED_STATUS_KINDS
+                    else None
+                ),
                 code=code,
                 day=day,
                 volume=volume,

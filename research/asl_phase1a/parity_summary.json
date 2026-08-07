@@ -1,6 +1,6 @@
 {
   "contract": "VFLASH_ASL_PHASE1A_PARITY_SUMMARY_V2",
-  "gate": "PASS",
+  "gate": "BLOCKED_PARITY",
   "input": {
     "tested_compat_revision": "ba5681a",
     "legacy_snapshot": "snap-2026-08-06-e798f88ff67b.parquet",
@@ -60,17 +60,25 @@
     "TRADE_STATUS_EXACT_N": 354,
     "TRADE_STATUS_CONFLICT_N": 0,
     "categories": {
-      "EXACT_STATUS_MATCH": 314,
+      "EXACT_STATUS_MATCH": 69,
       "LEGACY_UNKNOWN_TO_ASL_TRUE": 4,
-      "LEGACY_UNKNOWN_TO_ASL_FALSE": 36,
-      "TRUE_STATUS_CONFLICT": 0
+      "LEGACY_UNKNOWN_TO_ASL_FALSE": 0,
+      "TRUE_STATUS_CONFLICT": 281
     }
   },
+  "status_provenance": {
+    "PIT_STATUS_PROVENANCE_GATE": "PASS",
+    "TRUSTED_STATUS_BAOSTOCK_N": 50,
+    "TRUSTED_STATUS_DERIVED_GAP_N": 10,
+    "TRUSTED_STATUS_EASTMONEY_SAME_DAY_N": 0,
+    "NON_PIT_EASTMONEY_STATUS_IGNORED_N": 0,
+    "UNKNOWN_STATUS_N": 0
+  },
   "status_deltas": {
-    "EXACT_STATUS_MATCH": 314,
+    "EXACT_STATUS_MATCH": 69,
     "LEGACY_UNKNOWN_TO_ASL_TRUE": 4,
-    "LEGACY_UNKNOWN_TO_ASL_FALSE": 36,
-    "TRUE_STATUS_CONFLICT": 0
+    "LEGACY_UNKNOWN_TO_ASL_FALSE": 0,
+    "TRUE_STATUS_CONFLICT": 281
   },
   "ma": {
     "MA5": {
@@ -102,6 +110,7 @@
     "reason": "all window ex-dates fall outside the legacy/adapter row intersection",
     "ex_dates_in_window": [
       "000001:2026-06-12(cash_dividend)",
+      "000037:2026-06-22(cash_dividend)",
       "000524:2026-06-18(cash_dividend)",
       "600519:2026-06-26(cash_dividend)",
       "601318:2026-06-10(cash_dividend)",
@@ -110,5 +119,5 @@
     ]
   },
   "legacy_holes_total": 126,
-  "hard_failure_count": 0
+  "hard_failure_count": 281
 }
