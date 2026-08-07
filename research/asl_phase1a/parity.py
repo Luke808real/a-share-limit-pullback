@@ -144,6 +144,54 @@ def classify_ma_window(
 LEGACY_ST_REFERENCE_CLASS = "NON_PIT_CODE_LEVEL_STOCK_BASIC_SNAPSHOT"
 
 
+def compute_phase1a_gate(
+    *,
+    data_blocked: bool,
+    pit_provenance_gate: str,
+    field_failures: list[str],
+    trade_status_conflict_n: int,
+    st_internal_conflict_n: int,
+    smoke_ok: bool,
+) -> str:
+    """THE authoritative Phase-1A decision.
+
+    Precedence: BLOCKED_DATA > BLOCKED_PARITY > PASS.
+
+    * BLOCKED_DATA: input/provenance invalidity (adapter contract failure or
+      PIT_STATUS_PROVENANCE_GATE != PASS).
+    * BLOCKED_PARITY: any hard comparison failure (field parity, trade
+      status, ASL-internal status conflict, strategy smoke).
+    * PASS: every component gate green.
+
+    Every presentation field (summary ``gate``, ``gates.PHASE1A_GATE``, full
+    report, process exit code) must be derived from this single value.
+    """
+
+    if data_blocked:
+        return GATE_BLOCKED_DATA
+    if pit_provenance_gate != "PASS":
+        return GATE_BLOCKED_DATA
+    if field_failures:
+        return GATE_BLOCKED_PARITY
+    if trade_status_conflict_n > 0:
+        return GATE_BLOCKED_PARITY
+    if st_internal_conflict_n > 0:
+        return GATE_BLOCKED_PARITY
+    if not smoke_ok:
+        return GATE_BLOCKED_PARITY
+    return GATE_PASS
+
+
+def exit_code_for_gate(gate: str) -> int:
+    """Process exit code for the authoritative gate (0 only for PASS)."""
+
+    if gate == GATE_PASS:
+        return 0
+    if gate == GATE_BLOCKED_PARITY:
+        return 2
+    return 3
+
+
 def _field_hard_failures(failures: list[str]) -> list[str]:
     """Hard failures that belong to FIELD_PARITY (excludes the separately
     gated trade-status and ASL-internal-status categories)."""
@@ -783,8 +831,6 @@ def main(argv: list[str] | None = None) -> int:
         args.asl_root, set(codes), start, as_of, legacy, adapter_by_code, config
     )
 
-    gate = GATE_PASS if not hard_failures else GATE_BLOCKED_PARITY
-
     status_coverage = slice_.status_coverage
     pit_status_gate = (
         "PASS" if status_coverage.unknown_status_n == 0 else "BLOCKED"
@@ -797,45 +843,6 @@ def main(argv: list[str] | None = None) -> int:
         "NON_PIT_EASTMONEY_STATUS_IGNORED_N": status_coverage.non_pit_eastmoney_ignored_n,
         "UNKNOWN_STATUS_N": status_coverage.unknown_status_n,
     }
-
-    full = {
-        "gate": gate,
-        "hard_failures": hard_failures,
-        "asl_root": str(args.asl_root),
-        "legacy_root": str(args.legacy_root),
-        "legacy_snapshot": args.legacy_snapshot,
-        "window": {"start": start.isoformat(), "as_of": as_of.isoformat()},
-        "codes": list(codes),
-        "status_coverage": {
-            "mode": status_coverage.mode,
-            "status_rows_in_window": status_coverage.status_rows_in_window,
-            "sessions_with_status_row": status_coverage.sessions_with_status_row,
-            "sessions_without_status_row": status_coverage.sessions_without_status_row,
-            **status_provenance,
-        },
-        "suspended_sessions": [
-            f"{code}:{day.isoformat()}"
-            for code, day in slice_.suspended_sessions
-        ],
-        "missing_required_bars": [
-            {
-                "code": item.code,
-                "trade_date": item.trade_date.isoformat(),
-                "reason": item.reason,
-            }
-            for item in slice_.missing_required_bars
-        ],
-        "adapter_fail_closed_rows": adapter_fail_closed,
-        "corporate_action_intersection": ca_result,
-        "results": results,
-        "warnings": list(slice_.warnings),
-    }
-    args.full_out.parent.mkdir(parents=True, exist_ok=True)
-    args.full_out.write_text(
-        json.dumps(full, ensure_ascii=False, indent=2, default=str),
-        encoding="utf-8",
-    )
-
     compared_rows = sum(
         len(r["field_comparisons"]["rows"])
         for r in results
@@ -925,10 +932,61 @@ def main(argv: list[str] | None = None) -> int:
     legacy_holes_total = sum(
         len(r["legacy_holes"]) for r in results if "legacy_holes" in r
     )
+    smoke_ok = (
+        anchor_smoke["matched"] == anchor_smoke["total"]
+        and stage_smoke["matched"] == stage_smoke["total"]
+        and stage_smoke["total"] > 0
+    )
+    phase1a_gate = compute_phase1a_gate(
+        data_blocked=False,
+        pit_provenance_gate=status_provenance["PIT_STATUS_PROVENANCE_GATE"],
+        field_failures=_field_hard_failures(hard_failures),
+        trade_status_conflict_n=trade_status_conflict,
+        st_internal_conflict_n=st_delta_fatal_n,
+        smoke_ok=smoke_ok,
+    )
+
+    full = {
+        "gate": phase1a_gate,
+        "hard_failures": hard_failures,
+        "asl_root": str(args.asl_root),
+        "legacy_root": str(args.legacy_root),
+        "legacy_snapshot": args.legacy_snapshot,
+        "window": {"start": start.isoformat(), "as_of": as_of.isoformat()},
+        "codes": list(codes),
+        "status_coverage": {
+            "mode": status_coverage.mode,
+            "status_rows_in_window": status_coverage.status_rows_in_window,
+            "sessions_with_status_row": status_coverage.sessions_with_status_row,
+            "sessions_without_status_row": status_coverage.sessions_without_status_row,
+            **status_provenance,
+        },
+        "suspended_sessions": [
+            f"{code}:{day.isoformat()}"
+            for code, day in slice_.suspended_sessions
+        ],
+        "missing_required_bars": [
+            {
+                "code": item.code,
+                "trade_date": item.trade_date.isoformat(),
+                "reason": item.reason,
+            }
+            for item in slice_.missing_required_bars
+        ],
+        "adapter_fail_closed_rows": adapter_fail_closed,
+        "corporate_action_intersection": ca_result,
+        "results": results,
+        "warnings": list(slice_.warnings),
+    }
+    args.full_out.parent.mkdir(parents=True, exist_ok=True)
+    args.full_out.write_text(
+        json.dumps(full, ensure_ascii=False, indent=2, default=str),
+        encoding="utf-8",
+    )
 
     summary = {
         "contract": "VFLASH_ASL_PHASE1A_PARITY_SUMMARY_V2",
-        "gate": gate,
+        "gate": phase1a_gate,
         "input": {
             "tested_compat_revision": slice_.tested_compat_revision,
             "legacy_snapshot": args.legacy_snapshot,
@@ -994,15 +1052,9 @@ def main(argv: list[str] | None = None) -> int:
                 else "BLOCKED"
             ),
             "STRATEGY_SMOKE_GATE": (
-                "PASS"
-                if anchor_smoke["matched"] == anchor_smoke["total"]
-                and stage_smoke["matched"] == stage_smoke["total"]
-                and stage_smoke["total"] > 0
-                else "BLOCKED"
+                "PASS" if smoke_ok else "BLOCKED"
             ),
-            "PHASE1A_GATE": (
-                gate if st_delta_fatal_n == 0 else "BLOCKED_PARITY"
-            ),
+            "PHASE1A_GATE": phase1a_gate,
             "CORPORATE_ACTION_INTERSECTION": ca_result["status"],
         },
         "status_provenance": status_provenance,
@@ -1037,7 +1089,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     print(json.dumps(summary, ensure_ascii=False, indent=2, default=str))
-    return 0 if gate == GATE_PASS else (2 if gate == GATE_BLOCKED_PARITY else 3)
+    return exit_code_for_gate(phase1a_gate)
 
 
 if __name__ == "__main__":

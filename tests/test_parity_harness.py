@@ -17,6 +17,8 @@ from parity import (  # noqa: E402
     _compare_code,
     classify_ma_window,
     classify_status,
+    compute_phase1a_gate,
+    exit_code_for_gate,
     last_n_bar_dates,
     status_gate_issues,
 )
@@ -209,3 +211,82 @@ def test_asl_internal_status_conflict_is_hard_failure():
         "ASL_TRUSTED_STATUS_INTERNAL_CONFLICT" in failure
         for failure in failures
     )
+
+
+def test_gate_A_pit_blocked_forces_non_pass():
+    """FIELD PASS / PIT BLOCKED / TRADE PASS / ST fatal 0 / SMOKE PASS must
+    NOT yield PHASE1A_GATE=PASS and must exit non-zero."""
+
+    gate = compute_phase1a_gate(
+        data_blocked=False,
+        pit_provenance_gate="BLOCKED",
+        field_failures=[],
+        trade_status_conflict_n=0,
+        st_internal_conflict_n=0,
+        smoke_ok=True,
+    )
+    assert gate == "BLOCKED_DATA"
+    assert exit_code_for_gate(gate) != 0
+
+
+def test_gate_B_trade_status_conflict_blocks_parity():
+    gate = compute_phase1a_gate(
+        data_blocked=False,
+        pit_provenance_gate="PASS",
+        field_failures=[],
+        trade_status_conflict_n=2,
+        st_internal_conflict_n=0,
+        smoke_ok=True,
+    )
+    assert gate == "BLOCKED_PARITY"
+    assert exit_code_for_gate(gate) == 2
+
+
+def test_gate_C_st_internal_conflict_blocks_parity():
+    gate = compute_phase1a_gate(
+        data_blocked=False,
+        pit_provenance_gate="PASS",
+        field_failures=[],
+        trade_status_conflict_n=0,
+        st_internal_conflict_n=1,
+        smoke_ok=True,
+    )
+    assert gate == "BLOCKED_PARITY"
+    assert exit_code_for_gate(gate) == 2
+
+
+def test_gate_D_all_pass_yields_pass_exit_zero():
+    gate = compute_phase1a_gate(
+        data_blocked=False,
+        pit_provenance_gate="PASS",
+        field_failures=[],
+        trade_status_conflict_n=0,
+        st_internal_conflict_n=0,
+        smoke_ok=True,
+    )
+    assert gate == "PASS"
+    assert exit_code_for_gate(gate) == 0
+
+
+def test_gate_field_failure_blocks():
+    gate = compute_phase1a_gate(
+        data_blocked=False,
+        pit_provenance_gate="PASS",
+        field_failures=["000001:2026-06-11:close outside tolerance"],
+        trade_status_conflict_n=0,
+        st_internal_conflict_n=0,
+        smoke_ok=True,
+    )
+    assert gate == "BLOCKED_PARITY"
+
+
+def test_gate_smoke_failure_blocks():
+    gate = compute_phase1a_gate(
+        data_blocked=False,
+        pit_provenance_gate="PASS",
+        field_failures=[],
+        trade_status_conflict_n=0,
+        st_internal_conflict_n=0,
+        smoke_ok=False,
+    )
+    assert gate == "BLOCKED_PARITY"

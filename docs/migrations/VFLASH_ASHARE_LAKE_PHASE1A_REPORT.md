@@ -322,10 +322,10 @@ architecture decision.
 
 ```
 tests/test_asl_adapter.py        → 43 passed
-tests/test_parity_harness.py     → 22 passed
+tests/test_parity_harness.py     → 28 passed
 test_adr008_data_correctness + test_warehouse_validate +
 test_corporate_action_preclose + test_asl_adapter + test_parity_harness
-                                 → 94 passed (combined run, final)
+                                 → 100 passed (combined run, final)
 python3 -m compileall -q src/limit_pullback/warehouse/asl_adapter.py → OK
 git diff --check                 → clean
 parity gate (real ASL, UNTOUCHED lake vs frozen canonical) →
@@ -399,6 +399,13 @@ gate; (5) explicit gate block in the summary (FIELD / PIT / TRADE_STATUS /
 ST_LEGACY_REFERENCE / ST_SEMANTIC_DELTA / STRATEGY_SMOKE / PHASE1A /
 CORPORATE_ACTION_INTERSECTION); (6) parity re-run on the SAME untouched
 round-3 lake with no data edits → PHASE1A_GATE = PASS.
+
+Gate-wiring fixes (final): ONE authoritative ``phase1a_gate``
+(``compute_phase1a_gate``) drives the process exit code, the full report,
+the compact summary and ``gates.PHASE1A_GATE``; PIT_STATUS_PROVENANCE_GATE
+!= PASS yields BLOCKED_DATA (non-zero exit); field/trade-status/ASL-internal/
+smoke failures yield BLOCKED_PARITY; component-gate regression tests A–D
+prove the final decision (incl. the PIT-block and exit-code mapping).
 
 ## 16. Phase 1B status
 
