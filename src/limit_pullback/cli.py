@@ -208,6 +208,16 @@ def build_parser() -> argparse.ArgumentParser:
     update_parser.add_argument("--codes", nargs="+", type=_main_board_code)
     update_parser.add_argument("--data-root", type=Path, default=None)
 
+    asl_snapshot_parser = subparsers.add_parser(
+        "asl-snapshot",
+        help="从权威 ASL 数据构建 immutable candidate snapshot（Phase 1C-1）",
+    )
+    asl_snapshot_parser.add_argument("--as-of", required=True, type=_iso_date)
+    asl_snapshot_parser.add_argument("--asl-root", required=True, type=Path)
+    asl_snapshot_parser.add_argument("--codes", nargs="+", type=_main_board_code)
+    asl_snapshot_parser.add_argument("--start", type=_iso_date, default=None)
+    asl_snapshot_parser.add_argument("--data-root", type=Path, default=None)
+
     status_parser = subparsers.add_parser(
         "data-status",
         help="输出仓库新鲜度与对账状态",
@@ -558,6 +568,36 @@ def _run_update(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_asl_snapshot(args: argparse.Namespace) -> int:
+    """Build an immutable CANDIDATE snapshot from authoritative ASL facts.
+
+    Runs in the given data root (isolated/temp for Phase 1C-1); never
+    promotes, never touches production pointers, never calls legacy/network
+    providers.
+    """
+
+    from limit_pullback.warehouse.asl_snapshot import (
+        build_asl_candidate_snapshot,
+    )
+    from limit_pullback.warehouse.layout import WarehouseLayout
+
+    layout = WarehouseLayout(resolve_data_root(args.data_root))
+    layout.ensure_dirs()
+    try:
+        snapshot = build_asl_candidate_snapshot(
+            layout=layout,
+            asl_root=args.asl_root,
+            as_of=args.as_of,
+            codes=args.codes or (),
+            start=args.start,
+        )
+    except Exception as exc:
+        _print_error(exc)
+        return 1
+    print(snapshot.model_dump_json(indent=2))
+    return 0
+
+
 def _run_data_status(args: argparse.Namespace) -> int:
     from limit_pullback.warehouse.layout import WarehouseLayout
     from limit_pullback.warehouse.status import data_status
@@ -827,6 +867,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_bootstrap(args)
     if args.command == "update":
         return _run_update(args)
+    if args.command == "asl-snapshot":
+        return _run_asl_snapshot(args)
     if args.command == "data-status":
         return _run_data_status(args)
     if args.command == "data-validate":
