@@ -8,6 +8,7 @@ is a MASK, never a price-history deletion.
 
 from __future__ import annotations
 
+import json
 import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -109,58 +110,102 @@ def test_suspended_takes_precedence_over_st():
     assert eligibility_for_date("600519", APRIL_DAYS[0], inst, _row(APRIL_DAYS[0], is_st=True, trade_status=False)) == "EXCLUDED_SUSPENDED"
 
 
-def test_st_dataset_not_ready_gate_fails_closed(tmp_path):
-    """Dataset-level fail-closed: without a ready ST exclusion dataset the
-    screen gate is ST_DATA_NOT_READY, never published."""
+def _write_marker(lake: Path, symbols: list[str]) -> None:
+    """Official ASL ST-backfill completion evidence (resume marker)."""
 
-    # Missing dataset entirely.
-    lake = tmp_path / "lake"
-    assert st_exclusion_ready(lake, AS_OF) is False
-    assert screen_gate(lake, AS_OF) == "ST_DATA_NOT_READY"
+    path = lake / "meta" / "state" / "trading_status_st_backfill.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"completed": symbols}), encoding="utf-8")
 
-    # Dataset present but no trusted ST exclusion row for AS_OF.
+
+def _write_baostock_rows(lake: Path, symbols: list[str]) -> None:
+    """A non-empty trading_status dataset with trusted ST rows (used to prove
+    row presence NEVER establishes readiness)."""
+
     status_root = lake / "curated" / "trading_status" / "trade_date=2026-08"
     status_root.mkdir(parents=True)
     pq.write_table(
         pa.table(
             {
-                "symbol": pa.array(["600519.SH"], type=pa.large_string()),
-                "trade_date": pa.array([AS_OF], type=pa.date32()),
-                "is_trading": pa.array([True], type=pa.bool_()),
-                "status": pa.array(["st"], type=pa.large_string()),
-                "source": pa.array(["derived_bar_gap"], type=pa.large_string()),
-                "data_version": pa.array(["v1"], type=pa.large_string()),
+                "symbol": pa.array([f"{s}.SH" for s in symbols], type=pa.large_string()),
+                "trade_date": pa.array([AS_OF] * len(symbols), type=pa.date32()),
+                "is_trading": pa.array([True] * len(symbols), type=pa.bool_()),
+                "status": pa.array(["st"] * len(symbols), type=pa.large_string()),
+                "source": pa.array(["baostock"] * len(symbols), type=pa.large_string()),
+                "data_version": pa.array(["v1"] * len(symbols), type=pa.large_string()),
                 "fetched_at": pa.array(
-                    [datetime(2026, 8, 7, 2, 0, tzinfo=timezone.utc)],
+                    [datetime(2026, 8, 7, 2, 0, tzinfo=timezone.utc)] * len(symbols),
                     type=pa.timestamp("us", tz="UTC"),
                 ),
             }
         ),
         status_root / "part-merged.parquet",
     )
-    assert st_exclusion_ready(lake, AS_OF) is False
-    assert screen_gate(lake, AS_OF) == "ST_DATA_NOT_READY"
 
-    # A trusted baostock ST exclusion row for AS_OF makes the dataset ready.
-    pq.write_table(
-        pa.table(
-            {
-                "symbol": pa.array(["000826.SZ"], type=pa.large_string()),
-                "trade_date": pa.array([AS_OF], type=pa.date32()),
-                "is_trading": pa.array([True], type=pa.bool_()),
-                "status": pa.array(["st"], type=pa.large_string()),
-                "source": pa.array(["baostock"], type=pa.large_string()),
-                "data_version": pa.array(["v1"], type=pa.large_string()),
-                "fetched_at": pa.array(
-                    [datetime(2026, 8, 7, 2, 0, tzinfo=timezone.utc)],
-                    type=pa.timestamp("us", tz="UTC"),
-                ),
-            }
-        ),
-        status_root / "part-baostock.parquet",
-    )
-    assert st_exclusion_ready(lake, AS_OF) is True
-    assert screen_gate(lake, AS_OF) == "READY"
+
+def test_nonempty_st_rows_incomplete_coverage_not_ready(tmp_path):
+    """A non-empty ST exclusion set does NOT prove completeness: required
+    coverage missing -> NOT_READY even though ST rows exist."""
+
+    lake = tmp_path / "lake"
+    _write_baostock_rows(lake, ["600519"])
+    _write_marker(lake, ["600519.SH"])  # official completion: one symbol only
+    required = ["600519", "601318"]
+    assert st_exclusion_ready(lake, AS_OF, required) is False
+    assert screen_gate(lake, AS_OF, required) == "ST_DATA_NOT_READY"
+
+
+def test_targeted_scope_vs_larger_required_universe_not_ready(tmp_path):
+    """A targeted 59-code completion cannot satisfy a larger required
+    universe: NOT_READY."""
+
+    lake = tmp_path / "lake"
+    targeted = [f"0000{i:02d}.SZ" for i in range(1, 60)]
+    _write_marker(lake, targeted)
+    required = [f"0000{i:02d}" for i in range(1, 61)]  # 60 required codes
+    assert st_exclusion_ready(lake, AS_OF, required) is False
+    assert screen_gate(lake, AS_OF, required) == "ST_DATA_NOT_READY"
+
+
+def test_complete_required_coverage_ready(tmp_path):
+    lake = tmp_path / "lake"
+    _write_marker(lake, ["600519.SH", "601318.SH"])
+    required = ["600519", "601318"]
+    assert st_exclusion_ready(lake, AS_OF, required) is True
+    assert screen_gate(lake, AS_OF, required) == "READY"
+
+
+def test_missing_or_failed_completion_evidence_not_ready(tmp_path):
+    """Missing or malformed official completion evidence fails closed."""
+
+    lake = tmp_path / "lake"
+    assert st_exclusion_ready(lake, AS_OF, ["600519"]) is False
+    marker = lake / "meta" / "state" / "trading_status_st_backfill.json"
+    marker.parent.mkdir(parents=True)
+    marker.write_text("{not json", encoding="utf-8")
+    assert st_exclusion_ready(lake, AS_OF, ["600519"]) is False
+    assert screen_gate(lake, AS_OF, ["600519"]) == "ST_DATA_NOT_READY"
+
+
+def test_zero_st_rows_with_proven_scope_ready(tmp_path):
+    """A day with ZERO ST stocks is READY when the official completion
+    contract proves the fetch completed — completeness is independent of ST
+    row count (no trading_status rows at all here)."""
+
+    lake = tmp_path / "lake"
+    _write_marker(lake, ["600519.SH", "601318.SH"])
+    required = ["600519", "601318"]
+    assert st_exclusion_ready(lake, AS_OF, required) is True
+    assert screen_gate(lake, AS_OF, required) == "READY"
+
+
+def test_per_stock_absent_status_row_remains_eligible():
+    """Per-stock eligibility is separate from dataset readiness: an ordinary
+    stock with no individual status row is still ELIGIBLE."""
+
+    inst = _instrument()
+    row = _row(APRIL_DAYS[0], is_st=None, trust=None)
+    assert eligibility_for_date("600519", APRIL_DAYS[0], inst, row) == "ELIGIBLE"
 
 
 def test_chinext_star_etf_excluded():

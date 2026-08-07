@@ -1,20 +1,25 @@
-"""Main-board non-ST universe smoke (<=10 codes) — eligibility MASK model.
+"""Main-board ST-exclusion readiness report (V4) — metadata only.
 
-READ-ONLY, bounded: no full-market strategy run, no ST backfill.
+READ-ONLY: no strategy run, no shadow.py, no ST backfill.  Reads ASL
+metadata / manifest / resume-marker evidence only.
 
-Correct model demonstrated here:
+Dataset-level ST readiness contract:
 
-    all real ASL bars -> screen_code (complete history) ->
-    eligibility mask on evaluation date -> user-facing candidates
+    the screen for an evaluation date is published only when the required
+    eligibility universe is covered by a COMPLETED trusted ST data
+    operation, proven by the official ASL ST-backfill completion evidence
+    (the ``trading_status_st_backfill`` resume marker).
 
-The strategy input is ALWAYS the complete unmodified ASL bar series; ST dates
-are never deleted from price history.  Eligibility only gates output: an
-excluded AS_OF date returns no candidate; excluded historical dates never
-surface as candidates.
+Completeness is NEVER inferred from ST row counts, from a non-empty
+trading_status dataset, or from a stock's absence from the ST set.
+
+Per-stock eligibility is a separate concept and stays unchanged
+(NON_MAINBOARD > NOT_LISTED > SUSPENDED > ST > ELIGIBLE).
 
 Usage:
     PYTHONPATH=src python research/asl_phase1b/universe_smoke.py \
         --asl-root /tmp/asl_phase1b_lake \
+        --universe /tmp/frozen_universe_phase2d0.json \
         --out research/asl_phase1b/artifacts/universe_smoke.json
 """
 
@@ -23,8 +28,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from collections import Counter
-from datetime import date, datetime, timezone, timedelta
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -32,31 +36,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import pyarrow.parquet as pq  # noqa: E402
 
-from limit_pullback.config import load_strategy_config  # noqa: E402
 from eligibility import (  # noqa: E402
-    classify_rows_evidence,
-    is_asof_strategy_eligible,
+    eligibility_for_date,
     is_mainboard_instrument,
     load_instruments,
-    mask_timeline_dates,
+    official_st_completed_symbols,
     screen_gate,
 )
-from shadow import (  # noqa: E402
-    AS_OF,
-    HISTORY_START,
-    WINDOW_START,
-    build_timeline,
-    strategy_signature,
-)
-from shadow import _load_asl_recursive  # noqa: E402
+from shadow import AS_OF  # noqa: E402  (date constant only; no strategy run)
 
-SHANGHAI_TZ = timezone(timedelta(hours=8))
-SMOKE_LIMIT = 10
-
-#: Representative smoke codes: eligible-looking main-board (status unknown in
-#: the current lake -> fail closed), ST, suspended, non-main-board, delisted.
 SMOKE_CODES = [
-    "000001", "000002", "600519", "601318",   # main board, status unknown
+    "000001", "000002", "600519", "601318",   # ordinary main board
     "000826",                                  # trusted ST at AS_OF
     "000838",                                  # suspended at AS_OF
     "300001", "688001",                        # ChiNext / STAR
@@ -64,140 +54,133 @@ SMOKE_CODES = [
 ]
 
 
-def _read_status_at_asof(asl_root: Path) -> dict[str, str]:
-    """{code: "ST" | "SUSPENDED" | "NON_ST"} for AS_OF from curated
-    trading_status, classified per the ASL PIT provenance contract."""
+def _read_st_set_at_asof(asl_root: Path) -> set[str]:
+    """Trusted ST exclusion facts at AS_OF (source=baostock), metadata read."""
 
-    out: dict[str, str] = {}
+    out: set[str] = set()
     status_root = Path(asl_root) / "curated" / "trading_status"
     for month in ("2026-07", "2026-08"):
         for file_path in sorted((status_root / f"trade_date={month}").glob("*.parquet")):
             table = pq.ParquetFile(file_path).read(
-                columns=["symbol", "trade_date", "is_trading", "status", "source", "fetched_at"]
+                columns=["symbol", "trade_date", "source"]
             )
-            for symbol, day, is_trading, status, source, fetched_at in zip(
+            for symbol, day, source in zip(
                 table.column("symbol").to_pylist(),
                 table.column("trade_date").to_pylist(),
-                table.column("is_trading").to_pylist(),
-                table.column("status").to_pylist(),
                 table.column("source").to_pylist(),
-                table.column("fetched_at").to_pylist(),
                 strict=True,
             ):
-                if day != AS_OF:
-                    continue
-                code = str(symbol).split(".")[0].zfill(6)
-                source = str(source or "").lower()
-                if source == "baostock":
-                    out[code] = "ST"
-                elif source == "derived_bar_gap":
-                    out[code] = "SUSPENDED"
-                elif source in ("eastmoney", "tdx_protocol"):
-                    try:
-                        fetched = (
-                            fetched_at
-                            if isinstance(fetched_at, datetime)
-                            else datetime.fromisoformat(str(fetched_at).replace("Z", "+00:00"))
-                        )
-                    except ValueError:
-                        continue
-                    if fetched.astimezone(SHANGHAI_TZ).date() == AS_OF:
-                        out[code] = "NON_ST"
+                if day == AS_OF and str(source).lower() == "baostock":
+                    out.add(str(symbol).split(".")[0].zfill(6))
+    return out
+
+
+def _read_bars_at_asof(asl_root: Path) -> set[str]:
+    """Codes with a daily bar on AS_OF (metadata read)."""
+
+    partition = Path(asl_root) / "curated" / "daily_bars" / f"trade_date={AS_OF.isoformat()}"
+    out: set[str] = set()
+    if not partition.exists():
+        return out
+    for file_path in sorted(partition.glob("*.parquet")):
+        table = pq.ParquetFile(file_path).read(columns=["symbol", "trade_date"])
+        for symbol, day in zip(
+            table.column("symbol").to_pylist(),
+            table.column("trade_date").to_pylist(),
+            strict=True,
+        ):
+            if day == AS_OF:
+                out.add(str(symbol).split(".")[0].zfill(6))
     return out
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--asl-root", required=True, type=Path)
-    parser.add_argument("--config", default="config/strategy.yaml", type=Path)
+    parser.add_argument("--universe", required=True, type=Path)
     parser.add_argument("--out", required=True, type=Path)
     args = parser.parse_args(argv)
 
     instruments = load_instruments(args.asl_root)
-    status_asof = _read_status_at_asof(args.asl_root)
-    config = load_strategy_config(args.config)
+    mainboard = sorted(
+        code for code, inst in instruments.items()
+        if is_mainboard_instrument(inst)
+    )
+    required_symbols = {
+        code + (".SH" if code.startswith("6") else ".SZ") for code in mainboard
+    }
+    completed = official_st_completed_symbols(args.asl_root)
+    frozen = set(json.loads(args.universe.read_text())["members"])
 
-    # Dataset-level ST exclusion readiness gate: the screen for AS_OF is
-    # published only when READY; otherwise ST_DATA_NOT_READY.
-    gate = screen_gate(args.asl_root, AS_OF)
+    summary = json.loads(
+        Path("research/asl_phase1b/shadow_summary.json").read_text(encoding="utf-8")
+    )
+    targeted_codes = set(
+        summary["st_coverage"]["decision_relevant_st_unknown_codes"]
+    )
+    targeted_symbols = {
+        code + (".SH" if code.startswith("6") else ".SZ") for code in targeted_codes
+    }
 
-    smoke: list[dict[str, Any]] = []
+    gate = screen_gate(args.asl_root, AS_OF, mainboard)
+
+    # Per-stock eligibility table (metadata only; no strategy).
+    st_asof = _read_st_set_at_asof(args.asl_root)
+    bars_asof = _read_bars_at_asof(args.asl_root)
+    rows: list[dict[str, Any]] = []
     for code in SMOKE_CODES:
         inst = instruments.get(code)
-        record: dict[str, Any] = {"code": code, "instrument": inst}
         if not is_mainboard_instrument(inst):
-            record.update(
+            rows.append(
                 {
+                    "code": code,
                     "eligibility": "EXCLUDED_NON_MAINBOARD",
-                    "strategy_run": False,
-                    "note": "excluded at universe level; no strategy evaluation",
+                    "note": "universe-level exclusion; no strategy run",
                 }
             )
-            smoke.append(record)
             continue
-
-        asl, errors, _explained, _cov = _load_asl_recursive(
-            args.asl_root, [code], HISTORY_START, AS_OF, {}
-        )
-        full_rows = asl.get(code, []) if asl else []
-
-        # 1) AS_OF eligibility FIRST (fail-closed gate).
-        asof_row = next(
-            (row for row in full_rows if row["trade_date"] == AS_OF), None
-        )
-        asof_eligibility = is_asof_strategy_eligible(code, AS_OF, inst, asof_row)
-
-        # 2) Strategy runs on the COMPLETE historical bar series.
-        items, _ = build_timeline(full_rows, config, WINDOW_START, AS_OF)
-        all_sigs = {item.trade_date: strategy_signature(item) for item in items}
-        # 3) Eligibility mask on evaluation output.
-        rows_by_date = {row["trade_date"]: row for row in full_rows}
-        masked_items = mask_timeline_dates(items, instruments, rows_by_date, code)
-        masked_sigs = {item.trade_date: strategy_signature(item) for item in masked_items}
-
-        eligible_dates, exclusions = classify_rows_evidence(full_rows, instruments)
-        excluded_counts = Counter(item["reason"] for item in exclusions)
-
-        record.update(
+        bar = code in bars_asof
+        row = (
             {
-                "strategy_run": True,
-                "strategy_input_rows": len(full_rows),
-                "history_intact": len(full_rows) > 0,
-                "asof_row_present": asof_row is not None,
-                "asof_eligibility": asof_eligibility,
-                "asof_status_evidence": status_asof.get(code, "NO_STATUS_ROW"),
-                "final_stage_unmasked": (
-                    all_sigs[AS_OF][0] if AS_OF in all_sigs else None
+                "trade_date": AS_OF,
+                "is_st": code in st_asof,
+                "trade_status": True,
+            }
+            if bar
+            else None
+        )
+        rows.append(
+            {
+                "code": code,
+                "bar_at_asof": bar,
+                "in_trusted_st_set_at_asof": code in st_asof,
+                "eligibility": eligibility_for_date(
+                    code, AS_OF, inst, row
                 ),
-                "final_stage_masked": (
-                    masked_sigs[AS_OF][0] if AS_OF in masked_sigs else None
-                ),
-                "final_entry_masked": (
-                    masked_sigs[AS_OF][7] if AS_OF in masked_sigs else None
-                ),
-                "excluded_counts": dict(excluded_counts),
-                "eligible_date_n": len(eligible_dates),
-                "exclusion_sample": exclusions[:5],
-                "data_errors": errors,
             }
         )
-        smoke.append(record)
 
     out = {
-        "contract": "VFLASH_MAINBOARD_UNIVERSE_FIX_V3",
-        "universe_contract": (
-            "SH/SZ MAINBOARD NORMAL A-SHARES ONLY; ST is a POSITIVE "
-            "exclusion set (trusted ST/*ST fact excludes; missing per-stock "
-            "status rows never exclude); fail-closed at DATASET level "
-            "(ST_DATA_NOT_READY blocks publishing the screen); eligibility "
-            "is a MASK, never a price-history deletion"
+        "contract": "VFLASH_MAINBOARD_UNIVERSE_FIX_V4",
+        "readiness_contract": (
+            "screen published only when the required eligibility universe is "
+            "covered by a COMPLETED trusted ST data operation (official ASL "
+            "resume-marker evidence); completeness never inferred from ST "
+            "row counts, dataset presence, or absence from the ST set"
         ),
-        "strategy_model": (
-            "all real ASL bars -> screen_code (complete history) -> "
-            "eligibility mask on evaluation date -> candidates"
-        ),
+        "official_asl_coverage_evidence": {
+            "source": "meta/state/trading_status_st_backfill.json "
+            "(official _mark_st_backfilled completion registry)",
+            "completed_symbol_n": len(completed),
+            "targeted_st_completed_code_n": len(
+                targeted_symbols & completed
+            ),
+            "required_mainboard_code_n": len(mainboard),
+            "required_mainboard_symbol_n": len(required_symbols),
+            "frozen_universe_n": len(frozen),
+        },
         "screen_gate": gate,
-        "smoke": {"code_n": len(smoke), "rows": smoke},
+        "per_stock_smoke": {"code_n": len(rows), "rows": rows},
     }
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(

@@ -14,9 +14,14 @@ per-stock status row is never turned into an exclusion.
             |
             +-- otherwise                   -> continue eligibility checks
 
-Fail-closed applies at DATASET LEVEL: if the required ST exclusion dataset
-for an evaluation date is not ready / not sufficiently covered, the screen
-for that date is NOT published (``ST_DATA_NOT_READY``).
+Fail-closed applies at DATASET LEVEL: the screen for an evaluation date is
+published only when the required eligibility universe is covered by a
+COMPLETED trusted ST data operation.  Completeness is proven by the official
+ASL ST-backfill completion evidence (the ``trading_status_st_backfill``
+resume marker) — NEVER inferred from the number of ST rows, from a
+non-empty trading_status dataset, or from a stock's absence from the ST set.
+If coverage is incomplete the screen is NOT published
+(``ST_DATA_NOT_READY``).
 
 ELIGIBILITY IS A MASK, NOT A HISTORY-DELETION RULE.
 
@@ -49,6 +54,7 @@ stock names, no extra providers, no Parquet edits.
 
 from __future__ import annotations
 
+import json
 from datetime import date
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -101,56 +107,73 @@ def is_mainboard_instrument(
     return code.startswith(FROZEN_MAINBOARD_PREFIXES)
 
 
-def st_exclusion_ready(asl_root: Path, as_of: date) -> bool:
-    """Dataset-level ST exclusion readiness for *as_of*.
+def official_st_completed_symbols(asl_root: Path) -> set[str]:
+    """Official ASL ST-backfill completion evidence (resume marker).
 
-    True only when the ASL trading_status dataset is present and carries at
-    least one trusted ST exclusion row (``source=baostock``) for *as_of* —
-    evidence that the ST exclusion pipeline has run for that date.  This is
-    a MINIMAL operator gate: it does not judge per-stock coverage
-    sufficiency (a day with genuinely zero ST names and zero rows is
-    indistinguishable from "not fetched" and therefore stays NOT_READY).
+    Reads ``<root>/meta/state/trading_status_st_backfill.json`` — the
+    per-symbol completion registry written by the official ASL backfill path
+    (``_mark_st_backfilled``) only after a symbol's trusted ST fetch + write
+    succeeded.  Missing or malformed evidence returns an empty set (fail
+    closed); no second coverage database is invented.
     """
 
-    status_root = Path(asl_root) / "curated" / "trading_status"
-    if not status_root.exists():
-        return False
-    partitions = sorted(status_root.glob("trade_date=*-*"))
-    if not partitions:
-        return False
-    for partition in partitions:
-        key = partition.name.removeprefix("trade_date=")
-        try:
-            month_start = date(int(key[:4]), int(key[5:7]), 1)
-        except ValueError:
-            continue
-        month_end = date(
-            month_start.year + 1, 1, 1
-        ) if month_start.month == 12 else date(
-            month_start.year, month_start.month + 1, 1
-        )
-        if not (month_start <= as_of < month_end):
-            continue
-        for file_path in sorted(partition.glob("*.parquet")):
-            table = pq.ParquetFile(file_path).read(
-                columns=["symbol", "trade_date", "source"]
-            )
-            for symbol, day, source in zip(
-                table.column("symbol").to_pylist(),
-                table.column("trade_date").to_pylist(),
-                table.column("source").to_pylist(),
-                strict=True,
-            ):
-                if day == as_of and str(source).lower() == "baostock":
-                    return True
-    return False
+    marker = Path(asl_root) / "meta" / "state" / "trading_status_st_backfill.json"
+    if not marker.exists():
+        return set()
+    try:
+        payload = json.loads(marker.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return set()
+    completed = payload.get("completed")
+    if not isinstance(completed, list):
+        return set()
+    return {str(symbol) for symbol in completed if isinstance(symbol, str)}
 
 
-def screen_gate(asl_root: Path, as_of: date) -> str:
+def _required_symbols(required_codes: Sequence[str]) -> set[str]:
+    out: set[str] = set()
+    for code in required_codes:
+        code = str(code).zfill(6)
+        out.add(code + (".SH" if code.startswith("6") else ".SZ"))
+    return out
+
+
+def st_exclusion_ready(
+    asl_root: Path,
+    as_of: date,
+    required_codes: Sequence[str],
+) -> bool:
+    """Dataset-level ST exclusion readiness over *required_codes*.
+
+    READY only when the official ASL completion evidence proves a COMPLETED
+    trusted ST operation for EVERY required code.  Row counts, a non-empty
+    trading_status dataset, or a stock's absence from the ST set NEVER prove
+    completeness — a day with zero ST names can still be READY when the
+    official completion contract proves the fetch completed.
+
+    *as_of* scopes the contract date; the official resume marker is the
+    completion evidence.
+    """
+
+    completed = official_st_completed_symbols(asl_root)
+    required = _required_symbols(required_codes)
+    return required <= completed
+
+
+def screen_gate(
+    asl_root: Path,
+    as_of: date,
+    required_codes: Sequence[str],
+) -> str:
     """``READY`` or ``ST_DATA_NOT_READY`` — the screen for *as_of* is
-    published only when the ST exclusion dataset is ready."""
+    published only when the required eligibility universe is covered by a
+    completed trusted ST data operation."""
 
-    return "READY" if st_exclusion_ready(asl_root, as_of) else "ST_DATA_NOT_READY"
+    return (
+        "READY"
+        if st_exclusion_ready(asl_root, as_of, required_codes)
+        else "ST_DATA_NOT_READY"
+    )
 
 
 def eligibility_for_date(
