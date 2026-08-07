@@ -68,6 +68,11 @@ def _build_lake(
                 {"symbol": "000524.SZ", "list_date": None, "delist_date": None},
                 {"symbol": "300750.SZ", "list_date": None, "delist_date": None},
                 {"symbol": "605198.SH", "list_date": None, "delist_date": None},
+                # AS_OF scope edge instruments (AS_OF = 2026-06-15):
+                {"symbol": "600000.SH", "list_date": date(1995, 1, 1), "delist_date": date(2026, 6, 1)},   # delisted before AS_OF
+                {"symbol": "600001.SH", "list_date": date(2026, 6, 20), "delist_date": None},               # listed after AS_OF
+                {"symbol": "600002.SH", "list_date": date(2000, 1, 1), "delist_date": None},                # no AS_OF bar
+                {"symbol": "600003.SH", "list_date": date(2000, 1, 1), "delist_date": None},                # zero-volume AS_OF bar
             ],
         )
     if "trading_calendar" not in drop_datasets:
@@ -115,6 +120,15 @@ def _build_lake(
                 {"trade_date": date(2026, 6, 11), "open": 200.0, "high": 205.0, "low": 199.0, "close": 204.0, "volume": 1000000, "amount": 2.03e8},
                 {"trade_date": date(2026, 6, 12), "open": 203.0, "high": 206.0, "low": 201.0, "close": 205.0, "volume": 1100000, "amount": 2.25e8},
                 {"trade_date": date(2026, 6, 15), "open": 205.0, "high": 207.0, "low": 203.0, "close": 204.5, "volume": 900000, "amount": 1.84e8},
+            ],
+            "600002.SH": [
+                {"trade_date": date(2026, 6, 11), "open": 5.0, "high": 5.1, "low": 4.9, "close": 5.0, "volume": 10000, "amount": 50000.0},
+                {"trade_date": date(2026, 6, 12), "open": 5.0, "high": 5.0, "low": 4.8, "close": 4.9, "volume": 10000, "amount": 49000.0},
+            ],
+            "600003.SH": [
+                {"trade_date": date(2026, 6, 11), "open": 6.0, "high": 6.1, "low": 5.9, "close": 6.0, "volume": 10000, "amount": 60000.0},
+                {"trade_date": date(2026, 6, 12), "open": 6.0, "high": 6.2, "low": 5.9, "close": 6.1, "volume": 10000, "amount": 61000.0},
+                {"trade_date": date(2026, 6, 15), "open": 6.1, "high": 6.1, "low": 6.0, "close": 6.0, "volume": 0, "amount": 0.0},
             ],
         }
         by_date: dict[date, list[dict]] = {}
@@ -384,13 +398,21 @@ def test_build_path_never_calls_legacy_providers(tmp_path, monkeypatch):
     )
 
 
-def test_codes_none_derives_full_mainboard_universe(tmp_path):
-    """codes=None derives the full allowed main-board universe from ASL
-    instruments (adapter contract), excluding non-main-board instruments."""
+def _resolved_scope(lake: Path) -> set[str]:
+    from limit_pullback.warehouse.asl_snapshot import resolve_asl_asof_scope
+
+    return set(resolve_asl_asof_scope(lake, AS_OF))
+
+
+def test_codes_none_resolves_asof_scope(tmp_path):
+    """codes=None now means AS_OF pre-ST market scope (evaluation date first):
+    active main-board codes with a valid positive-volume AS_OF bar only."""
 
     lake = tmp_path / "lake"
-    _build_lake(lake)  # instruments: 000001/000010/000524/605198 (main board)
-                      #             + 300750 (ChiNext, must be excluded)
+    _build_lake(lake)
+    scope = _resolved_scope(lake)
+    # Active main-board + positive-volume AS_OF bar -> included (A).
+    assert scope == {"000001", "000010", "000524", "605198"}
     layout = _layout(tmp_path)
     snapshot = build_asl_candidate_snapshot(
         layout=layout, asl_root=lake, as_of=AS_OF, codes=None, start=START,
@@ -398,11 +420,42 @@ def test_codes_none_derives_full_mainboard_universe(tmp_path):
     with WarehouseMetadata(layout.duckdb_path, read_only=True) as metadata:
         stored = metadata.snapshot_by_id(snapshot.snapshot_id)
         rows = read_snapshot_daily(layout, stored)
-    codes = {row["code"] for row in rows}
-    assert codes == {"000001", "000010", "000524", "605198"}
-    assert "300750" not in codes
-    # 4 main-board codes x 2 VALID days (6/12, 6/15; 6/11 is MISSING_PRECLOSE).
-    assert len(rows) == 8
+    assert {row["code"] for row in rows} == scope
+    assert len(rows) == 8  # 4 codes x 2 VALID days (6/11 was MISSING_PRECLOSE)
+
+
+def test_asof_scope_excludes_by_listing_and_bar_rules(tmp_path):
+    """B-F: delisted / not-yet-listed / no-AS_OF-bar / zero-volume / ChiNext
+    instruments are all OUTSIDE the AS_OF scope (no hardcoded exclusions)."""
+
+    lake = tmp_path / "lake"
+    _build_lake(lake)
+    scope = _resolved_scope(lake)
+    assert "600000" not in scope  # B: delisted before AS_OF
+    assert "600001" not in scope  # C: listed after AS_OF
+    assert "600002" not in scope  # D: no AS_OF bar
+    assert "600003" not in scope  # E: zero-volume AS_OF bar
+    assert "300750" not in scope  # F: ChiNext / non-main-board
+
+
+def test_asof_scope_keeps_st_history_intact(tmp_path):
+    """H: ST history/status does NOT remove a stock from the AS_OF snapshot
+    scope at this stage — ST remains a later eligibility/readiness layer and
+    historical ST rows stay in the snapshot."""
+
+    lake = tmp_path / "lake"
+    _build_lake(lake)  # 000010 has trusted baostock st/*st rows
+    scope = _resolved_scope(lake)
+    assert "000010" in scope
+    layout = _layout(tmp_path)
+    snapshot = build_asl_candidate_snapshot(
+        layout=layout, asl_root=lake, as_of=AS_OF, codes=None, start=START,
+    )
+    with WarehouseMetadata(layout.duckdb_path, read_only=True) as metadata:
+        stored = metadata.snapshot_by_id(snapshot.snapshot_id)
+        rows = read_snapshot_daily(layout, stored)
+    st_rows = [row for row in rows if row["code"] == "000010" and row["is_st"] is True]
+    assert len(st_rows) == 2  # 6/12 st + 6/15 *st rows remain in the snapshot
 
 
 def test_explicit_codes_still_work(tmp_path):
