@@ -96,11 +96,16 @@ def build_asl_candidate_snapshot(
     layout: WarehouseLayout,
     asl_root: str | Path,
     as_of: date,
-    codes: Sequence[str],
+    codes: Sequence[str] | None = None,
     start: date | None = None,
     universe_prefixes: Sequence[str] = FROZEN_UNIVERSE_PREFIXES,
 ) -> SnapshotRecord:
     """ASL → adapter → canonical mapping → create_snapshot (CURRENT).
+
+    ``codes=None`` (the CLI default when ``--codes`` is omitted) derives the
+    full allowed universe from ASL instruments — the adapter contract: None
+    means "full universe", an empty sequence means "zero codes" (an empty
+    snapshot), so None is preserved and never converted to [].
 
     Creates a CANDIDATE snapshot in the caller-provided (isolated / temp)
     warehouse.  Never promotes; never touches production pointers; never
@@ -111,7 +116,7 @@ def build_asl_candidate_snapshot(
         asl_root,
         as_of=as_of,
         start=start,
-        codes=list(codes),
+        codes=None if codes is None else list(codes),
         universe_prefixes=universe_prefixes,
     )
     daily_rows = asl_rows_to_canonical_rows(slice_.rows)

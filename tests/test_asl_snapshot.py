@@ -379,6 +379,77 @@ def test_build_path_never_calls_legacy_providers(tmp_path, monkeypatch):
     )
 
 
+def test_codes_none_derives_full_mainboard_universe(tmp_path):
+    """codes=None derives the full allowed main-board universe from ASL
+    instruments (adapter contract), excluding non-main-board instruments."""
+
+    lake = tmp_path / "lake"
+    _build_lake(lake)  # instruments: 000001/000010/000524/605198 (main board)
+                      #             + 300750 (ChiNext, must be excluded)
+    layout = _layout(tmp_path)
+    snapshot = build_asl_candidate_snapshot(
+        layout=layout, asl_root=lake, as_of=AS_OF, codes=None, start=START,
+    )
+    with WarehouseMetadata(layout.duckdb_path, read_only=True) as metadata:
+        stored = metadata.snapshot_by_id(snapshot.snapshot_id)
+        rows = read_snapshot_daily(layout, stored)
+    codes = {row["code"] for row in rows}
+    assert codes == {"000001", "000010", "000524", "605198"}
+    assert "300750" not in codes
+    # 4 main-board codes x 2 VALID days (6/12, 6/15; 6/11 is MISSING_PRECLOSE).
+    assert len(rows) == 8
+
+
+def test_explicit_codes_still_work(tmp_path):
+    """Explicit codes keep the exact prior semantics (subset, no universe
+    derivation)."""
+
+    lake = tmp_path / "lake"
+    _build_lake(lake)
+    layout = _layout(tmp_path)
+    snapshot = build_asl_candidate_snapshot(
+        layout=layout, asl_root=lake, as_of=AS_OF, codes=["000001"], start=START,
+    )
+    with WarehouseMetadata(layout.duckdb_path, read_only=True) as metadata:
+        stored = metadata.snapshot_by_id(snapshot.snapshot_id)
+        rows = read_snapshot_daily(layout, stored)
+    assert {row["code"] for row in rows} == {"000001"}
+    assert len(rows) == 2
+
+
+def test_cli_without_codes_builds_nonempty_snapshot(tmp_path, capsys):
+    """The CLI path without --codes must NOT produce a zero-row snapshot:
+    omitted --codes stays None and derives the ASL main-board universe."""
+
+    import json as _json
+
+    lake = tmp_path / "lake"
+    _build_lake(lake)
+    data_root = tmp_path / "data"
+    from limit_pullback.cli import main
+
+    rc = main(
+        [
+            "asl-snapshot",
+            "--as-of", AS_OF.isoformat(),
+            "--asl-root", str(lake),
+            "--start", START.isoformat(),
+            "--data-root", str(data_root),
+        ]
+    )
+    assert rc == 0
+    payload = _json.loads(capsys.readouterr().out)
+    assert payload["snapshot_id"]
+    layout = WarehouseLayout(data_root)
+    with WarehouseMetadata(layout.duckdb_path, read_only=True) as metadata:
+        stored = metadata.snapshot_by_id(payload["snapshot_id"])
+        rows = read_snapshot_daily(layout, stored)
+    assert len(rows) > 0
+    assert {row["code"] for row in rows} == {
+        "000001", "000010", "000524", "605198",
+    }
+
+
 def test_cli_asl_snapshot_help_available():
     from limit_pullback.cli import build_parser
 

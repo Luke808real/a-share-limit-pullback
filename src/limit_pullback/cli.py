@@ -588,7 +588,9 @@ def _run_asl_snapshot(args: argparse.Namespace) -> int:
             layout=layout,
             asl_root=args.asl_root,
             as_of=args.as_of,
-            codes=args.codes or (),
+            # Omitted --codes stays None so the adapter derives the full
+            # allowed main-board universe from ASL instruments.
+            codes=args.codes,
             start=args.start,
         )
     except Exception as exc:
