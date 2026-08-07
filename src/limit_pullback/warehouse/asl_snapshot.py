@@ -91,6 +91,82 @@ def asl_rows_to_canonical_rows(
     return out
 
 
+def resolve_asl_asof_scope(
+    asl_root: str | Path,
+    as_of: date,
+    universe_prefixes: Sequence[str] = FROZEN_UNIVERSE_PREFIXES,
+) -> tuple[str, ...]:
+    """AS_OF pre-ST market scope from ASL ONLY.
+
+    Production scope is determined at the EVALUATION DATE first.  Each code
+    must satisfy (VFLASH_MAINBOARD_UNIVERSE_V1 evaluation-date pre-ST scope):
+
+    1. allowed SH/SZ main-board prefix
+    2. instrument exists in ASL curated instruments
+    3. list_date is None OR list_date <= as_of
+    4. delist_date is None OR as_of < delist_date
+    5. AS_OF daily bar exists
+    6. AS_OF volume > 0
+
+    ST is NOT applied here (positive exclusion / readiness stays a later
+    layer).  Historical bars are never filtered by this resolver.
+
+    Uses ONLY ASL curated/instruments + the AS_OF daily_bars partition; no
+    legacy snapshot, no old universe JSON, no provider calls.
+    """
+
+    import pyarrow.parquet as pq
+
+    instruments_path = (
+        Path(asl_root) / "curated" / "instruments" / "part-merged.parquet"
+    )
+    instruments: list[tuple[str, Any, Any]] = []
+    if instruments_path.exists():
+        table = pq.ParquetFile(instruments_path).read(
+            columns=["symbol", "list_date", "delist_date"]
+        )
+        for symbol, list_date, delist_date in zip(
+            table.column("symbol").to_pylist(),
+            table.column("list_date").to_pylist(),
+            table.column("delist_date").to_pylist(),
+            strict=True,
+        ):
+            instruments.append((str(symbol), list_date, delist_date))
+
+    asof_volume: dict[str, Any] = {}
+    asof_partition = (
+        Path(asl_root)
+        / "curated"
+        / "daily_bars"
+        / f"trade_date={as_of.isoformat()}"
+    )
+    for file_path in sorted(asof_partition.glob("*.parquet")):
+        table = pq.ParquetFile(file_path).read(
+            columns=["symbol", "volume"]
+        )
+        for symbol, volume in zip(
+            table.column("symbol").to_pylist(),
+            table.column("volume").to_pylist(),
+            strict=True,
+        ):
+            asof_volume[str(symbol).split(".")[0].zfill(6)] = volume
+
+    out: list[str] = []
+    for symbol, list_date, delist_date in instruments:
+        code = symbol.split(".")[0].zfill(6)
+        if not code.startswith(tuple(universe_prefixes)):
+            continue
+        if list_date is not None and as_of < list_date:
+            continue
+        if delist_date is not None and as_of >= delist_date:
+            continue
+        volume = asof_volume.get(code)
+        if volume is None or (volume or 0) <= 0:
+            continue
+        out.append(code)
+    return tuple(sorted(out))
+
+
 def build_asl_candidate_snapshot(
     *,
     layout: WarehouseLayout,
@@ -102,21 +178,29 @@ def build_asl_candidate_snapshot(
 ) -> SnapshotRecord:
     """ASL → adapter → canonical mapping → create_snapshot (CURRENT).
 
-    ``codes=None`` (the CLI default when ``--codes`` is omitted) derives the
-    full allowed universe from ASL instruments — the adapter contract: None
-    means "full universe", an empty sequence means "zero codes" (an empty
-    snapshot), so None is preserved and never converted to [].
+    ``codes=None`` (the CLI default when ``--codes`` is omitted) means
+    "derive the current V Flash AS_OF pre-ST market scope from ASL" via
+    :func:`resolve_asl_asof_scope` — NOT "load every main-board instrument
+    in the ASL catalog".  Instruments outside the AS_OF evaluation scope
+    (not listed / delisted / no valid positive-volume AS_OF bar) are never
+    requested.  Explicit ``codes`` keep exact-request semantics and go
+    directly to the adapter.
 
     Creates a CANDIDATE snapshot in the caller-provided (isolated / temp)
     warehouse.  Never promotes; never touches production pointers; never
     calls legacy/network providers.
     """
 
+    resolved_codes = (
+        resolve_asl_asof_scope(asl_root, as_of, universe_prefixes)
+        if codes is None
+        else list(codes)
+    )
     slice_ = load_asl_daily_slice(
         asl_root,
         as_of=as_of,
         start=start,
-        codes=None if codes is None else list(codes),
+        codes=resolved_codes,
         universe_prefixes=universe_prefixes,
     )
     daily_rows = asl_rows_to_canonical_rows(slice_.rows)
