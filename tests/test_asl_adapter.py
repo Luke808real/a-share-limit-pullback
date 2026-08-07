@@ -1,20 +1,29 @@
-"""Phase-1A unit tests for the read-only ASL adapter (offline, synthetic)."""
+"""Phase-1A unit tests for the read-only ASL adapter (offline, synthetic).
+
+Covers review-round-1 blockers: required-dataset fail-closed, missing-bar
+gate, status semantics, predecessor seeding, duplicate PK guards, partition
+pruning, turnover contract, and compatibility gating.
+"""
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 
 import pyarrow as pa
 import pyarrow.parquet as pq
+import pytest
 
 from limit_pullback.warehouse.asl_adapter import (
-    ASL_REVISION_PIN,
+    AslAdapterError,
+    TESTED_COMPAT_REVISION,
     CONTRACT_VERSION,
     AslDailySlice,
     load_asl_daily_slice,
 )
+
+WEEKEND = (date(2026, 6, 13), date(2026, 6, 14))
 
 
 def _write(path: Path, rows: list[dict]) -> None:
@@ -23,46 +32,12 @@ def _write(path: Path, rows: list[dict]) -> None:
     pq.write_table(table, path)
 
 
-def _build_lake(
-    root: Path,
-    *,
-    with_status: bool = True,
-    bars: dict[str, list[dict]] | None = None,
-    versions: dict[str, str] | None = None,
-) -> None:
-    """Synthetic ASL lake.
+def _default_bars() -> dict[str, list[dict]]:
+    """Every code has a bar on every default trading day (6/11, 6/12, 6/15)."""
 
-    Calendar: 2026-06-11 (Thu), 2026-06-12 (Fri), 2026-06-15 (Mon) all trade.
-    Default bars per symbol: 000001, 000010, 000524, 605198 + 300750
-    (outside the frozen universe, must be excluded).
-    """
-
-    _write(
-        root / "curated" / "instruments" / "part-merged.parquet",
-        [
-            {"symbol": "000001.SZ"},
-            {"symbol": "000010.SZ"},
-            {"symbol": "000524.SZ"},
-            {"symbol": "300750.SZ"},
-            {"symbol": "605198.SH"},
-        ],
-    )
-    _write(
-        root / "curated" / "trading_calendar" / "part-merged.parquet",
-        [
-            {"trade_date": date(2026, 6, 11), "is_trading": True},
-            {"trade_date": date(2026, 6, 12), "is_trading": True},
-            {"trade_date": date(2026, 6, 13), "is_trading": False},
-            {"trade_date": date(2026, 6, 14), "is_trading": False},
-            {"trade_date": date(2026, 6, 15), "is_trading": True},
-        ],
-    )
-
-    default_bars: dict[str, list[dict]] = {
+    return {
         "000001.SZ": [
             {"trade_date": date(2026, 6, 11), "open": 11.30, "high": 11.40, "low": 11.20, "close": 11.30, "volume": 100000, "amount": 1129999.5},
-            # ex-dividend session: the exchange reference price moves, the
-            # frozen ADR-008 rule does NOT adjust preclose.
             {"trade_date": date(2026, 6, 12), "open": 11.00, "high": 11.25, "low": 10.88, "close": 11.24, "volume": 200000, "amount": 2222222.25},
             {"trade_date": date(2026, 6, 15), "open": 11.21, "high": 11.21, "low": 10.98, "close": 11.06, "volume": 150000, "amount": 1650000.0},
         ],
@@ -71,54 +46,97 @@ def _build_lake(
             {"trade_date": date(2026, 6, 12), "open": 2.00, "high": 2.06, "low": 2.00, "close": 2.05, "volume": 60000, "amount": 122000.0},
             {"trade_date": date(2026, 6, 15), "open": 2.05, "high": 2.10, "low": 2.04, "close": 2.10, "volume": 70000, "amount": 145000.0},
         ],
-        # 000524 has no bar on 6/12 (suspension gap): the chain must carry the
-        # 6/11 close forward to 6/15.
         "000524.SZ": [
             {"trade_date": date(2026, 6, 11), "open": 9.00, "high": 9.10, "low": 8.95, "close": 9.00, "volume": 80000, "amount": 720000.0},
+            {"trade_date": date(2026, 6, 12), "open": 9.00, "high": 9.05, "low": 8.95, "close": 9.00, "volume": 0, "amount": 0.0},
             {"trade_date": date(2026, 6, 15), "open": 9.10, "high": 9.25, "low": 9.05, "close": 9.20, "volume": 90000, "amount": 825000.0},
         ],
         "605198.SH": [
-            {"trade_date": date(2026, 6, 12), "open": 50.00, "high": 50.50, "low": 49.80, "close": 50.20, "volume": 30000, "amount": 1500000.0},
+            {"trade_date": date(2026, 6, 11), "open": 49.9, "high": 50.1, "low": 49.8, "close": 50.0, "volume": 20000, "amount": 1000000.0},
+            {"trade_date": date(2026, 6, 12), "open": 50.0, "high": 50.5, "low": 49.8, "close": 50.2, "volume": 30000, "amount": 1500000.0},
+            {"trade_date": date(2026, 6, 15), "open": 50.2, "high": 50.6, "low": 50.0, "close": 50.4, "volume": 35000, "amount": 1760000.0},
         ],
         "300750.SZ": [
             {"trade_date": date(2026, 6, 11), "open": 200.0, "high": 205.0, "low": 199.0, "close": 204.0, "volume": 1000000, "amount": 2.03e8},
+            {"trade_date": date(2026, 6, 12), "open": 203.0, "high": 206.0, "low": 201.0, "close": 205.0, "volume": 1100000, "amount": 2.25e8},
+            {"trade_date": date(2026, 6, 15), "open": 205.0, "high": 207.0, "low": 203.0, "close": 204.5, "volume": 900000, "amount": 1.84e8},
         ],
     }
-    if bars is not None:
-        default_bars.update(bars)
-    versions = versions or {}
-    by_date: dict[date, list[dict]] = {}
-    for symbol, rows in default_bars.items():
-        for row in rows:
-            by_date.setdefault(row["trade_date"], []).append(
-                {
-                    "symbol": symbol,
-                    "trade_date": row["trade_date"],
-                    "open": row["open"],
-                    "high": row["high"],
-                    "low": row["low"],
-                    "close": row["close"],
-                    "volume": row["volume"],
-                    "amount": row.get("amount"),
-                    "source": "tdx_protocol",
-                    "data_version": versions.get(symbol, "v2"),
-                    "fetched_at": "2026-08-07T00:00:00Z",
-                }
-            )
-    for trade_date, rows in sorted(by_date.items()):
+
+
+def _build_lake(
+    root: Path,
+    *,
+    trading_days: list[date] | None = None,
+    bars: dict[str, list[dict]] | None = None,
+    versions: dict[str, str] | None = None,
+    status_rows: list[dict] | None = None,
+    instruments: list[dict] | None = None,
+    with_status: bool = True,
+    drop_datasets: tuple[str, ...] = (),
+) -> None:
+    trading_days = trading_days or [date(2026, 6, 11), date(2026, 6, 12), date(2026, 6, 15)]
+    if "instruments" not in drop_datasets:
         _write(
-            root
-            / "curated"
-            / "daily_bars"
-            / f"trade_date={trade_date.isoformat()}"
-            / "part-merged.parquet",
-            rows,
+            root / "curated" / "instruments" / "part-merged.parquet",
+            instruments
+            or [
+                {"symbol": "000001.SZ", "list_date": None, "delist_date": None},
+                {"symbol": "000010.SZ", "list_date": None, "delist_date": None},
+                {"symbol": "000524.SZ", "list_date": None, "delist_date": None},
+                {"symbol": "300750.SZ", "list_date": None, "delist_date": None},
+                {"symbol": "605198.SH", "list_date": None, "delist_date": None},
+            ],
+        )
+    if "trading_calendar" not in drop_datasets:
+        _write(
+            root / "curated" / "trading_calendar" / "trade_date=2026" / "part-merged.parquet",
+            [
+                {"trade_date": day, "is_trading": day in trading_days}
+                for day in [
+                    date(2026, 6, 11), date(2026, 6, 12),
+                    *WEEKEND, date(2026, 6, 15),
+                    date(2026, 6, 16), date(2026, 6, 17),
+                ]
+            ],
         )
 
-    if with_status:
+    bars = bars if bars is not None else _default_bars()
+    versions = versions or {}
+    if "daily_bars" not in drop_datasets:
+        by_date: dict[date, list[dict]] = {}
+        for symbol, rows in bars.items():
+            for row in rows:
+                by_date.setdefault(row["trade_date"], []).append(
+                    {
+                        "symbol": symbol,
+                        "trade_date": row["trade_date"],
+                        "open": row["open"],
+                        "high": row["high"],
+                        "low": row["low"],
+                        "close": row["close"],
+                        "volume": row["volume"],
+                        "amount": row.get("amount"),
+                        "source": "tdx_protocol",
+                        "data_version": versions.get(symbol, "v2"),
+                        "fetched_at": "2026-08-07T00:00:00Z",
+                    }
+                )
+        for trade_date, rows in sorted(by_date.items()):
+            _write(
+                root
+                / "curated"
+                / "daily_bars"
+                / f"trade_date={trade_date.isoformat()}"
+                / "part-merged.parquet",
+                rows,
+            )
+
+    if with_status and "trading_status" not in drop_datasets:
         _write(
             root / "curated" / "trading_status" / "trade_date=2026-06" / "part-merged.parquet",
-            [
+            status_rows
+            or [
                 {"symbol": "000010.SZ", "trade_date": date(2026, 6, 12), "is_trading": True, "status": "st"},
                 {"symbol": "000010.SZ", "trade_date": date(2026, 6, 15), "is_trading": True, "status": "*st"},
                 {"symbol": "000524.SZ", "trade_date": date(2026, 6, 12), "is_trading": False, "status": "suspended"},
@@ -140,6 +158,14 @@ def _row(slice_: AslDailySlice, code: str, day: date):
     return next(
         row for row in slice_.rows if row.code == code and row.trade_date == day
     )
+
+
+def _bar_rows(code: str, days: list[date], close: str) -> list[dict]:
+    return [
+        {"trade_date": day, "open": close, "high": close, "low": close,
+         "close": close, "volume": 10000, "amount": 100000.0}
+        for day in days
+    ]
 
 
 def test_symbol_normalization_and_universe_prefix_exclusion(tmp_path):
@@ -166,71 +192,325 @@ def test_decimal_price_quantization_and_units(tmp_path):
 
 def test_volume_unit_contract_v1_fails_closed(tmp_path):
     _build_lake(tmp_path, versions={"000001.SZ": "v1"})
-    result = _load(tmp_path)
-    bad = [row for row in result.rows if row.code == "000001"]
-    assert bad
-    assert all(row.row_status == "UNSUPPORTED_SEMANTICS" for row in bad)
-    assert "data_version" in bad[0].reason
+    with pytest.raises(AslAdapterError, match="data_version"):
+        _load(tmp_path)
 
 
-def test_missing_status_dataset_fails_closed(tmp_path):
-    _build_lake(tmp_path, with_status=False)
-    result = _load(tmp_path)
-    assert result.status_coverage.mode == "FAIL_CLOSED"
-    assert all(row.trade_status is None for row in result.rows)
-    assert all(row.is_st is None for row in result.rows)
-    assert all(row.row_status == "MISSING_STATUS" for row in result.rows)
+@pytest.mark.parametrize("dataset", ["instruments", "trading_calendar", "daily_bars", "trading_status"])
+def test_missing_required_dataset_fails_closed(tmp_path, dataset):
+    _build_lake(tmp_path, drop_datasets=(dataset,))
+    with pytest.raises(AslAdapterError, match=f"required ASL dataset missing: {dataset}"):
+        _load(tmp_path)
 
 
-def test_missing_amount_behavior(tmp_path):
-    _build_lake(
-        tmp_path,
-        bars={
-            "605198.SH": [
-                {"trade_date": date(2026, 6, 11), "open": 49.9, "high": 50.1, "low": 49.8, "close": 50.0, "volume": 20000, "amount": 1000000.0},
-                {"trade_date": date(2026, 6, 12), "open": 50.0, "high": 50.5, "low": 49.8, "close": 50.2, "volume": 30000, "amount": None},
-            ]
-        },
+def test_missing_required_column_fails_closed(tmp_path):
+    _build_lake(tmp_path)
+    # Rewrite one daily partition without the data_version column.
+    path = tmp_path / "curated" / "daily_bars" / "trade_date=2026-06-11" / "part-merged.parquet"
+    table = pq.ParquetFile(path).read()
+    _write(
+        path,
+        [
+            {k: v for k, v in row.items() if k != "data_version"}
+            for row in table.to_pylist()
+        ],
     )
-    result = _load(tmp_path)
-    row = _row(result, "605198", date(2026, 6, 12))
-    assert row.row_status == "MISSING_REQUIRED_AMOUNT"
-    assert row.amount is None
-    assert row.preclose == Decimal("50.0000")
+    with pytest.raises(AslAdapterError, match="daily_bars missing required columns"):
+        _load(tmp_path)
 
 
-def test_st_mapping(tmp_path):
-    _build_lake(tmp_path)
-    result = _load(tmp_path)
-    st = _row(result, "000010", date(2026, 6, 12))
-    assert st.is_st is True
-    assert st.trade_status is True
-    star_st = _row(result, "000010", date(2026, 6, 15))
-    assert star_st.is_st is True
-    normal = _row(result, "000001", date(2026, 6, 12))
-    assert normal.is_st is False
-    assert normal.trade_status is True
-    assert result.status_coverage.mode == "ASL_MISSING_ROW_NORMAL_CONVENTION"
-
-
-def test_suspension_mapping(tmp_path):
-    _build_lake(tmp_path)
+def test_missing_bar_suspended_allowed(tmp_path):
+    bars = _default_bars()
+    bars["000524.SZ"] = [
+        {"trade_date": date(2026, 6, 11), "open": 9.00, "high": 9.10, "low": 8.95, "close": 9.00, "volume": 80000, "amount": 720000.0},
+        {"trade_date": date(2026, 6, 15), "open": 9.10, "high": 9.25, "low": 9.05, "close": 9.20, "volume": 90000, "amount": 825000.0},
+    ]
+    _build_lake(tmp_path, bars=bars)
     result = _load(tmp_path)
     assert (("000524", date(2026, 6, 12))) in result.suspended_sessions
-    # No bar row is emitted for the suspended session (ASL has no bar).
-    assert all(
-        not (row.code == "000524" and row.trade_date == date(2026, 6, 12))
-        for row in result.rows
+    assert any(
+        item.code == "000524"
+        and item.trade_date == date(2026, 6, 12)
+        and item.reason == "SUSPENDED_BY_STATUS"
+        for item in result.missing_required_bars
     )
-    gap = _row(result, "000524", date(2026, 6, 15))
-    assert gap.preclose == Decimal("9.0000")  # chain carried over the gap
 
 
-def test_turnover_stays_null_by_design(tmp_path):
+def test_missing_bar_normal_status_blocks(tmp_path):
+    bars = {"600999.SZ": _bar_rows("600999.SZ", [date(2026, 6, 11)], "5.00")}
+    _build_lake(
+        tmp_path,
+        bars=bars,
+        instruments=[
+            {"symbol": "600999.SZ", "list_date": None, "delist_date": None},
+        ],
+        status_rows=[
+            {"symbol": "600999.SZ", "trade_date": date(2026, 6, 12), "is_trading": True, "status": "normal"},
+        ],
+    )
+    with pytest.raises(AslAdapterError, match="MISSING_REQUIRED_BAR:600999:2026-06-12"):
+        _load(tmp_path, codes=["600999"])
+
+
+def test_missing_bar_no_status_blocks(tmp_path):
+    bars = {"600999.SZ": _bar_rows("600999.SZ", [date(2026, 6, 11)], "5.00")}
+    _build_lake(
+        tmp_path,
+        bars=bars,
+        instruments=[
+            {"symbol": "600999.SZ", "list_date": None, "delist_date": None},
+        ],
+        status_rows=[],
+    )
+    with pytest.raises(AslAdapterError, match="MISSING_REQUIRED_BAR:600999:2026-06-12"):
+        _load(tmp_path, codes=["600999"])
+
+
+def test_missing_bar_not_listed_allowed(tmp_path):
+    bars = {"600999.SZ": _bar_rows("600999.SZ", [date(2026, 6, 15)], "5.00")}
+    _build_lake(
+        tmp_path,
+        bars=bars,
+        instruments=[
+            {"symbol": "600999.SZ", "list_date": date(2026, 6, 15), "delist_date": None},
+        ],
+        status_rows=[],
+    )
+    result = _load(tmp_path, codes=["600999"])
+    reasons = {
+        (item.code, item.trade_date): item.reason
+        for item in result.missing_required_bars
+    }
+    assert reasons[("600999", date(2026, 6, 11))] == "NOT_LISTED"
+    assert reasons[("600999", date(2026, 6, 12))] == "NOT_LISTED"
+    row = _row(result, "600999", date(2026, 6, 15))
+    assert row.trade_date == date(2026, 6, 15)
+    assert row.close == Decimal("5.0000")
+
+
+def test_status_semantics_explicit_cases(tmp_path):
+    _build_lake(
+        tmp_path,
+        status_rows=[
+            {"symbol": "000001.SZ", "trade_date": date(2026, 6, 11), "is_trading": True, "status": "normal"},
+            {"symbol": "000010.SZ", "trade_date": date(2026, 6, 12), "is_trading": True, "status": "st"},
+            {"symbol": "000524.SZ", "trade_date": date(2026, 6, 12), "is_trading": False, "status": "suspended"},
+            {"symbol": "605198.SH", "trade_date": date(2026, 6, 11), "is_trading": False, "status": "st"},
+        ],
+    )
+    result = _load(tmp_path)
+    normal = _row(result, "000001", date(2026, 6, 11))
+    assert (normal.trade_status, normal.is_st) == (True, False)
+    st = _row(result, "000010", date(2026, 6, 12))
+    assert (st.trade_status, st.is_st) == (True, True)
+    suspended = _row(result, "000524", date(2026, 6, 12))
+    assert (suspended.trade_status, suspended.is_st) == (False, None)
+    st_not_trading = _row(result, "605198", date(2026, 6, 11))
+    assert (st_not_trading.trade_status, st_not_trading.is_st) == (False, True)
+
+
+def test_missing_status_row_positive_bar_unknown_st(tmp_path):
+    _build_lake(tmp_path, status_rows=[])
+    result = _load(tmp_path)
+    row = _row(result, "000001", date(2026, 6, 11))
+    assert row.trade_status is True
+    assert row.is_st is None  # never claims normal from absence
+
+
+def test_missing_status_row_zero_volume_bar_suspended(tmp_path):
+    bars = _default_bars()
+    bars["605198.SH"][1] = {
+        "trade_date": date(2026, 6, 12), "open": 50.0, "high": 50.0,
+        "low": 50.0, "close": 50.0, "volume": 0, "amount": 0.0,
+    }
+    _build_lake(tmp_path, bars=bars, status_rows=[])
+    result = _load(tmp_path)
+    row = _row(result, "605198", date(2026, 6, 12))
+    assert row.trade_status is False
+    assert row.is_st is None
+
+
+def test_unknown_status_fails_closed(tmp_path):
+    _build_lake(
+        tmp_path,
+        status_rows=[
+            {"symbol": "000001.SZ", "trade_date": date(2026, 6, 11), "is_trading": True, "status": "halted"},
+        ],
+    )
+    with pytest.raises(AslAdapterError, match="UNSUPPORTED_STATUS"):
+        _load(tmp_path)
+
+
+def test_preclose_seed_previous_session_valid(tmp_path):
     _build_lake(tmp_path)
-    for row in _load(tmp_path).rows:
-        assert getattr(row, "turnover_rate", None) is None
-        assert not hasattr(row, "turnover_rate")
+    result = load_asl_daily_slice(
+        tmp_path,
+        as_of=date(2026, 6, 15),
+        start=date(2026, 6, 12),
+    )
+    row = _row(result, "000001", date(2026, 6, 12))
+    assert row.row_status == "VALID_ROW"
+    assert row.preclose == Decimal("11.3000")  # seeded from 6/11 close
+
+
+def test_preclose_seed_earlier_valid_after_suspension(tmp_path):
+    bars = {
+        "600999.SZ": [
+            {"trade_date": date(2026, 6, 11), "open": 9.00, "high": 9.10, "low": 8.95, "close": 9.00, "volume": 80000, "amount": 720000.0},
+            {"trade_date": date(2026, 6, 15), "open": 9.10, "high": 9.25, "low": 9.05, "close": 9.20, "volume": 90000, "amount": 825000.0},
+        ],
+    }
+    _build_lake(
+        tmp_path,
+        bars=bars,
+        instruments=[
+            {"symbol": "600999.SZ", "list_date": None, "delist_date": None},
+        ],
+        status_rows=[
+            {"symbol": "600999.SZ", "trade_date": date(2026, 6, 12), "is_trading": False, "status": "suspended"},
+        ],
+    )
+    result = load_asl_daily_slice(
+        tmp_path,
+        as_of=date(2026, 6, 15),
+        start=date(2026, 6, 12),
+        codes=["600999"],
+    )
+    row = _row(result, "600999", date(2026, 6, 15))
+    assert row.preclose == Decimal("9.0000")  # earlier valid close, not guessed
+
+
+def test_preclose_seed_multiple_session_gap(tmp_path):
+    bars = {
+        "600999.SZ": [
+            {"trade_date": date(2026, 6, 11), "open": 9.00, "high": 9.10, "low": 8.95, "close": 9.00, "volume": 80000, "amount": 720000.0},
+            {"trade_date": date(2026, 6, 17), "open": 9.50, "high": 9.60, "low": 9.40, "close": 9.50, "volume": 90000, "amount": 850000.0},
+        ],
+    }
+    _build_lake(
+        tmp_path,
+        trading_days=[date(2026, 6, 11), date(2026, 6, 12), date(2026, 6, 15), date(2026, 6, 17)],
+        bars=bars,
+        instruments=[
+            {"symbol": "600999.SZ", "list_date": None, "delist_date": None},
+        ],
+        status_rows=[
+            {"symbol": "600999.SZ", "trade_date": date(2026, 6, 12), "is_trading": False, "status": "suspended"},
+            {"symbol": "600999.SZ", "trade_date": date(2026, 6, 15), "is_trading": False, "status": "suspended"},
+        ],
+    )
+    result = load_asl_daily_slice(
+        tmp_path,
+        as_of=date(2026, 6, 17),
+        start=date(2026, 6, 12),
+        codes=["600999"],
+    )
+    row = _row(result, "600999", date(2026, 6, 17))
+    assert row.preclose == Decimal("9.0000")  # last valid close before the halt
+    assert len(result.suspended_sessions) == 2
+
+
+def test_preclose_no_predecessor_anywhere(tmp_path):
+    bars = {
+        "600999.SZ": [
+            {"trade_date": date(2026, 6, 12), "open": 9.20, "high": 9.30, "low": 9.10, "close": 9.20, "volume": 80000, "amount": 730000.0},
+            {"trade_date": date(2026, 6, 15), "open": 9.20, "high": 9.30, "low": 9.10, "close": 9.20, "volume": 80000, "amount": 730000.0},
+        ],
+    }
+    _build_lake(
+        tmp_path,
+        bars=bars,
+        instruments=[
+            {"symbol": "600999.SZ", "list_date": None, "delist_date": None},
+        ],
+        status_rows=[],
+    )
+    result = load_asl_daily_slice(
+        tmp_path,
+        as_of=date(2026, 6, 15),
+        start=date(2026, 6, 12),
+        codes=["600999"],
+    )
+    first = _row(result, "600999", date(2026, 6, 12))
+    assert first.row_status == "MISSING_PRECLOSE"
+    assert first.preclose is None
+    second = _row(result, "600999", date(2026, 6, 15))
+    assert second.preclose == Decimal("9.2000")
+
+
+def test_duplicate_daily_bars_pk_fails_closed(tmp_path):
+    _build_lake(tmp_path)
+    part = tmp_path / "curated" / "daily_bars" / "trade_date=2026-06-11"
+    _write(
+        part / "part-duplicate.parquet",
+        [
+            {
+                "symbol": "000001.SZ", "trade_date": date(2026, 6, 11),
+                "open": 11.3, "high": 11.4, "low": 11.2, "close": 11.3,
+                "volume": 100000, "amount": 1129999.5, "source": "tdx_protocol",
+                "data_version": "v2", "fetched_at": "2026-08-07T00:00:00Z",
+            }
+        ],
+    )
+    with pytest.raises(AslAdapterError, match="duplicate daily_bars PK: 000001 2026-06-11"):
+        _load(tmp_path)
+
+
+def test_duplicate_trading_status_pk_fails_closed(tmp_path):
+    _build_lake(tmp_path)
+    part = tmp_path / "curated" / "trading_status" / "trade_date=2026-06"
+    _write(
+        part / "part-duplicate.parquet",
+        [
+            {"symbol": "000010.SZ", "trade_date": date(2026, 6, 12), "is_trading": True, "status": "st"},
+        ],
+    )
+    with pytest.raises(AslAdapterError, match="duplicate trading_status PK: 000010 2026-06-12"):
+        _load(tmp_path)
+
+
+def test_partition_pruning_out_of_range_not_read(tmp_path):
+    _build_lake(tmp_path)
+    # Valid bar outside the predecessor/window range: must not be emitted.
+    _write(
+        tmp_path / "curated" / "daily_bars" / "trade_date=2025-01-02" / "part-merged.parquet",
+        [
+            {
+                "symbol": "000001.SZ", "trade_date": date(2025, 1, 2),
+                "open": 10.0, "high": 10.1, "low": 9.9, "close": 10.0,
+                "volume": 1000, "amount": 10000.0, "source": "tdx_protocol",
+                "data_version": "v2", "fetched_at": "2026-08-07T00:00:00Z",
+            }
+        ],
+    )
+    # Corrupt files in out-of-range partitions: any read would raise.
+    out_of_range = [
+        tmp_path / "curated" / "daily_bars" / "trade_date=2025-01-03" / "part-bad.parquet",
+        tmp_path / "curated" / "trading_calendar" / "trade_date=2019" / "part-bad.parquet",
+        tmp_path / "curated" / "trading_status" / "trade_date=2025-05" / "part-bad.parquet",
+    ]
+    for path in out_of_range:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"NOT A PARQUET FILE" * 100)
+    result = _load(tmp_path)
+    assert all(row.trade_date >= date(2026, 6, 11) for row in result.rows)
+    assert all(row.trade_date != date(2025, 1, 2) for row in result.rows)
+
+
+def test_turnover_rate_always_none(tmp_path):
+    _build_lake(tmp_path)
+    result = _load(tmp_path)
+    assert result.rows
+    for row in result.rows:
+        assert row.turnover_rate is None
+
+
+def test_fetched_at_parsed_timezone_aware(tmp_path):
+    _build_lake(tmp_path)
+    row = _row(_load(tmp_path), "000001", date(2026, 6, 11))
+    assert isinstance(row.asl_fetched_at, datetime)
+    assert row.asl_fetched_at.tzinfo is not None
+    assert row.asl_fetched_at == datetime(2026, 8, 7, 0, 0, tzinfo=timezone.utc)
 
 
 def test_preclose_frozen_contract_sequential(tmp_path):
@@ -256,40 +536,13 @@ def test_corporate_action_preclose_not_adjusted(tmp_path):
     assert ex_div.pct_change == expected_pct
 
 
-def test_missing_preclose_first_row(tmp_path):
-    _build_lake(tmp_path)
-    result = load_asl_daily_slice(
-        tmp_path,
-        as_of=date(2026, 6, 15),
-        start=date(2026, 6, 12),
-    )
-    row = _row(result, "605198", date(2026, 6, 12))
-    assert row.row_status == "MISSING_PRECLOSE"
-    assert row.preclose is None
-    assert row.pct_change is None
-
-
-def test_seed_prior_session_feeds_first_emitted_row(tmp_path):
-    _build_lake(tmp_path)
-    result = load_asl_daily_slice(
-        tmp_path,
-        as_of=date(2026, 6, 15),
-        start=date(2026, 6, 12),
-    )
-    row = _row(result, "000001", date(2026, 6, 12))
-    assert row.row_status == "VALID_ROW"
-    assert row.preclose == Decimal("11.3000")  # seeded from 2026-06-11 close
-    assert all(
-        r.trade_date >= date(2026, 6, 12) for r in result.rows
-    )
-
-
 def test_deterministic_output(tmp_path):
     _build_lake(tmp_path)
     first = _load(tmp_path)
     second = _load(tmp_path)
     assert first.rows == second.rows
     assert first.suspended_sessions == second.suspended_sessions
+    assert first.missing_required_bars == second.missing_required_bars
     assert first.status_coverage == second.status_coverage
 
 
@@ -304,11 +557,11 @@ def test_no_future_rows_beyond_as_of(tmp_path):
     assert all(row.trade_date != date(2026, 6, 15) for row in result.rows)
 
 
-def test_api_shape_and_revision_pin(tmp_path):
+def test_api_shape_and_revision_contract(tmp_path):
     _build_lake(tmp_path)
     result = _load(tmp_path)
     assert result.contract_version == CONTRACT_VERSION
-    assert result.asl_revision == ASL_REVISION_PIN
+    assert result.tested_compat_revision == TESTED_COMPAT_REVISION
     assert result.as_of == date(2026, 6, 15)
     assert result.universe_prefixes == (
         "000", "001", "002", "003", "600", "601", "603", "605",

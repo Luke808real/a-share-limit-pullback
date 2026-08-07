@@ -1,0 +1,95 @@
+{
+  "contract": "VFLASH_ASL_PHASE1A_PARITY_SUMMARY_V2",
+  "gate": "PASS",
+  "input": {
+    "tested_compat_revision": "ba5681a",
+    "legacy_snapshot": "snap-2026-08-06-e798f88ff67b.parquet",
+    "legacy_snapshot_sha256": "7cc614bf4e1e7f91f34ed1a866827b3b70772a32ff5ff04a5ad67e205e23813e",
+    "window": {
+      "start": "2026-05-28",
+      "as_of": "2026-08-06"
+    },
+    "codes": [
+      "000001",
+      "000010",
+      "000037",
+      "000524",
+      "000593",
+      "002963",
+      "300750",
+      "600519",
+      "601318",
+      "605179",
+      "605198"
+    ]
+  },
+  "row_counts": {
+    "compared_rows": 354,
+    "sessions": {
+      "BOTH": 354,
+      "LEGACY_ONLY": 10,
+      "ASL_ONLY": 126
+    },
+    "adapter_fail_closed_rows": {
+      "MISSING_PRECLOSE": 10
+    },
+    "missing_required_bars": 10
+  },
+  "tolerances": {
+    "price_abs": "0.01",
+    "price_rel": "0.001",
+    "volume_rel": "0.005",
+    "amount_rel": "0.005",
+    "pct_abs": "0.05",
+    "ma_rel": "0.001"
+  },
+  "field": {
+    "preclose_exact": "354/354",
+    "structure_mismatches": 0
+  },
+  "status_deltas": {
+    "EXACT_STATUS_MATCH": 33,
+    "LEGACY_UNKNOWN_TO_ASL_TRUE": 4,
+    "LEGACY_UNKNOWN_TO_ASL_FALSE": 281,
+    "TRUE_STATUS_CONFLICT": 0
+  },
+  "ma": {
+    "MA5": {
+      "CLEAN": 251,
+      "CLEAN_MISMATCH": 0,
+      "HOLE_AFFECTED": 63
+    },
+    "MA10": {
+      "CLEAN": 131,
+      "CLEAN_MISMATCH": 0,
+      "HOLE_AFFECTED": 135
+    },
+    "MA20": {
+      "CLEAN": 38,
+      "CLEAN_MISMATCH": 0,
+      "HOLE_AFFECTED": 131
+    }
+  },
+  "anchor_smoke": {
+    "matched": 10,
+    "total": 10
+  },
+  "stage_smoke": {
+    "matched": 10,
+    "total": 10
+  },
+  "corporate_action_intersection": {
+    "status": "REAL_EX_DATE_INTERSECTION_PARITY_NOT_PROVEN",
+    "reason": "all window ex-dates fall outside the legacy/adapter row intersection",
+    "ex_dates_in_window": [
+      "000001:2026-06-12(cash_dividend)",
+      "000524:2026-06-18(cash_dividend)",
+      "600519:2026-06-26(cash_dividend)",
+      "601318:2026-06-10(cash_dividend)",
+      "605179:2026-06-08(cash_dividend)",
+      "605198:2026-07-09(cash_dividend)"
+    ]
+  },
+  "legacy_holes_total": 126,
+  "hard_failure_count": 0
+}

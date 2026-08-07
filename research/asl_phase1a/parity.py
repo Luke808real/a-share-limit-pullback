@@ -1,8 +1,23 @@
-"""Phase-1A parity harness: LEGACY canonical vs ASL adapter (read-only).
+"""Phase-1A parity gate: LEGACY canonical vs ASL adapter (read-only).
 
 Compares the frozen V Flash canonical daily contract against the ASL-backed
-adapter output for a bounded sample.  Writes a JSON report.  Never writes
-canonical data, never promotes anything, never touches ASL data.
+adapter output for a bounded sample and returns a hard gate:
+
+    PASS             exit 0
+    BLOCKED_PARITY   exit 2   (comparison failures: OHLC/volume/amount/
+                               preclose/pct/structure/clean-MA/anchor/stage)
+    BLOCKED_DATA     exit 3   (adapter contract violations or missing input)
+
+Legacy-hole completeness deltas and status semantic deltas are reported but
+non-fatal (they are data-quality observations, not adapter failures).
+
+The latest-date setup-stage comparison is a SMOKE CHECK only, never full
+episode parity (timeline-level episode parity is Phase-1B work).
+
+Outputs:
+* compact deterministic summary  -> research/asl_phase1a/parity_summary.json
+* full row-level report          -> research/asl_phase1a/artifacts/
+                                    parity_report_full.json (gitignored)
 
 Usage:
     PYTHONPATH=src python research/asl_phase1a/parity.py \
@@ -10,19 +25,19 @@ Usage:
         --legacy-snapshot snap-2026-08-06-e798f88ff67b.parquet \
         --asl-root /tmp/asl_phase1a_lake \
         --start 2026-05-28 --as-of 2026-08-06 \
-        --codes 000001,600519,601318,000010,000524,000593,002963,605179,605198,300750 \
-        --out research/asl_phase1a/parity_report.json
+        --codes 000001,600519,601318,000010,000524,000593,002963,605179,605198,000037,300750
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 import pyarrow.parquet as pq
 
@@ -37,7 +52,10 @@ from limit_pullback.strategy.structure import (
     is_t_word_limit,
     theoretical_limit_price,
 )
-from limit_pullback.warehouse.asl_adapter import load_asl_daily_slice
+from limit_pullback.warehouse.asl_adapter import (
+    AslAdapterError,
+    load_asl_daily_slice,
+)
 
 PRICE_ABS = Decimal("0.01")
 PRICE_REL = Decimal("0.001")
@@ -45,6 +63,10 @@ VOLUME_REL = Decimal("0.005")
 AMOUNT_REL = Decimal("0.005")
 PCT_ABS = Decimal("0.05")
 MA_REL = Decimal("0.001")
+
+GATE_PASS = "PASS"
+GATE_BLOCKED_PARITY = "BLOCKED_PARITY"
+GATE_BLOCKED_DATA = "BLOCKED_DATA"
 
 FIXED_FETCHED_AT = datetime(2026, 8, 6, 23, 59, 59, tzinfo=timezone.utc)
 
@@ -75,16 +97,8 @@ def _to_bar(row: Mapping[str, Any]) -> DailyBar:
         preclose=Decimal(str(row["preclose"])),
         volume=Decimal(str(row["volume"])),
         amount=Decimal(str(row["amount"])),
-        turnover_rate=(
-            Decimal(str(row["turnover_rate"]))
-            if row.get("turnover_rate") is not None
-            else None
-        ),
-        pct_change=(
-            Decimal(str(row["pct_change"]))
-            if row.get("pct_change") is not None
-            else None
-        ),
+        turnover_rate=None,
+        pct_change=None,
         trade_status=bool(row.get("trade_status", True)),
         is_st=(
             bool(row["is_st"]) if row.get("is_st") is not None else None
@@ -92,6 +106,39 @@ def _to_bar(row: Mapping[str, Any]) -> DailyBar:
         source="PARITY",
         fetched_at=FIXED_FETCHED_AT,
     )
+
+
+def last_n_bar_dates(
+    sorted_dates: Sequence[date], as_of: date, n: int
+) -> tuple[date, ...] | None:
+    """The exact last *n* bar dates at or before *as_of*, or None if fewer."""
+
+    eligible = [day for day in sorted_dates if day <= as_of]
+    if len(eligible) < n:
+        return None
+    return tuple(eligible[-n:])
+
+
+def classify_ma_window(
+    legacy_dates: Sequence[date],
+    adapter_dates: Sequence[date],
+    as_of: date,
+    n: int,
+) -> str:
+    """CLEAN when both sides' last-N bar-date sequences are identical.
+
+    Otherwise HOLE_AFFECTED_MA{n} (or INSUFFICIENT when a side cannot form
+    the window).  A hole older than the active N-bar window never
+    contaminates the current comparison.
+    """
+
+    legacy_window = last_n_bar_dates(legacy_dates, as_of, n)
+    adapter_window = last_n_bar_dates(adapter_dates, as_of, n)
+    if legacy_window is None or adapter_window is None:
+        return "INSUFFICIENT"
+    if legacy_window == adapter_window:
+        return "CLEAN"
+    return f"HOLE_AFFECTED_MA{n}"
 
 
 def _read_legacy(
@@ -116,31 +163,21 @@ def _read_legacy(
     return rows_by_code
 
 
-def _compare_field_pair(
-    legacy: Mapping[str, Any],
-    adapter: Mapping[str, Any],
-) -> dict[str, Any]:
-    out: dict[str, Any] = {}
-    for field in ("open", "high", "low", "close", "preclose"):
-        lv = Decimal(str(legacy[field]))
-        av = Decimal(str(adapter[field]))
-        out[field] = {
-            "legacy": str(lv),
-            "adapter": str(av),
-            "abs_diff": str(abs(lv - av)),
-            "rel_diff": str(_rel(lv, av)),
-            "ok": _price_ok(lv, av),
-        }
-    for field in ("volume", "amount"):
-        lv = Decimal(str(legacy[field]))
-        av = Decimal(str(adapter[field]))
-        out[field] = {
-            "legacy": str(lv),
-            "adapter": str(av),
-            "rel_diff": str(_rel(lv, av)),
-            "ok": _vol_ok(lv, av),
-        }
-    return out
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _frozen_pct(row: Mapping[str, Any]) -> Decimal | None:
+    preclose = Decimal(str(row["preclose"]))
+    if preclose <= 0:
+        return None
+    return (
+        (Decimal(str(row["close"])) - preclose) / preclose * Decimal("100")
+    ).quantize(Decimal("0.0001"))
 
 
 def _compare_code(
@@ -151,7 +188,7 @@ def _compare_code(
     config: Any,
     as_of: date,
     suspended_sessions: set[tuple[str, date]],
-    warnings: list[str],
+    hard_failures: list[str],
 ) -> dict[str, Any]:
     legacy_by_date = {row["trade_date"]: row for row in legacy_rows}
     all_sessions = sorted(set(legacy_by_date) | set(adapter_by_date))
@@ -162,13 +199,19 @@ def _compare_code(
     preclose_total = 0
     turnover_not_comparable = []
     structure_mismatches: list[dict[str, Any]] = []
-    ma_compared = 0
-    ma_fail = 0
-    ma_hole_affected = 0
-    ma_hole_fail = 0
+    status_deltas = {
+        "EXACT_STATUS_MATCH": 0,
+        "LEGACY_UNKNOWN_TO_ASL_TRUE": 0,
+        "LEGACY_UNKNOWN_TO_ASL_FALSE": 0,
+        "TRUE_STATUS_CONFLICT": 0,
+    }
+    ma_windows = {
+        "MA5": {"CLEAN": 0, "CLEAN_MISMATCH": 0, "HOLE_AFFECTED": 0},
+        "MA10": {"CLEAN": 0, "CLEAN_MISMATCH": 0, "HOLE_AFFECTED": 0},
+        "MA20": {"CLEAN": 0, "CLEAN_MISMATCH": 0, "HOLE_AFFECTED": 0},
+    }
     legacy_holes: list[str] = []
 
-    # Identify legacy holes (sessions where ASL traded but legacy has no row).
     for day in all_sessions:
         has_legacy = day in legacy_by_date
         has_adapter = day in adapter_by_date
@@ -187,34 +230,78 @@ def _compare_code(
         d = date.fromisoformat(day)
         legacy = legacy_by_date[d]
         adapter = adapter_by_date[d]
-        fields = _compare_field_pair(legacy, adapter)
+        fields: dict[str, Any] = {}
+        for field in ("open", "high", "low", "close", "preclose"):
+            lv = Decimal(str(legacy[field]))
+            av = Decimal(str(adapter[field]))
+            ok = _price_ok(lv, av)
+            if not ok:
+                hard_failures.append(
+                    f"{code}:{day}:{field} outside tolerance "
+                    f"(legacy {lv} vs adapter {av})"
+                )
+            fields[field] = {
+                "legacy": str(lv), "adapter": str(av),
+                "abs_diff": str(abs(lv - av)), "rel_diff": str(_rel(lv, av)),
+                "ok": ok,
+            }
+        for field in ("volume", "amount"):
+            lv = Decimal(str(legacy[field]))
+            av = Decimal(str(adapter[field]))
+            ok = _vol_ok(lv, av)
+            if not ok:
+                hard_failures.append(
+                    f"{code}:{day}:{field} outside tolerance "
+                    f"(legacy {lv} vs adapter {av})"
+                )
+            fields[field] = {
+                "legacy": str(lv), "adapter": str(av),
+                "rel_diff": str(_rel(lv, av)), "ok": ok,
+            }
+
         preclose_total += 1
         if Decimal(str(legacy["preclose"])) == Decimal(str(adapter["preclose"])):
             preclose_exact += 1
+        else:
+            hard_failures.append(
+                f"{code}:{day}:preclose mismatch "
+                f"(legacy {legacy['preclose']} vs adapter {adapter['preclose']})"
+            )
 
-        # pct_change recomputed with the frozen rule on each side.
-        def frozen_pct(row: Mapping[str, Any]) -> Decimal | None:
-            pre = Decimal(str(row["preclose"]))
-            if pre <= 0:
-                return None
-            return (
-                (Decimal(str(row["close"])) - pre) / pre * Decimal("100")
-            ).quantize(Decimal("0.0001"))
-
-        lpct = frozen_pct(legacy)
-        apct = frozen_pct(adapter)
-        pct_ok = (
-            lpct is not None
-            and apct is not None
-            and abs(lpct - apct) <= PCT_ABS
-        )
+        lpct = _frozen_pct(legacy)
+        apct = _frozen_pct(adapter)
+        pct_ok = lpct is not None and apct is not None and abs(lpct - apct) <= PCT_ABS
+        if not pct_ok:
+            hard_failures.append(
+                f"{code}:{day}:pct_change mismatch (legacy {lpct} vs adapter {apct})"
+            )
         fields["pct_change_recomputed"] = {
-            "legacy": str(lpct),
-            "adapter": str(apct),
-            "ok": pct_ok,
+            "legacy": str(lpct), "adapter": str(apct), "ok": pct_ok,
         }
 
-        # Structure booleans (frozen V Flash functions on both sides).
+        # Status semantic delta categories (never hidden).
+        legacy_is_st = (
+            bool(legacy["is_st"]) if legacy.get("is_st") is not None else None
+        )
+        adapter_is_st = adapter["is_st"]
+        if legacy_is_st is None:
+            if adapter_is_st is True:
+                status_deltas["LEGACY_UNKNOWN_TO_ASL_TRUE"] += 1
+            elif adapter_is_st is False:
+                status_deltas["LEGACY_UNKNOWN_TO_ASL_FALSE"] += 1
+        elif adapter_is_st is None:
+            status_deltas["LEGACY_UNKNOWN_TO_ASL_FALSE"] += 1
+        elif legacy_is_st == adapter_is_st:
+            status_deltas["EXACT_STATUS_MATCH"] += 1
+        else:
+            status_deltas["TRUE_STATUS_CONFLICT"] += 1
+        fields["status"] = {
+            "legacy_is_st": legacy_is_st,
+            "adapter_is_st": adapter_is_st,
+            "legacy_trade_status": bool(legacy.get("trade_status", True)),
+            "adapter_trade_status": adapter["trade_status"],
+        }
+
         legacy_bar = _to_bar(legacy)
         adapter_bar = _to_bar(adapter)
         for name, fn in (
@@ -227,14 +314,16 @@ def _compare_code(
             if lv != av:
                 structure_mismatches.append(
                     {
-                        "session": day,
-                        "check": name,
-                        "legacy": lv,
-                        "adapter": av,
+                        "session": day, "check": name,
+                        "legacy": lv, "adapter": av,
                         "theoretical_limit": str(
                             theoretical_limit_price(adapter_bar, config)
                         ),
                     }
+                )
+                hard_failures.append(
+                    f"{code}:{day}:structure {name} mismatch "
+                    f"(legacy {lv} vs adapter {av})"
                 )
 
         if legacy.get("turnover_rate") is not None:
@@ -245,75 +334,52 @@ def _compare_code(
                     "reason": "ASL has no PIT-safe per-stock turnover field",
                 }
             )
-        fields["status"] = {
-            "legacy_is_st": (
-                bool(legacy["is_st"]) if legacy.get("is_st") is not None else None
-            ),
-            "adapter_is_st": adapter["is_st"],
-            "legacy_trade_status": bool(legacy.get("trade_status", True)),
-            "adapter_trade_status": adapter["trade_status"],
-            "ok": (
-                bool(legacy.get("trade_status", True)) == adapter["trade_status"]
-                and (
-                    legacy.get("is_st") is None
-                    or bool(legacy["is_st"]) == adapter["is_st"]
-                )
-            ),
-        }
         field_results.append({"session": day, "fields": fields})
 
-    # MA5/10/20 via the frozen indicator chain on both sides.
+    # MA windows: exact per-window bar-date sequences on each side.
+    legacy_dates = [row["trade_date"] for row in legacy_rows]
+    adapter_dates = [row["trade_date"] for row in adapter_rows]
+    ma_report: dict[str, Any] = {}
     try:
         legacy_bars = [_to_bar(row) for row in legacy_rows]
         adapter_bars = [_to_bar(row) for row in adapter_rows]
         legacy_inds = calculate_indicators(legacy_bars, config.indicators, as_of)
         adapter_inds = calculate_indicators(adapter_bars, config.indicators, as_of)
-        legacy_ma = {
-            point.trade_date: point.raw_equivalent_mas for point in legacy_inds
-        }
-        adapter_ma = {
-            point.trade_date: point.raw_equivalent_mas for point in adapter_inds
-        }
-        ma_report: dict[str, Any] = {}
-        for d in sorted(set(legacy_ma) & set(adapter_ma)):
-            if d not in legacy_by_date or d not in adapter_by_date:
-                continue
-            # Sessions in the MA window where legacy has no row change the
-            # chain: such comparisons are hole-affected, not failures.
-            window = [
-                day
-                for day in all_sessions
-                if day <= d
-                and day in (set(legacy_by_date) | set(adapter_by_date))
-                and day not in legacy_by_date
-            ]
-            hole_affected = bool(window)
-            for window_size in (5, 10, 20):
-                lm = legacy_ma[d].get(window_size)
-                am = adapter_ma[d].get(window_size)
+        legacy_ma = {point.trade_date: point.raw_equivalent_mas for point in legacy_inds}
+        adapter_ma = {point.trade_date: point.raw_equivalent_mas for point in adapter_inds}
+        for d in sorted(set(legacy_by_date) & set(adapter_by_date)):
+            for n in (5, 10, 20):
+                key = f"MA{n}"
+                classification = classify_ma_window(
+                    legacy_dates, adapter_dates, d, n
+                )
+                if classification == "INSUFFICIENT":
+                    continue
+                lm = legacy_ma.get(d, {}).get(n)
+                am = adapter_ma.get(d, {}).get(n)
                 if lm is None or am is None:
                     continue
-                ma_compared += 1
-                ok = _rel(lm, am) <= MA_REL
-                if hole_affected:
-                    ma_hole_affected += 1
-                    if not ok:
-                        ma_hole_fail += 1
-                else:
-                    if not ok:
-                        ma_fail += 1
-                        ma_report[f"{d}:ma{window_size}"] = {
-                            "legacy": str(lm),
-                            "adapter": str(am),
+                if classification == "CLEAN":
+                    ma_windows[key]["CLEAN"] += 1
+                    if _rel(lm, am) > MA_REL:
+                        ma_windows[key]["CLEAN_MISMATCH"] += 1
+                        hard_failures.append(
+                            f"{code}:{d}:CLEAN {key} mismatch "
+                            f"(legacy {lm} vs adapter {am})"
+                        )
+                        ma_report[f"{d}:{key}"] = {
+                            "legacy": str(lm), "adapter": str(am),
                             "rel_diff": str(_rel(lm, am)),
                         }
-    except Exception as exc:  # noqa: BLE001 — report, do not abort parity
-        warnings.append(f"{code}: MA comparison failed: {exc}")
+                else:
+                    ma_windows[key]["HOLE_AFFECTED"] += 1
+    except Exception as exc:  # noqa: BLE001 — recorded MA exception is a hard failure
+        hard_failures.append(f"{code}:MA comparison exception: {exc}")
         ma_report = {"error": str(exc)}
 
-    # Anchor + stage via frozen functions on each side (no pool enrichment).
+    # Anchor + latest-date setup-stage SMOKE check (not episode parity).
     anchor_report: dict[str, Any] = {}
-    stage_report: dict[str, Any] = {}
+    stage_smoke: dict[str, Any] = {}
     try:
         legacy_anchor = detect_anchor(
             [_to_bar(row) for row in legacy_rows], as_of, config
@@ -343,20 +409,19 @@ def _compare_code(
             anchor_report["match"] = True
         elif (legacy_anchor is None) != (adapter_anchor is None):
             anchor_report["match"] = False
+            hard_failures.append(f"{code}:anchor presence mismatch")
         else:
             anchor_report["match"] = (
-                legacy_anchor.snapshot.anchor_date
-                == adapter_anchor.snapshot.anchor_date
+                legacy_anchor.snapshot.anchor_date == adapter_anchor.snapshot.anchor_date
                 and legacy_anchor.snapshot.anchor_price
                 == adapter_anchor.snapshot.anchor_price
             )
-        if not anchor_report["match"] and legacy_holes:
-            anchor_report["hole_affected"] = True
+            if not anchor_report["match"]:
+                hard_failures.append(f"{code}:anchor mismatch")
 
         latest = max(
             (
-                day
-                for day in all_sessions
+                day for day in all_sessions
                 if day in legacy_by_date and day in adapter_by_date
             ),
             default=None,
@@ -364,24 +429,25 @@ def _compare_code(
         if latest is not None:
             legacy_signal = evaluate_strategy(
                 bars=[_to_bar(row) for row in legacy_rows],
-                as_of=latest,
-                config=config,
-                generated_at=FIXED_FETCHED_AT,
+                as_of=latest, config=config, generated_at=FIXED_FETCHED_AT,
             )
             adapter_signal = evaluate_strategy(
                 bars=[_to_bar(row) for row in adapter_rows],
-                as_of=latest,
-                config=config,
-                generated_at=FIXED_FETCHED_AT,
+                as_of=latest, config=config, generated_at=FIXED_FETCHED_AT,
             )
-            stage_report = {
+            stage_smoke = {
                 "as_of": latest.isoformat(),
                 "legacy": legacy_signal.setup_stage.value,
                 "adapter": adapter_signal.setup_stage.value,
                 "match": legacy_signal.setup_stage == adapter_signal.setup_stage,
+                "note": "SMOKE CHECK ONLY (latest common date); not full episode parity",
             }
-    except Exception as exc:  # noqa: BLE001 — report, do not abort parity
-        warnings.append(f"{code}: anchor/stage comparison failed: {exc}")
+            if not stage_smoke["match"]:
+                hard_failures.append(
+                    f"{code}:stage smoke mismatch at {latest}"
+                )
+    except Exception as exc:  # noqa: BLE001 — recorded exceptions are hard failures
+        hard_failures.append(f"{code}:anchor/stage comparison exception: {exc}")
 
     return {
         "code": code,
@@ -392,17 +458,96 @@ def _compare_code(
             "preclose_total": preclose_total,
         },
         "structure_mismatches": structure_mismatches,
-        "ma": {
-            "compared": ma_compared,
-            "fail": ma_fail,
-            "hole_affected": ma_hole_affected,
-            "hole_affected_fail": ma_hole_fail,
-            "details": ma_report,
-        },
+        "ma": ma_windows,
+        "ma_details": ma_report,
         "anchor": anchor_report,
-        "stage": stage_report,
+        "stage_smoke": stage_smoke,
+        "status_deltas": status_deltas,
         "turnover_not_comparable": turnover_not_comparable,
         "legacy_holes": legacy_holes,
+    }
+
+
+def _corporate_action_intersection(
+    asl_root: Path,
+    codes: set[str],
+    start: date,
+    as_of: date,
+    legacy: dict[str, list[dict[str, Any]]],
+    adapter_by_date: dict[str, dict[date, dict[str, Any]]],
+    config: Any,
+) -> dict[str, Any]:
+    """Find a real ex-date present in ASL corporate_actions, legacy rows AND
+    adapter bars; compare the ex-date row.  Honest NOT_PROVEN when absent."""
+
+    ca_root = asl_root / "curated" / "corporate_actions"
+    if not ca_root.exists():
+        return {"status": "NO_CORPORATE_ACTIONS_DATASET"}
+    ex_dates: dict[tuple[str, date], str] = {}
+    for path in sorted(ca_root.rglob("*.parquet")):
+        table = pq.ParquetFile(path).read(
+            columns=["symbol", "ex_date", "action_type"]
+        )
+        for symbol, ex_date, action_type in zip(
+            table.column("symbol").to_pylist(),
+            table.column("ex_date").to_pylist(),
+            table.column("action_type").to_pylist(),
+            strict=True,
+        ):
+            code = str(symbol).split(".")[0].zfill(6)
+            if code not in codes:
+                continue
+            if not isinstance(ex_date, date):
+                continue
+            if start <= ex_date <= as_of:
+                ex_dates[(code, ex_date)] = str(action_type)
+    if not ex_dates:
+        return {"status": "REAL_EX_DATE_INTERSECTION_PARITY_NOT_PROVEN",
+                "reason": "no ASL corporate-action ex-date inside the window"}
+
+    for (code, ex_date), action_type in sorted(ex_dates.items()):
+        legacy_row = next(
+            (
+                row for row in legacy.get(code, [])
+                if row["trade_date"] == ex_date
+            ),
+            None,
+        )
+        adapter_row = adapter_by_date.get(code, {}).get(ex_date)
+        if legacy_row is None or adapter_row is None:
+            continue
+        comparison = {
+            "status": "INTERSECTION_FOUND",
+            "code": code,
+            "ex_date": ex_date.isoformat(),
+            "action_type": action_type,
+            "legacy_preclose": str(legacy_row["preclose"]),
+            "adapter_preclose": str(adapter_row["preclose"]),
+            "close": str(legacy_row["close"]),
+            "legacy_pct": str(_frozen_pct(legacy_row)),
+            "adapter_pct": str(adapter_row["pct_change"]),
+            "legacy_limit_close": bool(
+                is_limit_close(
+                    _to_bar(legacy_row),
+                    config,
+                )
+            ),
+            "adapter_limit_close": bool(adapter_row["close"]),
+            "preclose_match": Decimal(str(legacy_row["preclose"]))
+            == Decimal(str(adapter_row["preclose"])),
+        }
+        # pct equality check
+        comparison["pct_match"] = (
+            _frozen_pct(legacy_row) == adapter_row["pct_change"]
+        )
+        return comparison
+    return {
+        "status": "REAL_EX_DATE_INTERSECTION_PARITY_NOT_PROVEN",
+        "reason": "all window ex-dates fall outside the legacy/adapter row intersection",
+        "ex_dates_in_window": [
+            f"{code}:{day.isoformat()}({action})"
+            for (code, day), action in sorted(ex_dates.items())
+        ],
     }
 
 
@@ -415,7 +560,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--as-of", required=True)
     parser.add_argument("--codes", required=True)
     parser.add_argument("--config", default="config/strategy.yaml", type=Path)
-    parser.add_argument("--out", default="research/asl_phase1a/parity_report.json", type=Path)
+    parser.add_argument(
+        "--summary-out",
+        default="research/asl_phase1a/parity_summary.json",
+        type=Path,
+    )
+    parser.add_argument(
+        "--full-out",
+        default="research/asl_phase1a/artifacts/parity_report_full.json",
+        type=Path,
+    )
     args = parser.parse_args(argv)
 
     start = date.fromisoformat(args.start)
@@ -423,64 +577,57 @@ def main(argv: list[str] | None = None) -> int:
     codes = tuple(sorted({str(code).zfill(6) for code in args.codes.split(",")}))
     config = load_strategy_config(args.config)
 
-    legacy = _read_legacy(args.legacy_root, args.legacy_snapshot, set(codes), start, as_of)
-    slice_ = load_asl_daily_slice(
-        args.asl_root,
-        as_of=as_of,
-        start=start,
-        codes=codes,
-    )
+    hard_failures: list[str] = []
+    try:
+        legacy = _read_legacy(
+            args.legacy_root, args.legacy_snapshot, set(codes), start, as_of
+        )
+        slice_ = load_asl_daily_slice(
+            args.asl_root,
+            as_of=as_of,
+            start=start,
+            codes=codes,
+        )
+    except (AslAdapterError, FileNotFoundError) as exc:
+        summary = {
+            "gate": GATE_BLOCKED_DATA,
+            "reason": f"{type(exc).__name__}: {exc}",
+            "input": {
+                "tested_compat_revision": "ba5681a",
+                "legacy_snapshot": args.legacy_snapshot,
+                "window": {"start": start.isoformat(), "as_of": as_of.isoformat()},
+                "codes": list(codes),
+            },
+        }
+        args.summary_out.parent.mkdir(parents=True, exist_ok=True)
+        args.summary_out.write_text(
+            json.dumps(summary, ensure_ascii=False, indent=2, default=str),
+            encoding="utf-8",
+        )
+        print(json.dumps(summary, ensure_ascii=False, indent=2, default=str))
+        return 3
 
     adapter_by_code: dict[str, dict[date, dict[str, Any]]] = {}
-    adapter_fail_closed: list[dict[str, Any]] = []
+    adapter_fail_closed: dict[str, int] = {}
     for row in slice_.rows:
         if row.row_status != "VALID_ROW":
-            adapter_fail_closed.append(
-                {
-                    "code": row.code,
-                    "trade_date": row.trade_date.isoformat(),
-                    "row_status": row.row_status,
-                    "reason": row.reason,
-                }
+            adapter_fail_closed[row.row_status] = (
+                adapter_fail_closed.get(row.row_status, 0) + 1
             )
             continue
         adapter_by_code.setdefault(row.code, {})[row.trade_date] = {
-            "open": row.open,
-            "high": row.high,
-            "low": row.low,
-            "close": row.close,
-            "preclose": row.preclose,
-            "volume": row.volume,
-            "amount": row.amount,
+            "open": row.open, "high": row.high, "low": row.low,
+            "close": row.close, "preclose": row.preclose,
+            "volume": row.volume, "amount": row.amount,
             "pct_change": row.pct_change,
-            "trade_status": row.trade_status,
-            "is_st": row.is_st,
-            "code": row.code,
-            "trade_date": row.trade_date,
+            "trade_status": row.trade_status, "is_st": row.is_st,
+            "code": row.code, "trade_date": row.trade_date,
         }
     adapter_rows_by_code: dict[str, list[dict[str, Any]]] = {}
-    for row in slice_.rows:
-        if row.row_status != "VALID_ROW":
-            continue
-        adapter_rows_by_code.setdefault(row.code, []).append(
-            {
-                "open": row.open,
-                "high": row.high,
-                "low": row.low,
-                "close": row.close,
-                "preclose": row.preclose,
-                "volume": row.volume,
-                "amount": row.amount,
-                "pct_change": row.pct_change,
-                "trade_status": row.trade_status,
-                "is_st": row.is_st,
-                "code": row.code,
-                "trade_date": row.trade_date,
-            }
-        )
+    for code, by_date in adapter_by_code.items():
+        adapter_rows_by_code[code] = [by_date[day] for day in sorted(by_date)]
 
     suspended_sessions = set(slice_.suspended_sessions)
-    warnings: list[str] = list(slice_.warnings)
     results: list[dict[str, Any]] = []
     for code in codes:
         if code in slice_.excluded_codes:
@@ -493,7 +640,10 @@ def main(argv: list[str] | None = None) -> int:
             )
             continue
         if code not in legacy:
-            warnings.append(f"{code}: no legacy CONFIRMED rows in window")
+            hard_failures.append(f"{code}: no legacy CONFIRMED rows in window")
+            continue
+        if code not in adapter_by_code:
+            hard_failures.append(f"{code}: no adapter VALID rows in window")
             continue
         results.append(
             _compare_code(
@@ -504,13 +654,19 @@ def main(argv: list[str] | None = None) -> int:
                 config,
                 as_of,
                 suspended_sessions,
-                warnings,
+                hard_failures,
             )
         )
 
-    report = {
-        "contract": "VFLASH_ASL_PHASE1A_PARITY",
-        "asl_revision": slice_.asl_revision,
+    ca_result = _corporate_action_intersection(
+        args.asl_root, set(codes), start, as_of, legacy, adapter_by_code, config
+    )
+
+    gate = GATE_PASS if not hard_failures else GATE_BLOCKED_PARITY
+
+    full = {
+        "gate": gate,
+        "hard_failures": hard_failures,
         "asl_root": str(args.asl_root),
         "legacy_root": str(args.legacy_root),
         "legacy_snapshot": args.legacy_snapshot,
@@ -523,40 +679,155 @@ def main(argv: list[str] | None = None) -> int:
             "sessions_without_status_row": slice_.status_coverage.sessions_without_status_row,
         },
         "suspended_sessions": [
-            f"{code}:{day.isoformat()}" for code, day in slice_.suspended_sessions
+            f"{code}:{day.isoformat()}"
+            for code, day in slice_.suspended_sessions
+        ],
+        "missing_required_bars": [
+            {
+                "code": item.code,
+                "trade_date": item.trade_date.isoformat(),
+                "reason": item.reason,
+            }
+            for item in slice_.missing_required_bars
         ],
         "adapter_fail_closed_rows": adapter_fail_closed,
-        "adapter_fail_closed_count": len(adapter_fail_closed),
+        "corporate_action_intersection": ca_result,
         "results": results,
-        "warnings": warnings,
+        "warnings": list(slice_.warnings),
     }
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(
-        json.dumps(report, ensure_ascii=False, indent=2, default=str),
+    args.full_out.parent.mkdir(parents=True, exist_ok=True)
+    args.full_out.write_text(
+        json.dumps(full, ensure_ascii=False, indent=2, default=str),
         encoding="utf-8",
     )
 
-    total_rows = sum(len(r["field_comparisons"]["rows"]) for r in results if "field_comparisons" in r)
-    preclose_exact = sum(r["field_comparisons"]["preclose_exact"] for r in results if "field_comparisons" in r)
-    mismatches = [
-        (r["code"], m) for r in results if "structure_mismatches" in r for m in r["structure_mismatches"]
-    ]
-    ma_fail = sum(r["ma"]["fail"] for r in results if "ma" in r)
-    stage_mismatch = [r["code"] for r in results if "stage" in r and r["stage"] and not r["stage"]["match"]]
-    anchor_mismatch = [r["code"] for r in results if "anchor" in r and r["anchor"].get("match") is False]
+    compared_rows = sum(
+        len(r["field_comparisons"]["rows"])
+        for r in results
+        if "field_comparisons" in r
+    )
+    preclose_exact = sum(
+        r["field_comparisons"]["preclose_exact"]
+        for r in results
+        if "field_comparisons" in r
+    )
+    session_counts = {"BOTH": 0, "LEGACY_ONLY": 0, "ASL_ONLY": 0}
+    for r in results:
+        if "sessions" not in r:
+            continue
+        for key in session_counts:
+            session_counts[key] += len(r["sessions"][key])
+    status_totals = {
+        key: sum(
+            r["status_deltas"][key]
+            for r in results
+            if "status_deltas" in r
+        )
+        for key in (
+            "EXACT_STATUS_MATCH",
+            "LEGACY_UNKNOWN_TO_ASL_TRUE",
+            "LEGACY_UNKNOWN_TO_ASL_FALSE",
+            "TRUE_STATUS_CONFLICT",
+        )
+    }
+    ma_totals = {
+        key: {
+            metric: sum(
+                r["ma"][key][metric]
+                for r in results
+                if "ma" in r
+            )
+            for metric in ("CLEAN", "CLEAN_MISMATCH", "HOLE_AFFECTED")
+        }
+        for key in ("MA5", "MA10", "MA20")
+    }
+    structure_mismatch = sum(
+        len(r["structure_mismatches"])
+        for r in results
+        if "structure_mismatches" in r
+    )
+    anchor_smoke = {
+        "matched": sum(
+            1 for r in results if "anchor" in r and r["anchor"].get("match") is True
+        ),
+        "total": sum(
+            1 for r in results if "anchor" in r
+        ),
+    }
+    stage_smoke = {
+        "matched": sum(
+            1 for r in results if "stage_smoke" in r and r["stage_smoke"].get("match") is True
+        ),
+        "total": sum(
+            1 for r in results if "stage_smoke" in r and r["stage_smoke"]
+        ),
+    }
+    legacy_holes_total = sum(
+        len(r["legacy_holes"]) for r in results if "legacy_holes" in r
+    )
 
-    print(json.dumps({
-        "codes": len(results),
-        "compared_rows": total_rows,
-        "preclose_exact": f"{preclose_exact}/{total_rows}",
-        "structure_mismatches": len(mismatches),
-        "ma_fail": ma_fail,
-        "anchor_mismatch": anchor_mismatch,
-        "stage_mismatch": stage_mismatch,
-        "warnings": len(warnings),
-        "report": str(args.out),
-    }, indent=2, ensure_ascii=False))
-    return 0
+    summary = {
+        "contract": "VFLASH_ASL_PHASE1A_PARITY_SUMMARY_V2",
+        "gate": gate,
+        "input": {
+            "tested_compat_revision": slice_.tested_compat_revision,
+            "legacy_snapshot": args.legacy_snapshot,
+            "legacy_snapshot_sha256": _sha256_file(
+                args.legacy_root / "canonical" / "daily_bars" / args.legacy_snapshot
+            ),
+            "window": {"start": start.isoformat(), "as_of": as_of.isoformat()},
+            "codes": list(codes),
+        },
+        "row_counts": {
+            "compared_rows": compared_rows,
+            "sessions": session_counts,
+            "adapter_fail_closed_rows": adapter_fail_closed,
+            "missing_required_bars": len(slice_.missing_required_bars),
+        },
+        "tolerances": {
+            "price_abs": str(PRICE_ABS),
+            "price_rel": str(PRICE_REL),
+            "volume_rel": str(VOLUME_REL),
+            "amount_rel": str(AMOUNT_REL),
+            "pct_abs": str(PCT_ABS),
+            "ma_rel": str(MA_REL),
+        },
+        "field": {
+            "preclose_exact": f"{preclose_exact}/{compared_rows}",
+            "structure_mismatches": structure_mismatch,
+        },
+        "status_deltas": status_totals,
+        "ma": ma_totals,
+        "anchor_smoke": anchor_smoke,
+        "stage_smoke": stage_smoke,
+        "corporate_action_intersection": {
+            "status": ca_result["status"],
+            **(
+                {
+                    "reason": ca_result["reason"],
+                    "ex_dates_in_window": ca_result.get("ex_dates_in_window", []),
+                }
+                if ca_result["status"] != "INTERSECTION_FOUND"
+                else {
+                    "code": ca_result["code"],
+                    "ex_date": ca_result["ex_date"],
+                    "action_type": ca_result["action_type"],
+                    "preclose_match": ca_result["preclose_match"],
+                    "pct_match": ca_result["pct_match"],
+                }
+            ),
+        },
+        "legacy_holes_total": legacy_holes_total,
+        "hard_failure_count": len(hard_failures),
+    }
+    args.summary_out.parent.mkdir(parents=True, exist_ok=True)
+    args.summary_out.write_text(
+        json.dumps(summary, ensure_ascii=False, indent=2, default=str),
+        encoding="utf-8",
+    )
+
+    print(json.dumps(summary, ensure_ascii=False, indent=2, default=str))
+    return 0 if gate == GATE_PASS else (2 if gate == GATE_BLOCKED_PARITY else 3)
 
 
 if __name__ == "__main__":
