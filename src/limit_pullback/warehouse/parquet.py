@@ -8,7 +8,7 @@ import os
 from datetime import date, datetime, time
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Iterable, Mapping, Sequence
 from uuid import uuid4
 
 import pyarrow as pa
@@ -259,6 +259,53 @@ def write_rows_atomic(
         os.replace(temporary, path)
         _fsync_file(path)
     except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+
+
+def write_row_chunks_atomic(
+    row_chunks: Iterable[Sequence[Mapping[str, Any]]],
+    schema: pa.Schema,
+    path: Path,
+) -> int:
+    """Write bounded row chunks into ONE atomic parquet file.
+
+    Uses ``pyarrow.parquet.ParquetWriter`` over a temporary file: each chunk
+    is quantized with the SAME ``quantize_row`` semantics, written, then
+    released before the next chunk is processed (bounded construction).  On
+    success the temp file is fsynced and atomically replaced; on ANY
+    exception the writer is closed safely, the temp file removed, and no
+    partial final parquet is exposed.  Returns the total row count.
+    """
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp-{uuid4().hex}")
+    writer: pq.ParquetWriter | None = None
+    row_count = 0
+    try:
+        writer = pq.ParquetWriter(temporary, schema, compression="zstd")
+        for chunk in row_chunks:
+            quantized = [
+                quantize_row(dict(row), schema) for row in chunk
+            ]
+            if not quantized:
+                continue
+            table = pa.Table.from_pylist(quantized, schema=schema)
+            writer.write_table(table)
+            row_count += len(quantized)
+            del table, quantized
+        writer.close()
+        writer = None
+        _fsync_file(temporary)
+        os.replace(temporary, path)
+        _fsync_file(path)
+        return row_count
+    except BaseException:
+        if writer is not None:
+            try:
+                writer.close()
+            except Exception:  # noqa: BLE001 - best-effort cleanup
+                pass
         temporary.unlink(missing_ok=True)
         raise
 

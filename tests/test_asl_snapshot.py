@@ -740,6 +740,236 @@ def test_asl_validation_never_reads_legacy_raw(tmp_path, monkeypatch):
     assert valid is True
 
 
+# ---------------------------------------------------------------------------
+# Phase 1C-3: bounded snapshot construction
+# ---------------------------------------------------------------------------
+
+def _canonical_truth(lake: Path, codes) -> list[tuple]:
+    """Truth derived directly from adapter + mapping for the complete code
+    set (no second production builder)."""
+
+    from limit_pullback.warehouse.asl_adapter import load_asl_daily_slice
+    from limit_pullback.warehouse.asl_snapshot import asl_rows_to_canonical_rows
+
+    slice_ = load_asl_daily_slice(
+        lake, as_of=AS_OF, start=START, codes=sorted(codes)
+    )
+    return _normalize(asl_rows_to_canonical_rows(slice_.rows))
+
+
+def _normalize(rows) -> list[tuple]:
+    """Canonical-schema-quantized semantic rows (both the adapter+mapping
+    truth and the read-back snapshot go through the same quantization)."""
+
+    from limit_pullback.warehouse.parquet import (
+        canonical_daily_schema,
+        quantize_row,
+    )
+
+    out = []
+    for row in sorted(rows, key=lambda item: (item["code"], item["trade_date"])):
+        q = quantize_row(dict(row), canonical_daily_schema())
+        out.append(
+            (
+                q["code"],
+                q["trade_date"],
+                str(q["open"]), str(q["high"]), str(q["low"]),
+                str(q["close"]), str(q["preclose"]),
+                str(q["volume"]), str(q["amount"]),
+                q["turnover_rate"],
+                str(q["pct_change"]) if q["pct_change"] is not None else None,
+                q["trade_status"],
+                q["is_st"],
+                q["selected_provider"],
+                q["reconciliation_status"],
+                q["source_row_hash"],
+            )
+        )
+    return out
+
+
+def _snapshot_normalized(layout: WarehouseLayout, snapshot) -> list[tuple]:
+    with WarehouseMetadata(layout.duckdb_path, read_only=True) as metadata:
+        stored = metadata.snapshot_by_id(snapshot.snapshot_id)
+        rows = read_snapshot_daily(layout, stored)
+    return _normalize(rows)
+
+
+def _build_chunked(tmp_path: Path, lake: Path, codes, chunk_size: int):
+    layout = _layout(tmp_path)
+    snapshot = build_asl_candidate_snapshot(
+        layout=layout,
+        asl_root=lake,
+        as_of=AS_OF,
+        codes=codes,
+        start=START,
+        code_chunk_size=chunk_size,
+    )
+    return layout, snapshot
+
+
+def test_chunked_snapshot_semantic_equivalence(tmp_path):
+    """A+B: chunk size 1 and chunk size > code count both equal the
+    adapter+mapping truth (same semantic rows)."""
+
+    lake = tmp_path / "lake"
+    _build_lake(lake)
+    codes = ["000001", "000010", "000524", "605198"]
+    truth = _canonical_truth(lake, codes)
+
+    for chunk_size in (1, 10_000):
+        layout, snapshot = _build_chunked(tmp_path, lake, codes, chunk_size)
+        got = _snapshot_normalized(layout, snapshot)
+        assert got == truth
+        assert snapshot.status == "CURRENT"
+
+
+def test_chunk_sizes_produce_identical_sequence(tmp_path):
+    """C: different chunk sizes yield the same semantic row sequence."""
+
+    lake = tmp_path / "lake"
+    _build_lake(lake)
+    codes = ["000001", "000010", "000524", "605198"]
+    seen = []
+    for chunk_size in (1, 2, 3, 10_000):
+        layout, snapshot = _build_chunked(tmp_path, lake, codes, chunk_size)
+        got = _snapshot_normalized(layout, snapshot)
+        assert got == _canonical_truth(lake, codes)
+        seen.append(got)
+    assert all(item == seen[0] for item in seen)
+
+
+def test_chunked_snapshot_single_snapshot_id_and_hash(tmp_path):
+    """D+E: source_row_hash unchanged and ONE dataset_snapshot_id across all
+    rows."""
+
+    lake = tmp_path / "lake"
+    _build_lake(lake)
+    codes = ["000001", "000010", "000524", "605198"]
+    layout, snapshot = _build_chunked(tmp_path, lake, codes, 1)
+    with WarehouseMetadata(layout.duckdb_path, read_only=True) as metadata:
+        stored = metadata.snapshot_by_id(snapshot.snapshot_id)
+        rows = read_snapshot_daily(layout, stored)
+    assert {row["dataset_snapshot_id"] for row in rows} == {snapshot.snapshot_id}
+    assert _normalize(rows) == _canonical_truth(lake, codes)  # hash unchanged
+
+
+def test_chunked_snapshot_empty_pool_round_trip(tmp_path):
+    """F: typed empty pool still round-trips on the chunked path."""
+
+    lake = tmp_path / "lake"
+    _build_lake(lake)
+    layout, snapshot = _build_chunked(tmp_path, lake, ["000001"], 1)
+    with WarehouseMetadata(layout.duckdb_path, read_only=True) as metadata:
+        stored = metadata.snapshot_by_id(snapshot.snapshot_id)
+        pool = read_snapshot_pool(layout, stored)
+    assert pool == []
+
+
+def test_chunked_failure_is_atomic(tmp_path, monkeypatch):
+    """G: failure in a later chunk leaves NO partial publication (no daily
+    parquet, no manifest, no SnapshotRecord/publication, no temp file)."""
+
+    import limit_pullback.warehouse.asl_snapshot as asl_snapshot_mod
+    from limit_pullback.warehouse.asl_adapter import AslAdapterError
+
+    lake = tmp_path / "lake"
+    _build_lake(lake)
+    layout = _layout(tmp_path)
+    real_load = asl_snapshot_mod.load_asl_daily_slice
+    calls = {"n": 0}
+
+    def flaky(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise AslAdapterError(
+                "MISSING_REQUIRED_BAR:000010:2026-06-15:injected"
+            )
+        return real_load(*args, **kwargs)
+
+    monkeypatch.setattr(
+        "limit_pullback.warehouse.asl_snapshot.load_asl_daily_slice", flaky
+    )
+    with pytest.raises(AslAdapterError):
+        build_asl_candidate_snapshot(
+            layout=layout,
+            asl_root=lake,
+            as_of=AS_OF,
+            codes=["000001", "000010", "000524", "605198"],
+            start=START,
+            code_chunk_size=1,
+        )
+    assert calls["n"] == 2  # first chunk written, second chunk failed
+    assert list(layout.canonical_daily_dir.glob("*.parquet")) == []
+    assert list(layout.canonical_pool_dir.glob("*.parquet")) == []
+    assert list(layout.manifests_dir.glob("*.json")) == []
+    assert list(layout.canonical_daily_dir.glob("*.tmp-*")) == []
+    with WarehouseMetadata(layout.duckdb_path, read_only=True) as metadata:
+        assert metadata.latest_snapshot() is None
+
+
+def test_daily_table_create_snapshot_path_still_works(tmp_path):
+    """I: the existing daily_table create_snapshot path remains functional."""
+
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    from limit_pullback.warehouse.asl_adapter import load_asl_daily_slice
+    from limit_pullback.warehouse.asl_snapshot import asl_rows_to_canonical_rows
+    from limit_pullback.warehouse.snapshot import create_snapshot
+
+    lake = tmp_path / "lake"
+    _build_lake(lake)
+    slice_ = load_asl_daily_slice(lake, as_of=AS_OF, start=START, codes=["000001"])
+    truth = asl_rows_to_canonical_rows(slice_.rows)
+    layout = _layout(tmp_path)
+    table = pa.Table.from_pylist(
+        [{k: v for k, v in row.items() if k != "dataset_snapshot_id"}
+         for row in truth]
+    )
+    with WarehouseMetadata(layout.duckdb_path) as metadata:
+        snapshot = create_snapshot(
+            layout=layout,
+            metadata=metadata,
+            as_of=AS_OF,
+            provider_versions={"TUSHARE": "1.0"},
+            daily_table=table,
+            pool_rows=[],
+            source_file_hashes={},
+            reconciliation_policy_version="legacy-test",
+            clock=lambda: datetime(2026, 7, 31, 23, 59, 59, tzinfo=timezone.utc),
+        )
+    with WarehouseMetadata(layout.duckdb_path, read_only=True) as metadata:
+        stored = metadata.snapshot_by_id(snapshot.snapshot_id)
+        rows = read_snapshot_daily(layout, stored)
+    assert len(rows) == len(truth)
+    assert all(row["dataset_snapshot_id"] == snapshot.snapshot_id for row in rows)
+
+
+def test_chunked_path_never_calls_legacy_providers(tmp_path, monkeypatch):
+    """J: the multi-chunk build path never calls legacy/network providers."""
+
+    def _forbidden(*_args, **_kwargs):
+        raise AssertionError("legacy provider path must not be called")
+
+    monkeypatch.setattr(
+        "limit_pullback.warehouse.pipeline.bootstrap", _forbidden
+    )
+    monkeypatch.setattr("limit_pullback.warehouse.pipeline.update", _forbidden)
+    monkeypatch.setattr(
+        "limit_pullback.warehouse.fetch.fetch_rows", _forbidden
+    )
+    monkeypatch.setattr(
+        "limit_pullback.warehouse.fetch.fetch_with_retry", _forbidden
+    )
+    lake = tmp_path / "lake"
+    _build_lake(lake)
+    layout, snapshot = _build_chunked(
+        tmp_path, lake, ["000001", "000010", "000524", "605198"], 1
+    )
+    assert snapshot.status == "CURRENT"
+
+
 def test_cli_asl_snapshot_help_available():
     from limit_pullback.cli import build_parser
 

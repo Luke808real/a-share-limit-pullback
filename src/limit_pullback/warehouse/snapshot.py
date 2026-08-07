@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, Callable, Iterable, Mapping, Sequence
 from uuid import uuid4
 
 import pyarrow as pa
@@ -20,6 +20,7 @@ from limit_pullback.warehouse.parquet import (
     canonical_limit_up_pool_schema,
     sha256_file,
     write_json_atomic,
+    write_row_chunks_atomic,
     write_rows_atomic,
     write_table_atomic,
 )
@@ -228,28 +229,55 @@ def create_snapshot(
     metadata: WarehouseMetadata,
     as_of: date,
     provider_versions: Mapping[str, str],
-    daily_rows: Sequence[Mapping[str, Any]],
+    daily_rows: Sequence[Mapping[str, Any]] | None = None,
     pool_rows: Sequence[Mapping[str, Any]],
     source_file_hashes: Mapping[str, str],
     reconciliation_policy_version: str,
     clock: Callable[[], datetime] = _now_utc,
     status: str = "CURRENT",
     daily_table=None,
+    daily_row_chunks: Iterable[Sequence[Mapping[str, Any]]] | None = None,
 ) -> SnapshotRecord:
-    """Publish a new immutable canonical snapshot."""
+    """Publish a new immutable canonical snapshot.
+
+    ``daily_row_chunks`` accepts bounded row chunks (lazy iterable) written
+    into ONE atomic daily parquet; every row receives the SAME snapshot id.
+    ``daily_rows`` / ``daily_table`` paths remain unchanged for existing
+    callers.
+    """
 
     created_at = clock()
     snapshot_id = f"snap-{as_of.isoformat()}-{uuid4().hex[:12]}"
     daily_path = layout.canonical_daily_dir / f"{snapshot_id}.parquet"
     pool_path = layout.canonical_pool_dir / f"{snapshot_id}.parquet"
 
-    if daily_table is not None:
+    daily_row_count: int | None = None
+    if daily_row_chunks is not None:
+        # Bounded construction: inject the SAME snapshot id lazily per chunk;
+        # the atomic chunk writer never exposes a partial final parquet.
+        def _chunks_with_id():
+            for chunk in daily_row_chunks:
+                yield [
+                    {**dict(row), "dataset_snapshot_id": snapshot_id}
+                    for row in chunk
+                    if row.get("preclose") is not None
+                ]
+
+        daily_row_count = write_row_chunks_atomic(
+            _chunks_with_id(), canonical_daily_schema(), daily_path
+        )
+    elif daily_table is not None:
         if "dataset_snapshot_id" not in daily_table.column_names:
             daily_table = daily_table.append_column(
                 pa.field("dataset_snapshot_id", pa.string()),
                 pa.array([snapshot_id] * daily_table.num_rows),
             )
     else:
+        if daily_rows is None:
+            raise ValueError(
+                "create_snapshot requires daily_rows, daily_table, or "
+                "daily_row_chunks"
+            )
         daily_rows_with_id = [
             {**dict(row), "dataset_snapshot_id": snapshot_id}
             for row in daily_rows
@@ -258,7 +286,9 @@ def create_snapshot(
     pool_rows_with_id = [
         {**dict(row), "dataset_snapshot_id": snapshot_id} for row in pool_rows
     ]
-    if daily_table is not None:
+    if daily_row_chunks is not None:
+        pass  # daily parquet already written atomically above
+    elif daily_table is not None:
         write_table_atomic(daily_table, daily_path)
     else:
         write_rows_atomic(daily_rows_with_id, canonical_daily_schema(), daily_path)
@@ -302,9 +332,13 @@ def create_snapshot(
         dataset="daily_bars",
         path=relative(daily_path),
         row_count=(
-            daily_table.num_rows
-            if daily_table is not None
-            else len(daily_rows_with_id)
+            daily_row_count
+            if daily_row_count is not None
+            else (
+                daily_table.num_rows
+                if daily_table is not None
+                else len(daily_rows_with_id)
+            )
         ),
         published_at=created_at,
     )
