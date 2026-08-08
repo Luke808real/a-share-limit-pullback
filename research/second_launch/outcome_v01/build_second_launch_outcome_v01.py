@@ -34,6 +34,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 from typing import Any
@@ -524,6 +525,48 @@ def _source_commit() -> str:
     return result.stdout.strip()
 
 
+def _repo_relative(path: Path) -> str:
+    """Repo-relative POSIX path; fail closed for anything outside the repo."""
+    try:
+        return path.resolve().relative_to(REPO_ROOT.resolve()).as_posix()
+    except ValueError as exc:
+        raise RuntimeError(f"path outside repo (rejected): {path}") from exc
+
+
+def validate_manifest_paths_portable(manifest: dict[str, Any]) -> None:
+    """All manifest path fields must be repo-relative POSIX (fail closed)."""
+    for field in ["artifact_path", "quarantine_path", "parent_case_set_path"]:
+        value = manifest.get(field)
+        if not isinstance(value, str) or not value:
+            raise RuntimeError(f"manifest path field missing/invalid: {field}")
+        if value.startswith("/") or "\\" in value or "file://" in value:
+            raise RuntimeError(f"manifest path not repo-relative: {field}={value}")
+        if value.startswith("research/"):
+            continue
+        raise RuntimeError(f"manifest path not under research/: {field}={value}")
+    generator_path = manifest.get("generator_path")
+    if generator_path != GENERATOR_PATH:
+        raise RuntimeError(
+            f"manifest generator_path mismatch: {generator_path!r}"
+        )
+
+
+def _require_clean_generator_source() -> None:
+    """Generator + tests must have no uncommitted tracked changes before publish."""
+    result = subprocess.run(
+        ["git", "status", "--porcelain", "--", GENERATOR_PATH, "tests/"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    if result.stdout.strip():
+        raise RuntimeError(
+            "generator/tests source not clean before artifact generation:\n"
+            + result.stdout.strip()
+        )
+
+
 def verify_snapshot_hashes(
     feature_snapshot_path: Path,
     label_snapshot_path: Path,
@@ -682,6 +725,12 @@ def load_quarantine(
     q = pd.read_csv(quarantine_path, dtype={"episode_id": str})
     if "episode_id" not in q.columns:
         raise RuntimeError(f"quarantine artifact malformed: {quarantine_path}")
+    if q["episode_id"].isna().any():
+        raise RuntimeError("quarantine artifact contains null episode_id")
+    if q["episode_id"].duplicated().any():
+        raise RuntimeError("quarantine artifact contains duplicate episode_id")
+    if len(q) != q["episode_id"].nunique():
+        raise RuntimeError("quarantine_n != unique episode_id n")
     return set(q["episode_id"]), sha256_file(quarantine_path)
 
 
@@ -779,15 +828,19 @@ def build_interim_reproducible_package(
         )
     out_df = pd.DataFrame(out_rows, columns=INTERIM_OUTPUT_COLUMNS)
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_df.to_csv(out_dir / "second_launch_outcome_v01b_reproducible.csv", index=False)
+    csv_final = out_dir / "second_launch_outcome_v01b_reproducible.csv"
+    manifest_final = out_dir / "manifest_v01b_reproducible.json"
+    csv_tmp = out_dir / "second_launch_outcome_v01b_reproducible.csv.tmp"
+    manifest_tmp = out_dir / "manifest_v01b_reproducible.json.tmp"
 
     manifest = {
         "artifact_id": "SECOND_LAUNCH_OUTCOME_V01B_REPRODUCIBLE",
         "research_status": "INTERIM_PARTIAL_PROVENANCE",
         "parent_case_set_id": "SUCCESS_CONTROL_CASESET_V01B",
+        "parent_case_set_path": _repo_relative(case_set_path),
         "parent_case_set_sha256": sha256_file(case_set_path),
         "parent_row_count": len(cases),
-        "quarantine_path": str(quarantine_path),
+        "quarantine_path": _repo_relative(quarantine_path),
         "quarantine_sha256": quarantine_sha,
         "quarantine_n": len(quarantine_ids),
         "reproducible_row_count": len(out_df),
@@ -817,13 +870,94 @@ def build_interim_reproducible_package(
             "TRADEPLAN",
         ],
         "generator_commit": _source_commit(),
+        "generator_path": GENERATOR_PATH,
+        "generator_sha256": sha256_file(REPO_ROOT / GENERATOR_PATH),
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
-    (out_dir / "manifest_v01b_reproducible.json").write_text(
-        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    try:
+        # Publication semantics: nothing is "published" until both files are
+        # atomically replaced AND the manifest hash fields are consistent.
+        out_df.to_csv(csv_tmp, index=False)
+        artifact_sha = sha256_file(csv_tmp)
+        manifest["artifact_path"] = _repo_relative(csv_final)
+        manifest["artifact_sha256"] = artifact_sha
+        manifest_tmp.write_text(
+            json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(csv_tmp, csv_final)
+        os.replace(manifest_tmp, manifest_final)
+    finally:
+        for leftover in (csv_tmp, manifest_tmp):
+            if leftover.exists():
+                leftover.unlink()
     return manifest
+
+
+def verify_interim_manifest_artifacts(
+    manifest_path: Path = INTERIM_MANIFEST_PATH,
+    *,
+    generator_path: Path | None = None,
+    feature_snapshot_path: Path = FEATURE_SNAPSHOT_PATH,
+    label_snapshot_path: Path = LABEL_SNAPSHOT_PATH,
+) -> dict[str, Any]:
+    """Verify every manifest hash against the actual files. FAIL CLOSED."""
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    validate_manifest_paths_portable(manifest)
+    generator_path = generator_path or (REPO_ROOT / GENERATOR_PATH)
+    artifact_csv = REPO_ROOT / manifest["artifact_path"]
+    quarantine = REPO_ROOT / manifest["quarantine_path"]
+    parent_case_set = REPO_ROOT / manifest["parent_case_set_path"]
+    checks = [
+        ("artifact_sha256", artifact_csv, manifest["artifact_sha256"]),
+        ("quarantine_sha256", quarantine, manifest["quarantine_sha256"]),
+        ("parent_case_set_sha256", parent_case_set, manifest["parent_case_set_sha256"]),
+        ("generator_sha256", generator_path, manifest["generator_sha256"]),
+        ("feature_snapshot_hash", feature_snapshot_path, manifest["feature_snapshot_hash"]),
+        ("label_snapshot_hash", label_snapshot_path, manifest["label_snapshot_hash"]),
+    ]
+    for field, path, expected in checks:
+        if sha256_file(path) != expected:
+            raise RuntimeError(
+                f"manifest verification FAILED (fail closed): {field} mismatch for {path}"
+            )
+    if manifest["generator_commit"] != _source_commit():
+        raise RuntimeError(
+            "manifest verification FAILED (fail closed): generator_commit != git HEAD"
+        )
+    return manifest
+
+
+def compare_artifact_csvs(
+    previous_csv: Path,
+    new_csv: Path,
+) -> dict[str, int]:
+    """Content-stability gate: value-level compare of two artifact CSVs."""
+    prev = pd.read_csv(previous_csv, dtype=str).fillna("<NA>")
+    new = pd.read_csv(new_csv, dtype=str).fillna("<NA>")
+    if list(prev.columns) != list(new.columns):
+        raise RuntimeError("artifact column set changed")
+    if len(prev) != len(new):
+        raise RuntimeError(
+            f"artifact row count changed: {len(prev)} -> {len(new)}"
+        )
+    mismatch = 0
+    outcome_3d_changed = 0
+    outcome_5d_changed = 0
+    for column in prev.columns:
+        diff = int((prev[column] != new[column]).sum())
+        mismatch += diff
+        if column == "outcome_3d":
+            outcome_3d_changed = diff
+        elif column == "outcome_5d":
+            outcome_5d_changed = diff
+    return {
+        "previous_row_n": len(prev),
+        "new_row_n": len(new),
+        "value_mismatch_n": mismatch,
+        "outcome_3d_changed_n": outcome_3d_changed,
+        "outcome_5d_changed_n": outcome_5d_changed,
+    }
 
 
 if __name__ == "__main__":
@@ -844,6 +978,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     try:
         if args.interim:
+            _require_clean_generator_source()
             manifest = build_interim_reproducible_package()
         else:
             manifest = build_package(

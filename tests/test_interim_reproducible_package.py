@@ -7,6 +7,7 @@ bypass, missing/extra quarantine ids, or snapshot hash drift fails closed.
 from __future__ import annotations
 
 from datetime import date
+import shutil
 from pathlib import Path
 import sys
 
@@ -24,6 +25,15 @@ import build_second_launch_outcome_v01 as gen  # noqa: E402
 
 CODE = "600000"
 CAND = date(2026, 3, 2)
+REPO_TMP = gen.REPO_ROOT / "research" / "second_launch" / "outcome_v01" / "test_tmp"
+
+
+@pytest.fixture(autouse=True)
+def _clean_repo_tmp():
+    """Manifest paths must be repo-relative, so package tests run in-repo."""
+    REPO_TMP.mkdir(parents=True, exist_ok=True)
+    yield
+    shutil.rmtree(REPO_TMP, ignore_errors=True)
 
 
 def write_bars(path: Path, rows: list[tuple[date, str, str, str, str, str, str]]) -> None:
@@ -81,7 +91,7 @@ def _setup(tmp_path, n_cases: int = 3, mismatch_ids: set[str] | None = None):
         "E:2": "NO_LAUNCH",
         "E:3": "NO_LAUNCH",
     }
-    cases_path = tmp_path / "cases.csv"
+    cases_path = REPO_TMP / "cases.csv"
     make_case_csv(cases_path, {k: v for k, v in list(outcomes.items())[:n_cases]})
     feature = tmp_path / "feature.parquet"
     label = tmp_path / "label.parquet"
@@ -99,7 +109,7 @@ def _setup(tmp_path, n_cases: int = 3, mismatch_ids: set[str] | None = None):
         (date(2026, 3, 6), "10", "10.2", "9.9", "10.1", "120", "CONFIRMED"),
         (date(2026, 3, 9), "10", "10.1", "9.9", "10.0", "110", "CONFIRMED"),
     ])
-    quarantine = tmp_path / "quarantine.csv"
+    quarantine = REPO_TMP / "quarantine.csv"
     pd.DataFrame(
         [
             {
@@ -117,7 +127,7 @@ def _setup(tmp_path, n_cases: int = 3, mismatch_ids: set[str] | None = None):
             "quarantine_reason", "source_forensic_artifact",
         ],
     ).to_csv(quarantine, index=False)
-    return cases_path, feature, label, quarantine, tmp_path / "out"
+    return cases_path, feature, label, quarantine, REPO_TMP / "out"
 
 
 def _pin_synthetic_hashes(monkeypatch, feature: Path, label: Path) -> None:
@@ -185,7 +195,7 @@ def test_frozen_parent_v01b_bytes_unchanged(tmp_path, monkeypatch):
 
 def test_blocked_formal_csv_not_created(tmp_path, monkeypatch):
     _run(tmp_path, monkeypatch, mismatch_ids={"E:1"})
-    assert not (tmp_path / "out" / "second_launch_outcome_v01.csv").exists()
+    assert not (REPO_TMP / "out" / "second_launch_outcome_v01.csv").exists()
     assert not (gen.OUT_DIR / "second_launch_outcome_v01.csv").exists()
 
 
