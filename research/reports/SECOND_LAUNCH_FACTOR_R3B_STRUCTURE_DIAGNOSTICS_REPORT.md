@@ -56,13 +56,17 @@ OBSERVATION：连续 F3 存在近似单调 dose-response（量/振幅收缩越�
 ## F5_TIME_NONLINEAR
 
 ```text
-（完整表见 results CSV section=F5_TIME_SHAPE；tail 仅在单值 n<30 时合并）
-days_since_t0: T+1 0.0427(n=3,956) / T+2 0.0538(n=3,752) / T+3 0.0405(n=444) /
-  T+4 0.0560(n=125) / T+5 0.0952(n=42) / T+7 0.0000(n=35) / tail 0.0513(n=117)
-days_to_pullback_low: 1→0.0418(n=4,287) / 2→0.0561(n=2,996) / 3→0.0407 / 4→0.0137 / 5→0.1000 / tail 0.0411
-pullback_duration: 1→0.0460(n=6,785) / 2→0.0583(n=875) / 3→0.0246 / 4→0.1000(n=30) / tail 0.0439
-形状标签（规则化）：三因子均被标记 INVERTED_U —— 但峰值桶 n 很小（42/40/30），
-  属小样本噪声，无稳健 inverted-U/decay 证据
+（R3B.1 修正：contiguous-tail 语义 —— 首次单值 n<30 的 K 起全部合并为单一 TAIL>=K；
+  shape 只使用有序连续桶；raw per-value 审计保留在 section=F5_TIME_RAW）
+days_since_t0: 1/2/3/4/5/TAIL>=6
+  → 0.0427(n=3,956) / 0.0538(n=3,752) / 0.0405(n=444) / 0.0560(n=125) /
+    0.0952(n=42) / TAIL>=6 0.0395(n=152)
+days_to_pullback_low: 1/2/3/4/5/TAIL>=6
+  → 0.0418 / 0.0561 / 0.0407 / 0.0137 / 0.1000(n=40) / TAIL>=6 0.0411
+pullback_duration: 1/2/3/4/TAIL>=5
+  → 0.0460 / 0.0583 / 0.0246 / 0.1000(n=30) / TAIL>=5 0.0439
+形状标签（规则化，有序桶）：三因子仍被标记 INVERTED_U —— 峰值桶 n 很小（42/40/30），
+  属小样本噪声，无稳健 inverted-U/decay 证据；未调整阈值
 OBSERVATION：无单调 decay；无稳健最优窗口；主导样本集中在 T+1/T+2（差异 ~1pp）；
   H4 TIME_NONLINEAR_DECAY 在该 operationalization 下未获支持（非否定存在性，
   仅指日线 session 距离无可见非线性衰减结构）
@@ -88,11 +92,15 @@ OBSERVATION：F6 主要识别“有无 activation”（NL/SF vs SUCCESS 区分�
 （代表性 F3 选择规则：STABLE + coverage>=0.90 + 与其余 F3 最低 median |corr|
   → median_range_ratio；选择先于查看 interaction 结果）
 median_range_ratio 三分位 × close_vs_pullback_high 中位数（LOW/HIGH）:
-  低收缩×LOW 0.0436(n=344) / 低收缩×HIGH 0.0770(n=1,065)
-  中收缩×LOW 0.0474(n=781) / 中收缩×HIGH 0.0622(n=627)
-  高收缩×LOW 0.0274(n=987) / 高收缩×HIGH 0.0451(n=421)
+  语义方向（R3B.1 修正）: median_range_ratio raw LOW → HIGH
+    = contraction STRONG → WEAK
+  STRONG×LOW 0.0436(n=344) / STRONG×HIGH 0.0770(n=1,065)
+  MID×LOW 0.0474(n=781) / MID×HIGH 0.0622(n=627)
+  WEAK×LOW 0.0274(n=987) / WEAK×HIGH 0.0451(n=421)
 OBSERVATION（纯描述）: 每个收缩层内 activation HIGH > LOW（+1.7~+3.3pp）；
-  activation HIGH 下收缩从低到高 SUCCESS 0.0770→0.0622→0.0451（收缩仍有负向作用）
+  activation-HIGH 行内，raw 0.0770→0.0622→0.0451（LOW→HIGH）即
+  contraction STRONG→WEAK：**stronger contraction is associated with higher
+  SUCCESS rate within activation-HIGH rows**
 ```
 
 ## TEMPORAL_STABILITY
@@ -102,6 +110,28 @@ OBSERVATION（纯描述）: 每个收缩层内 activation HIGH > LOW（+1.7~+3.3
 quiet_days_n>=1 vs =0: 9/9 quarters hi>lo（方向稳定）
 close_vs_pullback_high 中位分: 8/9 quarters hi>lo（2025Q1 翻转，幅度 0.3pp）
 结论：关键方向在 calendar quarter 上大致保持
+```
+
+## STAGE_BOUNDARY（R3B.1 修正）
+
+```text
+R3 evidence: F3 dose-response / F5 nonlinear TIME shape / F6 failure boundary
+EARLY_R6_EXPLORATORY_ONLY: F3 redundancy/correlation、representative-F3 selection、
+  F3×F6 crosstab（不得称 R6 completed）
+EARLY_R4_SANITY_ONLY: calendar-quarter check（不得称 R4 stability completed）
+R3C_RECOMMENDATION: 已废弃（删除）
+下一正式阶段: R4 STABILITY（本任务未启动）
+```
+
+## R3_METRIC_GAP（R3B.1 记录）
+
+```text
+MFE_STATUS = NOT_AVAILABLE_IN_CURRENT_FROZEN_OUTCOME
+MAE_STATUS = NOT_AVAILABLE_IN_CURRENT_FROZEN_OUTCOME
+TIME_TO_S1_10D = AVAILABLE
+TIME_TO_INVALID_10D = AVAILABLE
+DAYS_TO_LAUNCH_FORMAL_ANALYSIS = NOT_YET_CONTRACTED
+（未读取 future bars 计算 MFE/MAE；未修改 frozen outcome artifact）
 ```
 
 ## OBSERVATIONS
@@ -143,12 +173,6 @@ O6: F3×F6 交叉中 activation 效应在每个收缩层内保持
 
 ```text
 NO
-```
-
-## R3C_RECOMMENDATION
-
-```text
-AUTHORIZED（exploratory 结构诊断门通过；本任务未启动 R3C 及任何下游研究）
 ```
 
 ## CONFIRM

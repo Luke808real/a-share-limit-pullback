@@ -116,6 +116,29 @@ def shape_label(rates: list[tuple[str, float, int]]) -> str:
     return "NO_PATTERN"
 
 
+def contiguous_time_buckets(
+    counts: dict[int, int],
+    min_n: int = 30,
+) -> tuple[list[str], dict[int, str]]:
+    """Deterministic contiguous-tail bucket semantics for integer time values.
+
+    Scans values in ascending integer order; at the FIRST value K with
+    n < min_n, all values >= K merge into a single contiguous 'TAIL>=K'.
+    Values < K keep their natural single-value buckets. The returned order is
+    strictly increasing natural values followed by at most one tail bucket.
+    """
+    tail_start: int | None = None
+    labels: dict[int, str] = {}
+    for v in sorted(counts):
+        if counts[v] < min_n and tail_start is None:
+            tail_start = v
+        labels[v] = f"TAIL>={tail_start}" if tail_start is not None else str(v)
+    order = [str(v) for v in sorted(counts) if tail_start is None or v < tail_start]
+    if tail_start is not None:
+        order.append(f"TAIL>={tail_start}")
+    return order, labels
+
+
 def main() -> None:
     feat, out = r3a.run_input_gate()
     df = feat.merge(out, on="episode_id", suffixes=("_f", "_o"))
@@ -218,23 +241,35 @@ def main() -> None:
         known = df["outcome_3d"] != "UNKNOWN"
         g = vals[known]
         vc = g.value_counts().sort_index()
-        # natural integer buckets; merge tiny tails (n<30) into tail buckets
+        counts = {int(v): int(vc[v]) for v in vc.index}
+        order, label_map = contiguous_time_buckets(counts, min_n=30)
         labels = pd.Series(index=df.index[known], dtype=object)
-        tail_values: list[str] = []
-        for v in vc.index:
-            v = int(v)
-            if vc[v] < 30:
-                tail_values.append(str(v))
+        # Raw per-value table for audit (never used for shape classification).
+        raw_rows = []
+        for v in sorted(counts):
+            m = g == float(v)
+            n = int(m.sum())
+            if n == 0:
+                continue
+            succ = int((df.loc[m.index[m], "outcome_3d"] == "SUCCESS").sum())
+            fb = int((df.loc[m.index[m], "outcome_3d"] == "FAILED_BREAKOUT").sum())
+            nl = int((df.loc[m.index[m], "outcome_3d"] == "NO_LAUNCH").sum())
+            sf = int((df.loc[m.index[m], "outcome_3d"] == "STRUCTURE_FAIL").sum())
+            lo, hi = wilson_ci(succ, n)
+            raw_rows.append({
+                "section": "F5_TIME_RAW", "factor": f, "bucket": str(v), "n": n,
+                "success_rate": round(succ / n, 4), "fb_rate": round(fb / n, 4),
+                "nl_rate": round(nl / n, 4), "sf_rate": round(sf / n, 4),
+                "ci_low": round(lo, 4), "ci_high": round(hi, 4),
+                "extra": "raw per-value audit (not used for shape)"})
         for idx in df.index[known]:
             raw = g[idx]
             if pd.isna(raw):
                 labels[idx] = "NA"
                 continue
             v = int(raw)
-            labels[idx] = f"tail({'+'.join(tail_values)})" if str(v) in tail_values else str(v)
-        order = [str(int(v)) for v in vc.index if str(int(v)) not in tail_values]
-        if tail_values:
-            order.append(f"tail({'+'.join(tail_values)})")
+            labels[idx] = label_map[v]
+        rows.extend(raw_rows)
         for r in bucket_rows(df[known], f, labels, order):
             r["section"] = "F5_TIME_SHAPE"
             r["extra"] = ""
