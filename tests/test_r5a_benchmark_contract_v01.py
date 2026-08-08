@@ -262,11 +262,11 @@ def test_blind_canonical_snapshot_sha_mismatch(tmp_path):
 
 def test_main_calls_blind_gate_before_registry_write(tmp_path, monkeypatch):
     calls: list[str] = []
-    real_gate = r5a.blind_input_gate
 
     def spy_gate():
         calls.append("gate")
-        return real_gate()
+        # ordering test only; the real gate (local canonical hash) is covered
+        # by test_blind_gate_positive / test_blind_gate_failure...
 
     monkeypatch.setattr(r5a, "OUT_REGISTRY", tmp_path / "r5a_registry.csv")
     monkeypatch.setattr(r5a, "blind_input_gate", spy_gate)
