@@ -296,3 +296,103 @@ TRADEPLAN_CHANGED=false
 COMMIT: research: r5a contract audit cleanup - source semantics and blind gate
 PUSH: origin/research/second-launch-factor-r5a-benchmark-contract-v01
 ```
+
+---
+
+# R5A_FINAL_CLOSEOUT
+
+> 2026-08-08 · 最终 contract closeout（最小 patch）· 未运行任何 benchmark outcome
+
+STATUS: **COMPLETE**
+
+```text
+BRANCH: research/second-launch-factor-r5a-benchmark-contract-v01
+BASE_HEAD: beaf447cbee211a2a31bdd857d9d9f23a66465c6
+HEAD_AFTER: 见 GIT 段
+REMOTE_SHA: 见 GIT 段（push 后核对）
+```
+
+## B8_DEFINITION_SOURCE_FIXED
+
+```text
+按已冻结语义：PROJECT_DOCUMENTED = 已有明确机械规则但未冻结；
+UNDERDEFINED = 关键机械规则尚未定义。
+B8 无明确 HOT_SECTOR_FILTER 机械规则 -> definition_source = UNDERDEFINED
+（status 保持 DATA_UNAVAILABLE）。
+两个独立限制分别记录：
+  DEFINITION: UNDERDEFINED（无 sector strength / 涨停家数 threshold、
+    ranking cutoff、行业热度公式）
+  DATA: DATA_UNAVAILABLE（无 PIT-safe sector artifact；pool 15 日；
+    F8 CONTEXT 未冻结；禁止临时抓取）
+保留 name/listing source = project research plan；
+未创建任何阈值/排名/热度公式。
+```
+
+## MAIN_FAIL_CLOSED_GATE
+
+```text
+正式 main() 执行顺序：
+  blind_input_gate() -> validate_registry() -> write registry
+任何 blind gate 失败立即终止，不生成 registry artifact；
+outcome 仅以 identity columns 读取（无 outcome label columns）。
+```
+
+## REGISTRY_INVARIANCE
+
+```text
+registry diff 仅 B8 definition_source / explanatory text
+  （PROJECT_DOCUMENTED -> UNDERDEFINED）；
+B1-B7 字节语义不变（B4/B5/B6 thresholds 不变；B7 status=READY、
+  frozen-history 语义不变）；未新增 benchmark。
+```
+
+## OUTCOME_BLINDNESS_CONFIRM
+
+```text
+本 patch 未查看任何 outcome class 分布 / SUCCESS rate / OR / AUC / MFE/MAE；
+未执行 benchmark outcome。
+```
+
+## VALIDATION
+
+```text
+1. compile: PASS
+2. targeted R5A tests: 23 PASS
+   （新增：B8 definition_source==UNDERDEFINED、B8 status==DATA_UNAVAILABLE、
+     B8 双限制记录、main 先 gate 后写 registry、gate 失败不产生 registry）
+3. blind gate positive/negative: PASS（真实冻结文件正向 + SHA/1:1/binding/
+   snapshot/canonical 负向）
+4. registry deterministic rerun: PASS（两次生成哈希一致）
+5. git diff --check: PASS
+未运行 benchmark outcome / R5B / R6 / full-market / ML / production / forward。
+```
+
+## CORRECTNESS_BLOCKER
+
+```text
+NO
+```
+
+## R5A_STATUS / R5B_RECOMMENDATION
+
+```text
+R5A_STATUS = COMPLETE
+R5B_RECOMMENDATION = AUTHORIZED（>=1 READY benchmark：B4/B5/B6/B7；
+  blind gate PASS；无 correctness blocker；未开始 R5B）
+```
+
+## CONFIRM
+
+```text
+STRATEGY_CHANGED=false
+PRODUCTION_CHANGED=false
+FORWARD_CHANGED=false
+TRADEPLAN_CHANGED=false
+```
+
+## GIT（final closeout）
+
+```text
+COMMIT: research: r5a final contract closeout
+PUSH: origin/research/second-launch-factor-r5a-benchmark-contract-v01
+```

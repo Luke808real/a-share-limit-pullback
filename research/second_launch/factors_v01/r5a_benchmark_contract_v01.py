@@ -248,9 +248,15 @@ REGISTRY: list[dict[str, str]] = [
     {
         "benchmark_id": "B8",
         "benchmark_name": "HOT_SECTOR_FILTER",
-        "definition_source": "PROJECT_DOCUMENTED",
+        "definition_source": "UNDERDEFINED",
         "status": "DATA_UNAVAILABLE",
-        "exact_rule": "NOT_RUN: no PIT-safe sector artifact",
+        "exact_rule": (
+            "NOT_DEFINED: no mechanical rule (sector strength threshold / "
+            "limit-up count threshold / ranking cutoff / heat formula not "
+            "defined); name/listing source = project research plan; "
+            "DEFINITION=UNDERDEFINED, DATA=DATA_UNAVAILABLE (two independent "
+            "limits)"
+        ),
         "required_fields": "",
         "input_window": "",
         "latest_allowed_date": "",
@@ -259,8 +265,10 @@ REGISTRY: list[dict[str, str]] = [
         "artifact_sha": "",
         "missing_semantics": "",
         "known_limitation": (
-            "sector membership only in 15-day limit_up_pool; sector-strength "
-            "factors (F8 CONTEXT) unfrozen; temp fetch forbidden"
+            "DEFINITION=UNDERDEFINED (no mechanical rule exists); "
+            "DATA=DATA_UNAVAILABLE (sector membership only in 15-day "
+            "limit_up_pool; sector-strength factors (F8 CONTEXT) unfrozen; "
+            "temp fetch forbidden); no threshold/cutoff/formula invented"
         ),
     },
 ]
@@ -311,6 +319,8 @@ def validate_registry(rows: list[dict[str, str]]) -> list[str]:
 
 
 def main() -> None:
+    # Formal fail-closed path: blind input gate BEFORE any registry write.
+    blind_input_gate()
     violations = validate_registry(REGISTRY)
     if violations:
         raise RuntimeError(
@@ -318,6 +328,7 @@ def main() -> None:
         )
     df = pd.DataFrame(REGISTRY)
     df.to_csv(OUT_REGISTRY, index=False)
+    print("BLIND_INPUT_GATE: PASS")
     print("REGISTRY_VALID: PASS")
     print(df[["benchmark_id", "benchmark_name", "definition_source", "status"]]
           .to_string(index=False))

@@ -103,7 +103,23 @@ def test_b7_frozen_history_semantics():
 def test_b8_data_unavailable_reason():
     b8 = next(r for r in r5a.REGISTRY if r["benchmark_id"] == "B8")
     assert b8["status"] == "DATA_UNAVAILABLE"
-    assert b8["exact_rule"] == "NOT_RUN: no PIT-safe sector artifact"
+    assert b8["definition_source"] == "UNDERDEFINED"
+
+
+def test_b8_two_independent_limits():
+    """B8 has two independent limits: DEFINITION=UNDERDEFINED and
+    DATA=DATA_UNAVAILABLE; no mechanical rule was invented."""
+    b8 = next(r for r in r5a.REGISTRY if r["benchmark_id"] == "B8")
+    assert "DEFINITION=UNDERDEFINED" in b8["exact_rule"]
+    assert "DATA=DATA_UNAVAILABLE" in b8["exact_rule"]
+    assert "no mechanical rule" in b8["exact_rule"]
+    assert "name/listing source = project research plan" in b8["exact_rule"]
+    # no invented concrete thresholds / formulas / cutoffs
+    assert "0." not in b8["exact_rule"]
+    assert ">=" not in b8["exact_rule"]
+    assert "top " not in b8["exact_rule"].lower()
+    assert "UNDERDEFINED" in b8["known_limitation"]
+    assert "DATA_UNAVAILABLE" in b8["known_limitation"]
 
 
 def test_registry_validator_clean():
@@ -234,3 +250,34 @@ def test_blind_canonical_snapshot_sha_mismatch(tmp_path):
     kwargs["expected_snapshot_sha"] = "0" * 64
     with pytest.raises(RuntimeError, match="canonical snapshot SHA mismatch"):
         r5a.blind_input_gate(**kwargs)
+
+
+# ---- main() fail-closed path ----
+
+
+def test_main_calls_blind_gate_before_registry_write(tmp_path, monkeypatch):
+    calls: list[str] = []
+    real_gate = r5a.blind_input_gate
+
+    def spy_gate():
+        calls.append("gate")
+        return real_gate()
+
+    monkeypatch.setattr(r5a, "OUT_REGISTRY", tmp_path / "r5a_registry.csv")
+    monkeypatch.setattr(r5a, "blind_input_gate", spy_gate)
+    r5a.main()
+    assert calls == ["gate"]
+    assert (tmp_path / "r5a_registry.csv").exists()
+
+
+def test_blind_gate_failure_prevents_registry_write(tmp_path, monkeypatch):
+    out = tmp_path / "r5a_registry.csv"
+
+    def boom():
+        raise RuntimeError("blind gate failed (fail closed)")
+
+    monkeypatch.setattr(r5a, "OUT_REGISTRY", out)
+    monkeypatch.setattr(r5a, "blind_input_gate", boom)
+    with pytest.raises(RuntimeError, match="blind gate failed"):
+        r5a.main()
+    assert not out.exists()

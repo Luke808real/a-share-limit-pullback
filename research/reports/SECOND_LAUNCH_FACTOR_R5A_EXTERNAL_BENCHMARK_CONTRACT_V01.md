@@ -160,13 +160,18 @@ known_limitation: 代理为机械规则（名称结构 + 冻结窗口组装）�
 ### B8 HOT_SECTOR_FILTER — DATA_UNAVAILABLE
 
 ```text
+definition_source = UNDERDEFINED（关键机械规则尚未定义）
+name/listing source = project research plan（§8 名录）
+两个独立限制（分别记录，不混为一谈）：
+  DEFINITION: UNDERDEFINED —— 无 sector strength threshold / 涨停家数
+    threshold / sector ranking cutoff / 行业热度公式
+  DATA: DATA_UNAVAILABLE —— 无 PIT-safe sector membership artifact
+    （canonical/raw 无行业数据；limit_up_pool.industry 仅覆盖
+    2026-07-13..31 且无历史期）；无 contemporaneous sector-strength
+    artifact（sector_limitup_n 等 F8 CONTEXT 因子仍为未来设计，未冻结）
 可用性 gate：
-  无 PIT-safe sector membership artifact（canonical/raw 无行业数据；
-  limit_up_pool.industry 仅覆盖 2026-07-13..31 且无历史期）；
-  无 contemporaneous sector-strength artifact（sector_limitup_n 等
-  F8 CONTEXT 因子仍为未来设计，未冻结）；
   未来回填行业分类 / 当前板块标签均被禁止
--> HOT_SECTOR_FILTER = DATA_UNAVAILABLE（禁止临时抓取）
+禁止自行创建任何阈值/排名/热度公式；禁止临时抓取
 ```
 
 ## PIT_CONTRACT（所有 READY benchmark）
