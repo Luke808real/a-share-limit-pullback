@@ -50,10 +50,15 @@ def _identity_oracle_p(values: np.ndarray, labels: np.ndarray) -> float:
 
 
 def _exact_permutation_p(values: np.ndarray, labels: np.ndarray) -> float:
-    """Exact two-sided p by enumerating label permutations (small n)."""
+    """Exact two-sided p by enumerating label permutations (small n).
+
+    Two-sided: accumulate permutations with |U_perm - mu| >= |U_obs - mu|.
+    """
     n1 = int(labels.sum())
     n = len(labels)
     u_obs = r3a.binary_auc(values, labels) * n1 * (n - n1)
+    mu = n1 * (n - n1) / 2.0
+    obs_dev = abs(u_obs - mu)
     total = 0
     extreme = 0
     for combo in itertools.combinations(range(n), n1):
@@ -62,7 +67,7 @@ def _exact_permutation_p(values: np.ndarray, labels: np.ndarray) -> float:
         mask[list(combo)] = True
         ranks = _rankdata(values)
         u = ranks[mask].sum() - n1 * (n1 + 1) / 2.0
-        if abs(u - u_obs) <= 1e-12 or abs(u - (n1 * (n - n1) - u_obs)) <= 1e-12:
+        if abs(u - mu) >= obs_dev - 1e-12:
             extreme += 1
     return extreme / total
 
@@ -132,3 +137,15 @@ def test_bh_fdr_reference_values():
     qs = [q[k] for k in order]
     assert all(b >= a - 1e-12 for a, b in zip(qs, qs[1:]))
     assert all(v <= 1.0 + 1e-12 for v in q.values())
+
+
+def test_exact_permutation_two_sided_deviation():
+    """Fixed helper accumulates |U_perm - mu| >= |U_obs - mu| (not only
+    exact-equal/mirror U values)."""
+    v = np.arange(1.0, 7.0)
+    # pos values 2,4,6 -> U=6, mu=4.5, dev=1.5; U<=3 or U>=6 -> 14/20.
+    labels_mid = np.array([0, 1, 0, 1, 0, 1])
+    assert _exact_permutation_p(v, labels_mid) == pytest.approx(14.0 / 20.0)
+    # Extreme case: U=9 (dev 4.5) -> only U=0 and U=9 -> 2/20.
+    labels_extreme = np.array([0, 0, 0, 1, 1, 1])
+    assert _exact_permutation_p(v, labels_extreme) == pytest.approx(2.0 / 20.0)

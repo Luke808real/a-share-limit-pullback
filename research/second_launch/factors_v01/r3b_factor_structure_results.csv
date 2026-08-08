@@ -1,0 +1,66 @@
+section,factor,bucket,n,success_rate,extra,success_n,fb_rate,nl_rate,sf_rate,ci_low,ci_high
+F3_REDUNDANCY,pullback_volume_ratio~min_volume_ratio,pairwise,8029,,corr_all=0.928 succ=0.890 ns=0.928,,,,,,
+F3_REDUNDANCY,pullback_volume_ratio~median_range_ratio,pairwise,8029,,corr_all=0.375 succ=0.392 ns=0.373,,,,,,
+F3_REDUNDANCY,pullback_volume_ratio~quiet_days_n,pairwise,8029,,corr_all=-0.766 succ=-0.787 ns=-0.764,,,,,,
+F3_REDUNDANCY,pullback_volume_ratio~volume_slope,pairwise,4330,,corr_all=0.090 succ=0.067 ns=0.088,,,,,,
+F3_REDUNDANCY,min_volume_ratio~median_range_ratio,pairwise,8029,,corr_all=0.348 succ=0.364 ns=0.344,,,,,,
+F3_REDUNDANCY,min_volume_ratio~quiet_days_n,pairwise,8029,,corr_all=-0.835 succ=-0.871 ns=-0.833,,,,,,
+F3_REDUNDANCY,min_volume_ratio~volume_slope,pairwise,4330,,corr_all=0.303 succ=0.277 ns=0.301,,,,,,
+F3_REDUNDANCY,median_range_ratio~quiet_days_n,pairwise,8030,,corr_all=-0.332 succ=-0.355 ns=-0.328,,,,,,
+F3_REDUNDANCY,median_range_ratio~volume_slope,pairwise,4330,,corr_all=0.247 succ=0.276 ns=0.243,,,,,,
+F3_REDUNDANCY,quiet_days_n~volume_slope,pairwise,4330,,corr_all=-0.147 succ=-0.028 ns=-0.147,,,,,,
+F3_DOSE_RESPONSE,pullback_volume_ratio,"(0.0587, 0.924]",1568,0.0651,,102.0,0.1059,0.2519,0.5772,0.0539,0.0784
+F3_DOSE_RESPONSE,pullback_volume_ratio,"(0.924, 1.144]",1567,0.0536,,84.0,0.1206,0.2189,0.6069,0.0435,0.0659
+F3_DOSE_RESPONSE,pullback_volume_ratio,"(1.144, 1.432]",1567,0.0491,,77.0,0.1187,0.1934,0.6388,0.0395,0.061
+F3_DOSE_RESPONSE,pullback_volume_ratio,"(1.432, 1.966]",1567,0.037,,58.0,0.113,0.1851,0.665,0.0287,0.0476
+F3_DOSE_RESPONSE,pullback_volume_ratio,"(1.966, 12.163]",1568,0.0312,,49.0,0.0982,0.1824,0.6881,0.0237,0.0411
+F3_DOSE_RESPONSE,min_volume_ratio,"(0.0428, 0.753]",1568,0.067,,105.0,0.1033,0.2621,0.5676,0.0556,0.0804
+F3_DOSE_RESPONSE,min_volume_ratio,"(0.753, 0.975]",1567,0.0638,,100.0,0.1047,0.2368,0.5948,0.0527,0.077
+F3_DOSE_RESPONSE,min_volume_ratio,"(0.975, 1.282]",1567,0.0357,,56.0,0.1264,0.1691,0.6688,0.0276,0.0461
+F3_DOSE_RESPONSE,min_volume_ratio,"(1.282, 1.793]",1567,0.0415,,65.0,0.1264,0.1832,0.649,0.0327,0.0525
+F3_DOSE_RESPONSE,min_volume_ratio,"(1.793, 12.163]",1568,0.0281,,44.0,0.0957,0.1805,0.6958,0.021,0.0375
+F3_DOSE_RESPONSE,median_range_ratio,"(-0.001, 0.441]",1568,0.0625,,98.0,0.1314,0.2774,0.5287,0.0516,0.0756
+F3_DOSE_RESPONSE,median_range_ratio,"(0.441, 0.562]",1567,0.0562,,88.0,0.1187,0.2061,0.619,0.0458,0.0687
+F3_DOSE_RESPONSE,median_range_ratio,"(0.562, 0.699]",1568,0.0536,,84.0,0.118,0.2085,0.6199,0.0435,0.0658
+F3_DOSE_RESPONSE,median_range_ratio,"(0.699, 0.91]",1567,0.0325,,51.0,0.1008,0.1698,0.6969,0.0248,0.0425
+F3_DOSE_RESPONSE,median_range_ratio,"(0.91, 35.74]",1568,0.0312,,49.0,0.0874,0.1703,0.7111,0.0237,0.0411
+F3_DOSE_RESPONSE,quiet_days_n,0,4695,0.0343,,161.0,0.1135,0.1787,0.6735,0.0295,0.0399
+F3_DOSE_RESPONSE,quiet_days_n,1,2542,0.0673,,171.0,0.1133,0.2415,0.5779,0.0582,0.0777
+F3_DOSE_RESPONSE,quiet_days_n,2+,601,0.0632,,38.0,0.0849,0.2745,0.5774,0.0464,0.0856
+F5_TIME_SHAPE,days_since_t0,1,3956,0.0427,,169.0,0.1241,0.1921,0.6411,0.0368,0.0495
+F5_TIME_SHAPE,days_since_t0,2,3752,0.0538,,202.0,0.1015,0.201,0.6437,0.0471,0.0615
+F5_TIME_SHAPE,days_since_t0,3,444,0.0405,,18.0,0.0968,0.2658,0.5968,0.0258,0.0632
+F5_TIME_SHAPE,days_since_t0,4,125,0.056,,7.0,0.136,0.28,0.528,0.0274,0.1111
+F5_TIME_SHAPE,days_since_t0,5,42,0.0952,,4.0,0.119,0.4286,0.3571,0.0377,0.2207
+F5_TIME_SHAPE,days_since_t0,7,35,0.0,,0.0,0.1429,0.1143,0.7429,0.0,0.0989
+F5_TIME_SHAPE,days_since_t0,tail(6+8+9+11+12+13+14+15+16+17+18+19+20+21+23),117,0.0513,,6.0,0.0598,0.2991,0.5897,0.0237,0.1074
+F5_TIME_SHAPE,days_to_pullback_low,1,4287,0.0418,,179.0,0.1243,0.205,0.6289,0.0362,0.0482
+F5_TIME_SHAPE,days_to_pullback_low,2,2996,0.0561,,168.0,0.0948,0.1939,0.6552,0.0484,0.0649
+F5_TIME_SHAPE,days_to_pullback_low,3,369,0.0407,,15.0,0.1057,0.2629,0.5908,0.0248,0.066
+F5_TIME_SHAPE,days_to_pullback_low,4,73,0.0137,,1.0,0.1096,0.3014,0.5753,0.0024,0.0736
+F5_TIME_SHAPE,days_to_pullback_low,5,40,0.1,,4.0,0.1,0.4,0.4,0.0396,0.2305
+F5_TIME_SHAPE,days_to_pullback_low,tail(6+7+8+9+10+11+12+13+14+15+16+18+19+20),73,0.0411,,3.0,0.0548,0.3151,0.589,0.0141,0.114
+F5_TIME_SHAPE,pullback_duration,1,6785,0.046,,312.0,0.1154,0.1925,0.6461,0.0413,0.0512
+F5_TIME_SHAPE,pullback_duration,2,875,0.0583,,51.0,0.0811,0.2766,0.584,0.0446,0.0758
+F5_TIME_SHAPE,pullback_duration,3,122,0.0246,,3.0,0.1148,0.3033,0.5574,0.0084,0.0698
+F5_TIME_SHAPE,pullback_duration,4,30,0.1,,3.0,0.1333,0.3333,0.4333,0.0346,0.2562
+F5_TIME_SHAPE,pullback_duration,tail(5+6+7+8+9+10+11+12+13+14+15+16+17+18+19),114,0.0439,,5.0,0.0965,0.3246,0.5351,0.0189,0.0986
+F6_FAILURE_BOUNDARY,high_vs_pullback_high,"(-0.351, -0.0811]",853,0.0258,,22.0,0.0868,0.2673,0.6202,0.0171,0.0387
+F6_FAILURE_BOUNDARY,high_vs_pullback_high,"(-0.0811, -0.0534]",852,0.0481,,41.0,0.0751,0.2148,0.662,0.0357,0.0646
+F6_FAILURE_BOUNDARY,high_vs_pullback_high,"(-0.0534, -0.0348]",853,0.0645,,55.0,0.095,0.1841,0.6565,0.0499,0.083
+F6_FAILURE_BOUNDARY,high_vs_pullback_high,"(-0.0348, -0.0184]",852,0.0751,,64.0,0.135,0.1878,0.6021,0.0593,0.0948
+F6_FAILURE_BOUNDARY,high_vs_pullback_high,"(-0.0184, 0.0945]",853,0.0469,,40.0,0.1114,0.2227,0.619,0.0346,0.0632
+F6_FAILURE_BOUNDARY,close_vs_pullback_high,"(-0.366, -0.115]",853,0.0234,,20.0,0.0715,0.2755,0.6295,0.0152,0.0359
+F6_FAILURE_BOUNDARY,close_vs_pullback_high,"(-0.115, -0.0821]",852,0.0376,,32.0,0.0716,0.1901,0.7007,0.0267,0.0525
+F6_FAILURE_BOUNDARY,close_vs_pullback_high,"(-0.0821, -0.061]",853,0.068,,58.0,0.1032,0.1817,0.6471,0.053,0.0869
+F6_FAILURE_BOUNDARY,close_vs_pullback_high,"(-0.061, -0.0403]",852,0.0751,,64.0,0.1256,0.1984,0.6009,0.0593,0.0948
+F6_FAILURE_BOUNDARY,close_vs_pullback_high,"(-0.0403, 0.0671]",853,0.0563,,48.0,0.1313,0.2309,0.5815,0.0427,0.0738
+TEMPORAL_QUARTERLY,quiet_days_n>=1,2024Q3,895,0.09,close_hi=0.0945 close_lo=0.0348,,,,,,
+TEMPORAL_QUARTERLY,quiet_days_n>=1,2024Q4,1225,0.052,close_hi=0.0565 close_lo=0.0271,,,,,,
+TEMPORAL_QUARTERLY,quiet_days_n>=1,2025Q1,1183,0.0619,close_hi=0.0417 close_lo=0.0451,,,,,,
+TEMPORAL_QUARTERLY,quiet_days_n>=1,2025Q2,1102,0.0528,close_hi=0.0502 close_lo=0.0396,,,,,,
+TEMPORAL_QUARTERLY,quiet_days_n>=1,2025Q3,766,0.0404,close_hi=0.0627 close_lo=0.0196,,,,,,
+TEMPORAL_QUARTERLY,quiet_days_n>=1,2025Q4,971,0.0767,close_hi=0.0679 close_lo=0.0492,,,,,,
+TEMPORAL_QUARTERLY,quiet_days_n>=1,2026Q1,609,0.1028,close_hi=0.0659 close_lo=0.0599,,,,,,
+TEMPORAL_QUARTERLY,quiet_days_n>=1,2026Q2,1592,0.0759,close_hi=0.0685 close_lo=0.0607,,,,,,
+TEMPORAL_QUARTERLY,quiet_days_n>=1,2026Q3,339,0.0504,close_hi=0.0641 close_lo=0.026,,,,,,

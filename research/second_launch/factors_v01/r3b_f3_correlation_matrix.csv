@@ -1,0 +1,11 @@
+factor_a,factor_b,pairwise_n,corr_all,corr_success,corr_nonsuccess
+pullback_volume_ratio,min_volume_ratio,8029,0.9278,0.8901,0.9285
+pullback_volume_ratio,median_range_ratio,8029,0.3753,0.3918,0.3726
+pullback_volume_ratio,quiet_days_n,8029,-0.7657,-0.7872,-0.7641
+pullback_volume_ratio,volume_slope,4330,0.0896,0.0671,0.0881
+min_volume_ratio,median_range_ratio,8029,0.3484,0.3639,0.3444
+min_volume_ratio,quiet_days_n,8029,-0.8351,-0.8705,-0.8325
+min_volume_ratio,volume_slope,4330,0.3026,0.2773,0.3008
+median_range_ratio,quiet_days_n,8030,-0.3319,-0.3546,-0.328
+median_range_ratio,volume_slope,4330,0.2475,0.2756,0.2427
+quiet_days_n,volume_slope,4330,-0.1469,-0.028,-0.1474
