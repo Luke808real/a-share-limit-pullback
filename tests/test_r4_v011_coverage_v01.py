@@ -212,3 +212,26 @@ def test_legacy_provider_and_dynamic_scan_not_in_lineage():
     assert not hasattr(r4v11, "price_limits_coverage")
     assert not hasattr(r4v11, "INDEX_SEARCH_DIRS")
     assert not hasattr(r4v11, "index_artifact_search")
+
+
+# ---- final closeout regression: BOARD provenance is the frozen feature
+# cohort (not the intraday case set) ----
+
+
+def test_board_audit_provenance_is_frozen_feature_cohort():
+    feat, _ = r3a.run_input_gate()
+    boards = r4v11.board_composition(feat["symbol"])
+    low = r4v11.position_decomposition(feat)
+    audit = r4v11.build_audit_rows(
+        feat, boards, low, {"pool_min_date": "", "pool_max_date": "",
+                            "pool_days": 0,
+                            "cohort_anchor_days_inside_pool_window": 0},
+        {}, 0,
+    )
+    row = audit[audit["target"] == "BOARD"].iloc[0]
+    assert row["artifact"] == "frozen feature cohort"
+    assert row["artifact_sha256"] == r3a.EXPECTED_FEATURE_SHA256
+    assert row["episode_coverage"] == "SH_MAIN 4244 / SZ_MAIN 4438 / other 0"
+    assert str(row["date_coverage"]).startswith("2024-06-26")
+    assert "b22eae1d" not in str(row["artifact_sha256"])
+    assert "success_control_cases" not in str(row["artifact"])

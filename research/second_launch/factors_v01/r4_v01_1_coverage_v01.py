@@ -219,37 +219,35 @@ def primary_strata(df: pd.DataFrame, factor: str, strata_col: str,
     return rows
 
 
-def main() -> None:
-    feat, out = r3a.run_input_gate()
-    df = feat.merge(out, on="episode_id", suffixes=("_f", "_o"))
-    df = df.drop(columns=[c for c in df.columns if c.endswith("_o")])
-    df = df.rename(columns={c: c[:-2] for c in df.columns if c.endswith("_f")})
-    print("JOIN_ROWS:", len(df))
-
-    # ---- coverage audit ----
-    boards = board_composition(feat["symbol"])
-    low = position_decomposition(feat)
-    pool = pool_coverage(feat)
-    t0types, n_ca = build_t0_types(feat)
-    feat2 = feat.merge(t0types, on="episode_id", validate="1:1")
-    t0_dist = feat2["t0_type"].value_counts().to_dict()
-
-    audit_rows = [
+def build_audit_rows(
+    feat: pd.DataFrame,
+    boards: dict[str, int],
+    low: dict[str, Any],
+    pool: dict[str, Any],
+    t0_dist: dict[str, Any],
+    n_ca: int,
+) -> pd.DataFrame:
+    """Availability audit table (frozen evidence, no runtime repo scans)."""
+    anchor = pd.to_datetime(feat["anchor_date"]).dt.date
+    sh = boards.get("SH_MAIN", 0)
+    sz = boards.get("SZ_MAIN", 0)
+    other = sum(v for k, v in boards.items() if k not in ("SH_MAIN", "SZ_MAIN"))
+    rows = [
         {
             "target": "BOARD",
             "status": "DATA_LIMITED",
-            "artifact": "frozen feature cohort (deterministic)",
-            "artifact_sha256": r3a.sha256_file(
-                REPO_ROOT / "research" / "intraday" / "success_control_cases_v01b.csv"
+            "artifact": "frozen feature cohort",
+            "artifact_sha256": r3a.EXPECTED_FEATURE_SHA256,
+            "date_coverage": f"{anchor.min()}..{anchor.max()}",
+            "episode_coverage": (
+                f"SH_MAIN {sh} / SZ_MAIN {sz} / other {other}"
             ),
-            "date_coverage": "2024-06-26..2026-07-27 (case set)",
-            "episode_coverage": f"main-board only: {boards}",
             "pit_status": "n/a (cohort property)",
             "missing_reason": (
-                "frozen cohort 100% 10% limit main-board (SH 4244 / SZ 4438 / "
-                "other 0); hash-pinned canonical limit_up_pool (SHA "
-                "45faa1a2...) covers only 15 days and main-board codes; "
-                "extension requires frozen cohort change (forbidden)"
+                "frozen cohort 100% 10% limit main-board; extension requires "
+                "frozen cohort change (forbidden); hash-pinned canonical "
+                "limit_up_pool (SHA 45faa1a2...) kept as separate coverage "
+                "supporting evidence only"
             ),
         },
         {
@@ -291,7 +289,7 @@ def main() -> None:
             "status": "DATA_LIMITED",
             "artifact": "frozen canonical daily_bars b5f84004de8a (T0 bars)",
             "artifact_sha256": r4v01.EXPECTED_FEATURE_SNAPSHOT_SHA256,
-            "date_coverage": "2024-07-01..2026-07-27 (anchor dates)",
+            "date_coverage": f"{anchor.min()}..{anchor.max()} (anchor dates)",
             "episode_coverage": f"{t0_dist} (CA_EXCLUDED {n_ca})",
             "pit_status": "PIT-safe (T0 bar only, PRICE_ONLY geometry)",
             "missing_reason": (
@@ -319,9 +317,28 @@ def main() -> None:
             ),
         },
     ]
-    pd.DataFrame(audit_rows).to_csv(OUT_AUDIT, index=False)
+    return pd.DataFrame(rows)
+
+
+def main() -> None:
+    feat, out = r3a.run_input_gate()
+    df = feat.merge(out, on="episode_id", suffixes=("_f", "_o"))
+    df = df.drop(columns=[c for c in df.columns if c.endswith("_o")])
+    df = df.rename(columns={c: c[:-2] for c in df.columns if c.endswith("_f")})
+    print("JOIN_ROWS:", len(df))
+
+    # ---- coverage audit ----
+    boards = board_composition(feat["symbol"])
+    low = position_decomposition(feat)
+    pool = pool_coverage(feat)
+    t0types, n_ca = build_t0_types(feat)
+    feat2 = feat.merge(t0types, on="episode_id", validate="1:1")
+    t0_dist = feat2["t0_type"].value_counts().to_dict()
+
+    audit_df = build_audit_rows(feat, boards, low, pool, t0_dist, n_ca)
+    audit_df.to_csv(OUT_AUDIT, index=False)
     print("AUDIT:")
-    print(pd.DataFrame(audit_rows)[
+    print(audit_df[
         ["target", "status", "episode_coverage"]
     ].to_string(index=False))
 

@@ -42,14 +42,14 @@ FIRST/MULTI_BOARD  : UNAVAILABLE（冻结规则禁止价格推断连板数；poo
 ## BOARD_COVERAGE
 
 ```text
-证据：
-  frozen case set（success_control_cases_v01b.csv，SHA b22eae1d…，8,746 行）
-    symbol 前缀 100% 为 10% 涨跌停主板（002/603/600/000/605/601/001/003）
-  frozen feature cohort：SH_MAIN 4,244 / SZ_MAIN 4,438 / 其它 0
-  历史涨停池：canonical limit_up_pool（SHA 45faa1a2…，manifest pin）
-    仅 2026-07-13..07-31 共 15 日，且只含 10% 主板代码
-  price_limits（raw tushare，ingest 50ed7fb2…，624 日 72 个 600 代码）：
-    episode anchor 覆盖 65/8,682 = 0.7%
+主证据（frozen feature cohort，artifact SHA a485a484…）：
+  SH_MAIN 4,244 / SZ_MAIN 4,438 / other 0
+  anchor 日期覆盖 2024-06-26..2026-07-27
+独立旁证（hash-pin canonical limit_up_pool，SHA 45faa1a2…，manifest pin）：
+  仅 2026-07-13..07-31 共 15 日，且只含 10% 主板代码
+  （旁证独立记录，不混入 feature artifact SHA 字段）
+lineage：legacy raw provider artifacts may exist in repository, but are
+  excluded from R4 V01.1 executable/statistical lineage.
 结论：不改变 frozen cohort/anchor 定义则无法增加板块 episode；
   扩展板块覆盖需未来冻结新 cohort（R-未来决策，本任务禁止）
 ```
@@ -57,10 +57,16 @@ FIRST/MULTI_BOARD  : UNAVAILABLE（冻结规则禁止价格推断连板数；poo
 ## STRICT_REGIME_COVERAGE
 
 ```text
-bounded search（data/canonical、data/raw/akshare|baostock|tushare、
-  data/outcome-study、data/manifests、research/、src/）：
-  未发现任何市场指数 artifact（无 000001.SH / sh.000001 / 沪深300）
-禁止临时抓取/新增 provider -> 如实保持 UNAVAILABLE（DEFERRED）
+PRE-FLIGHT AVAILABILITY EVIDENCE（一次性冻结前 bounded inspection）：
+  - 非 runtime input / 非 statistical lineage
+  - 实际搜索 roots：data/canonical、data/raw/akshare|baostock|tushare、
+    data/outcome-study、data/manifests、research/、src/
+  - identifiers / terms：文件名 *index* / *000001* / *000300*；
+    raw daily-bar code 列 '.' / sh. / sz. 模式；
+    上证指数 / index close / hs300 文本
+  - RESULT：no eligible PIT-safe index artifact found
+  => STRICT_REGIME = UNAVAILABLE（DEFERRED 状态保持）
+R4 script 不执行任何动态仓库扫描（重跑结果不受仓库未来文件影响）；
 公式已预注册（契约 2.2）：000001.SH close vs 前 60 会话 MA（<=D，PIT）
 ```
 
@@ -153,8 +159,8 @@ O3 LOW-position 启动自然稀少（3.8% 非缺失；p75=1.0 右偏）且 16.7%
    契约缺失——低位强势涨停是策略的稀有样本，不是数据缺口
 O4 T0 几何类型在 cohort 内构造性退化：0 一字板 / 0 T字板（bar range 最小
    0.27 分）——frozen anchor 选择排除了开盘即涨停形态
-O5 唯一可用"新"数据源（price_limits 72 代码 / pool 15 日）覆盖 <1% 的
-   episode，无法支撑任何分层
+O5 历史 pool artifact（15 日、仅主板）仅覆盖 cohort anchor 的 1 个交易日
+   / 33 episode（0.4%），无法支撑任何分层
 ```
 
 ## HYPOTHESES_SUPPORTED
@@ -325,5 +331,111 @@ TRADEPLAN_CHANGED=false
 
 ```text
 COMMIT: research: r4 v01.1 audit cleanup - legacy dep and preflight semantics
+PUSH: origin/research/second-launch-factor-r4-v011-coverage-v01
+```
+
+---
+
+# R4_FINAL_CLOSEOUT
+
+> 2026-08-08 · 最终 provenance / report consistency 收尾（最小 patch）
+
+STATUS: **COMPLETE**
+
+```text
+BRANCH: research/second-launch-factor-r4-v011-coverage-v01
+BASE_HEAD: af25d757908fe489866255785be62d1e46e5429a
+HEAD_AFTER: 见 GIT 段
+REMOTE_SHA: 见 GIT 段（push 后核对）
+```
+
+## BOARD_PROVENANCE_FIXED
+
+```text
+BOARD audit row 统一为 frozen feature cohort：
+  artifact = "frozen feature cohort"
+  artifact_sha256 = a485a484d68e80b7514112c19a7380b4296595c17f3634df0d1467151e7affa8
+  episode_coverage = SH_MAIN 4,244 / SZ_MAIN 4,438 / other 0
+  date_coverage = frozen feature cohort anchor 覆盖 2024-06-26..2026-07-27
+不再把 success_control_cases_v01b.csv / b22eae1d… 写入该 row 的 artifact SHA；
+canonical limit_up_pool 仅作为独立旁证保留（字段分离）。
+regression：BOARD audit artifact_sha256 == EXPECTED_FEATURE_SHA256（PASS）
+```
+
+## STALE_TUSHARE_REPORT_TEXT_REMOVED
+
+```text
+主报告 BOARD_COVERAGE 段的 price_limits（raw tushare… 65/8,682）证据已删除；
+O5 观察已改为 pool-only 描述（1 个 anchor 日 / 33 episode = 0.4%）。
+全报告一致声明：legacy raw provider artifacts may exist, but are excluded
+  from R4 V01.1 executable/statistical lineage.
+```
+
+## STRICT_REGIME_REPORT_NORMALIZED
+
+```text
+STRICT_REGIME_COVERAGE 段明确为 PRE-FLIGHT AVAILABILITY EVIDENCE：
+  一次性冻结前 inspection / 非 runtime input / 非 statistical lineage /
+  no eligible PIT-safe index artifact found / STRICT_REGIME = UNAVAILABLE。
+搜索 roots 保留 data/raw/tushare|akshare|baostock 仅为冻结前 inspection
+  记录，脚本不读取这些 raw providers（回归守卫 PASS）。
+```
+
+## STATISTICAL_INVARIANCE
+
+```text
+R4 V01 original 4 CSV:            byte-identical
+r4_v01_1_board_strata.csv:        byte-identical
+r4_v01_1_stability_results.csv:   byte-identical
+r4_v01_1_coverage_audit.csv:      仅 BOARD provenance 字段变化
+  （artifact / artifact_sha256 / date_coverage / episode_coverage）
+  附带 provenance 文本修正：T0_TYPE_GEOMETRY.date_coverage
+  2024-07-01..2026-07-27 -> 2024-06-26..2026-07-27
+  （原值取自 LOW 子集探测属复制错误；T0 几何分类覆盖全部 8,682 个
+  anchor，正确范围为 frozen feature cohort 全量 anchor 覆盖；
+  纯文本修正，不改变任何统计值）
+AUC / verdict / factor N / SUCCESS N / T0 classification：无任何变化
+```
+
+## VALIDATION
+
+```text
+1. compile: PASS
+2. tests/test_r4_v011_coverage_v01.py: 17 PASS
+   （新增 BOARD provenance regression）
+3. BOARD provenance regression: PASS（SHA == a485a484…）
+4. rerun R4 V01.1: PASS
+5. statistical CSV byte-invariance: PASS
+6. deterministic rerun: PASS（两次输出哈希一致）
+7. git diff --check: PASS
+未运行 full-market / R5。
+```
+
+## CORRECTNESS_BLOCKER
+
+```text
+NO
+```
+
+## R4_STATUS
+
+```text
+R4_STATUS = COMPLETE
+R5_RECOMMENDATION = AUTHORIZED
+```
+
+## CONFIRM
+
+```text
+STRATEGY_CHANGED=false
+PRODUCTION_CHANGED=false
+FORWARD_CHANGED=false
+TRADEPLAN_CHANGED=false
+```
+
+## GIT（final closeout）
+
+```text
+COMMIT: research: r4 final provenance closeout
 PUSH: origin/research/second-launch-factor-r4-v011-coverage-v01
 ```
