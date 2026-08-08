@@ -26,6 +26,12 @@ warehouse = [
 test = [
   "pytest>=8.3,<9",
 ]
+# Minimal deps for cloud CI research-contract tests (no provider/warehouse).
+ci = [
+  "pytest>=8.3,<9",
+  "numpy>=1.26,<3",
+  "pandas>=2.2,<4",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/limit_pullback"]
@@ -36,4 +42,6 @@ testpaths = ["tests"]
 pythonpath = ["src"]
 markers = [
   "integration: explicitly enabled tests that access fixed real-data providers",
+  "cloud_ci: deterministic tests safe on GitHub-hosted runners; no local market database required",
+  "local_data: requires Mac-local frozen/canonical/ASL artifacts",
 ]

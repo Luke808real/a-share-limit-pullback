@@ -1,0 +1,40 @@
+name: mac-data-ci
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  data-gate:
+    runs-on: [self-hosted, macOS, asl-data]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Prepare local data symlink (read-only)
+        run: bash scripts/ci/prepare_local_data_ci.sh
+        env:
+          A_SHARE_DATA_ROOT: ${{ vars.A_SHARE_DATA_ROOT }}
+      - name: Install CI dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[ci]"
+      - name: Full R5A/R5B targeted tests (including local_data)
+        run: |
+          python -m pytest \
+            tests/test_r5a_benchmark_contract_v01.py \
+            tests/test_r5b_benchmark_execution_v01.py \
+            -q
+      - name: Worktree must stay clean (fail closed)
+        run: |
+          status="$(git status --porcelain)"
+          if [ -n "$status" ]; then
+            echo "::error::worktree not clean after data gate:"
+            echo "$status"
+            exit 1
+          fi
+          echo "WORKTREE_CLEAN=yes"

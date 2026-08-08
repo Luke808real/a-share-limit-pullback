@@ -19,6 +19,9 @@ import r3a_univariate_screen_v01 as r3a  # noqa: E402
 import r5a_benchmark_contract_v01 as r5a  # noqa: E402
 
 
+pytestmark = pytest.mark.cloud_ci
+
+
 def test_universe_frozen_at_eight():
     ids = [r["benchmark_id"] for r in r5a.REGISTRY]
     assert ids == ["B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8"]
@@ -166,7 +169,9 @@ def test_outcome_read_usecols_guard():
     assert not (forbidden & set(r5a.OUTCOME_IDENTITY_COLUMNS))
 
 
+@pytest.mark.local_data
 def test_blind_gate_positive():
+    # Hashes the 198MB local canonical snapshot -> Mac-local data gate only.
     r5a.blind_input_gate()  # real frozen files: SHA + 8,682 + 1:1 + binding
 
 

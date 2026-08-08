@@ -18,6 +18,12 @@ htmlcov/
 build/
 dist/
 
+# Local market data lives outside Git (see docs/CI.md data gate).
+# Workspace `data` is a read-only symlink created by the self-hosted runner
+# preparation script; never committed.
+data
+data/
+
 # Local Codex desktop environment metadata. Keep the project-scoped workflow
 # contract below versioned; leave session handoffs and other local state ignored.
 .codex/

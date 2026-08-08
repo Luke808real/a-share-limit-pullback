@@ -17,6 +17,9 @@ import r3a_univariate_screen_v01 as r3a  # noqa: E402
 import r5b_benchmark_execution_v01 as r5b  # noqa: E402
 
 
+pytestmark = pytest.mark.cloud_ci
+
+
 # ---- B4 exact boundaries ----
 
 
@@ -247,11 +250,14 @@ def test_registry_gate_rejects_broken_ready_set(monkeypatch):
         r5b.registry_gate()
 
 
+@pytest.mark.local_data
 def test_input_gate_positive():
+    # Hashes the 198MB local canonical snapshot -> Mac-local data gate only.
     feat, out = r5b.input_gate()
     assert len(feat) == 8682 and len(out) == 8682
     assert set(feat["episode_id"]) == set(out["episode_id"])
 
 
+@pytest.mark.local_data
 def test_canonical_sha_gate():
     assert r3a.sha256_file(r5b.r5a.CANONICAL_SNAPSHOT) == r5b.r5a.SNAPSHOT_SHA
