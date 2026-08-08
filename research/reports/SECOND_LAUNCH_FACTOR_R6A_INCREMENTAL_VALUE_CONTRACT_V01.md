@@ -6,10 +6,15 @@
 STATUS: **FROZEN（pre-registered；未执行任何 incremental outcome metric）**
 
 ```text
-BRANCH: research/r6a-incremental-value-ci-foundation-v01
+R6A actual source branch:
+research/second-launch-factor-r5b-benchmark-execution-v01
+R6A contract commit:
+42bfb924191e75c2ba5d14cd098e821a472f3f87
+final audited source head:
+7e046c7ba14c8822ad042a2915e3ed4cf16df132
 BASE_HEAD: ec3de4d265c5e9d191ab1845db92dfa370c0c665
-HEAD_AFTER: 见 GIT 段
-REMOTE_SHA: 见 GIT 段（push 后核对）
+（注：R6A contract 冻结于 R5B branch lineage，非独立 branch；
+  此处如实记录真实 GitHub lineage）
 ```
 
 ## INPUT_GATE
