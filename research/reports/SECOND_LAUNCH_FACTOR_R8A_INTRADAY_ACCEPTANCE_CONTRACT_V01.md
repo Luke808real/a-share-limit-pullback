@@ -158,6 +158,72 @@ compile PASS；tests/test_r8a_intraday_acceptance_contract_v01.py 20 PASS
 NO（contract 层面；数据层面 R8_DATA_STATUS=BLOCKED_BY_MINUTE_COVERAGE）
 ```
 
+# R8A_ASL5M_READINESS_UNBLOCK（2026-08-09 只读发现；未改 R8 contract）
+
+## LOCAL_ASL_DISCOVERY
+
+```text
+检查位置（bounded，/Users/luke808/AI maxdepth 3 + /tmp + env + worktrees）：
+  A_SHARE_DATA_ROOT = UNSET
+  /Users/luke808/AI 下无 ashare-lake / a-share-lake checkout
+  /tmp/asl_phase1a_lake、/tmp/asl_phase1b_lake = 仅日线 staging spike
+    （staging/daily_bars + trading_calendar；meta/state 有 minute 锁文件
+    但无任何 minute 数据表/parquet）
+  ASL adapter（asl_adapter.py）仅支持 daily curated，无 minute/5m 接口
+结论：ASL_LOCAL_REPO = 仅日线 spike lakes；ASL_MINUTE_PRESENT = False
+  -> R8_DATA_STATUS = BLOCKED_BY_MINUTE_COVERAGE（不 fallback、不补数）
+```
+
+## S1_PROVENANCE（冻结）
+
+```text
+S1 来源 = 当前 frozen outcome artifact（s1_price 列，SHA 01a9f2fa…）：
+  8,682 全部 finite 且 > 0（min 1.13）
+146 mapped event episodes：s1 finite 146/146、>0 146/146、
+  event date 非空 146/146、identity mismatch 0、
+  current outcome ∈ {SUCCESS, FAILED_BREAKOUT} 146/146
+event date 来源 = legacy frozen case set OUTCOME_EVENT_DATE
+  （SHA b22eae1d…；first S1 touch day）
+manifest 新增：s1_price / s1_source / s1_source_sha /
+  event_date_source / event_date_source_sha
+provenance artifact：r8a_asl5m_provenance_v01.csv
+```
+
+## COVERAGE_RECOMPUTE（ASL 5m = 0）
+
+```text
+TOTAL_EVENT_COHORT = 146（SUCCESS 43 / FAILED_BREAKOUT 103）
+ASL_EVENT_DAY_FOUND_N = 0
+ASL_MORNING_COMPLETE_N = 0
+SUCCESS_MORNING_COMPLETE_N = 0
+FAILED_BREAKOUT_MORNING_COMPLETE_N = 0
+FULL_DAY_COMPLETE_N = 0
+MISSING_EVENT_DAY_N = 146（0 + 146 == 146 reconciliation）
+VWAP_READY_N = 0 / D1_CONTROL_READY_N = 0
+VWAP_STATUS = DATA_UNAVAILABLE（无数据；无 proxy）
+BAR_SEMANTICS = VERIFICATION_PENDING_NO_ASL_DATA
+```
+
+## R8B_READINESS_GATE（重新评估）
+
+```text
+S1 provenance PASS；bar semantics 无法验证（无 ASL 数据）；
+SUCCESS_MORNING_COMPLETE_N = 0 < 20；FAILED_MORNING_COMPLETE_N = 0 < 20
+-> R8B_RECOMMENDATION = NOT_AUTHORIZED_DATA_LIMITED
+exact gap：146 个 event day 全部缺 ASL 5m morning-complete 数据
+（ASL minute 数据落地并验证 right-label 语义后重新评估）
+```
+
+## VALIDATION（readiness）
+
+```text
+compile PASS；tests/test_r8a_asl5m_readiness_v01.py 7 PASS
+  （6 cloud_ci：S1 146/146 finite+positive、identity binding、source pins、
+    S1 missing fail-closed、coverage reconciliation、provenance deterministic；
+    1 local_data：本机 ASL discovery 无分钟数据）
+全量回归 PASS；deterministic rerun PASS；git diff --check PASS
+```
+
 ## CONFIRM
 
 ```text
