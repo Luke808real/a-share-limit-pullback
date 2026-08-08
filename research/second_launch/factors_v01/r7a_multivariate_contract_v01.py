@@ -78,6 +78,100 @@ SUCCESS_CRITERIA = {
 
 CLUSTER_SE_IMPLEMENTATION = "UNRESOLVED"
 
+# ---------------------------------------------------------------------------
+# R7A EXECUTION FREEZE (frozen BEFORE any outcome fit; outcome-blind).
+# ---------------------------------------------------------------------------
+
+CORE_PREDICTORS = F3_PREDICTORS  # pvr, mvr, mrr, quiet (core ladder universe)
+
+SAMPLE_FAMILIES = {
+    "CORE_LADDER": {
+        "models": ["M0", "M1", "M2", "M3"],
+        "universe": (
+            "common_eligible == true AND finite pullback_volume_ratio AND "
+            "finite min_volume_ratio AND finite median_range_ratio AND "
+            "finite quiet_days_n AND target known (UNKNOWN excluded)"
+        ),
+        "note": "M0/M1/M2/M3 share the SAME complete-case sample per target; "
+                "B4-B7 eligibility guaranteed by common_eligible",
+    },
+    "F6A": {
+        "models": ["M2_REF_A", "M4A"],
+        "universe": (
+            "common_eligible == true AND finite median_range_ratio AND "
+            "finite quiet_days_n AND finite high_vs_pullback_high AND "
+            "target known"
+        ),
+        "note": "M2_REF_A is denominator-matched reference (not a formal "
+                "family); only M4A vs M2_REF_A is compared",
+    },
+    "F6B": {
+        "models": ["M2_REF_B", "M4B"],
+        "universe": (
+            "common_eligible == true AND finite median_range_ratio AND "
+            "finite quiet_days_n AND finite close_vs_pullback_high AND "
+            "target known"
+        ),
+        "note": "M2_REF_B is denominator-matched reference; only M4B vs "
+                "M2_REF_B is compared; never M4A vs M4B",
+    },
+}
+
+FITTER_CONTRACT = {
+    "implementation": "statsmodels.discrete.discrete_model.Logit",
+    "estimator": "UNREGULARIZED_MAXIMUM_LIKELIHOOD",
+    "intercept": True,
+    "predictors": "raw frozen values",
+    "standardization": "NONE",
+    "regularization": "NONE",
+    "method": "newton",
+    "max_iter": 100,
+    "tol": 1e-8,
+    "no_sklearn_fallback": True,
+    "no_solver_shopping": True,
+}
+
+FIT_FAILURE_POLICY = {
+    "CORE": (
+        "non-convergence / perfect separation / singular Hessian / "
+        "non-finite coefficients / non-finite predictions in M0-M3 -> "
+        "STATUS=BLOCKED_MODEL_FIT (no solver swap)"
+    ),
+    "ROBUSTNESS": (
+        "M4A/M4B failure -> ROBUSTNESS_DATA_LIMITED (must not pollute core)"
+    ),
+}
+
+METRIC_FORMULAS = {
+    "AUC": "r3a.binary_auc(predicted_probability, label) (no flip)",
+    "LogLoss": "p_clip = clip(p, 1e-15, 1-1e-15); mean(-log(p_clip[y==1]) "
+               "- log(1-p_clip[y==0]))",
+    "Brier": "mean((p - y)^2)",
+    "AIC": "2*k - 2*log_likelihood",
+    "BIC": "ln(N)*k - 2*log_likelihood",
+    "k": "intercept + predictor count",
+}
+
+CI_CONTRACT = {
+    "ci_type": "MODEL_BASED_NON_CLUSTERED",
+    "cluster_robust_se": "DEFERRED",
+    "odds_ratio": "exp(beta)",
+    "not_for_success_gate": True,
+    "note": (
+        "repeated episodes per symbol mean CI is descriptive and not "
+        "cluster-robust; no sandwich estimator implemented"
+    ),
+}
+
+MULTICOLLINEARITY_CONTRACT = {
+    "pairwise": "Pearson correlation (raw predictors, diagnostic only)",
+    "condition_number": (
+        "intercept-excluded predictor matrix, standardized for diagnostic "
+        "ONLY; model still uses raw predictors"
+    ),
+    "no_auto_deletion": True,
+}
+
 
 def verify_pins() -> None:
     if r3a.sha256_file(r3a.FEATURE_CSV) != FEATURE_SHA:
@@ -200,6 +294,12 @@ def validate_registry(rows: list[dict[str, str]]) -> list[str]:
         for f, d in FROZEN_R3_DIRECTION.items():
             if f"{f}={d}" not in r["direction_contract"]:
                 violations.append(f"{r['model_id']}: direction pin missing")
+        if r["model_id"] in SAMPLE_FAMILIES["CORE_LADDER"]["models"]:
+            if "SAME complete-case sample" not in r["sample_contract"]:
+                violations.append(f"{r['model_id']}: core sample contract drift")
+        if r["model_id"] in ("M4A", "M4B"):
+            if "never both f6" not in r["known_limitation"].lower():
+                violations.append(f"{r['model_id']}: F6 separation drift")
     return violations
 
 

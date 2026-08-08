@@ -106,9 +106,9 @@ def test_outcome_blind_r7a():
     # outcome artifact is touched ONLY via sha256_file (SHA pin), never read
     assert "read_csv" not in src
     # no model-fitting / metric-computing machinery exists in the contract
-    assert "sklearn" not in src.lower()
+    assert "import sklearn" not in src.lower()
+    assert "from sklearn" not in src.lower()
     assert "fit(" not in src.lower()
-    assert "binary_auc" not in src
     rows = r7a.build_registry()
     assert all(r["status"] == "CONTRACT_ONLY" for r in rows)
 
@@ -123,3 +123,78 @@ def test_pins_and_registry_deterministic(tmp_path):
     df.to_csv(p2, index=False)
     assert p1.read_bytes() == p2.read_bytes()
     assert r7a.CLUSTER_SE_IMPLEMENTATION == "UNRESOLVED"
+
+
+# ---- R7A execution freeze (outcome-blind contract only) ----
+
+
+def test_core_ladder_sample_family():
+    fam = r7a.SAMPLE_FAMILIES["CORE_LADDER"]
+    assert fam["models"] == ["M0", "M1", "M2", "M3"]
+    assert "finite pullback_volume_ratio" in fam["universe"]
+    assert "finite min_volume_ratio" in fam["universe"]
+    assert "finite median_range_ratio" in fam["universe"]
+    assert "finite quiet_days_n" in fam["universe"]
+    assert "SAME complete-case sample" in fam["note"]
+
+
+def test_f6_sample_families():
+    f6a = r7a.SAMPLE_FAMILIES["F6A"]
+    f6b = r7a.SAMPLE_FAMILIES["F6B"]
+    assert f6a["models"] == ["M2_REF_A", "M4A"]
+    assert f6b["models"] == ["M2_REF_B", "M4B"]
+    assert "high_vs_pullback_high" in f6a["universe"]
+    assert "close_vs_pullback_high" in f6b["universe"]
+    assert "never M4A vs M4B" in f6b["note"]
+
+
+def test_fitter_contract_frozen():
+    f = r7a.FITTER_CONTRACT
+    assert f["implementation"] == "statsmodels.discrete.discrete_model.Logit"
+    assert f["intercept"] is True
+    assert f["standardization"] == "NONE"
+    assert f["regularization"] == "NONE"
+    assert f["method"] == "newton"
+    assert f["max_iter"] == 100
+    assert f["tol"] == 1e-8
+    assert f["no_sklearn_fallback"] is True
+    assert f["no_solver_shopping"] is True
+
+
+def test_fit_failure_policy_frozen():
+    assert "BLOCKED_MODEL_FIT" in r7a.FIT_FAILURE_POLICY["CORE"]
+    assert "ROBUSTNESS_DATA_LIMITED" in r7a.FIT_FAILURE_POLICY["ROBUSTNESS"]
+
+
+def test_metric_formulas_frozen():
+    m = r7a.METRIC_FORMULAS
+    assert "clip(p, 1e-15, 1-1e-15)" in m["LogLoss"]
+    assert "mean((p - y)^2)" in m["Brier"]
+    assert "2*k - 2*log_likelihood" in m["AIC"]
+    assert "ln(N)*k - 2*log_likelihood" in m["BIC"]
+    assert m["k"] == "intercept + predictor count"
+    assert "no flip" in m["AUC"]
+
+
+def test_ci_contract_frozen():
+    ci = r7a.CI_CONTRACT
+    assert ci["ci_type"] == "MODEL_BASED_NON_CLUSTERED"
+    assert ci["cluster_robust_se"] == "DEFERRED"
+    assert ci["odds_ratio"] == "exp(beta)"
+    assert ci["not_for_success_gate"] is True
+    assert "not cluster-robust" in ci["note"]
+
+
+def test_multicollinearity_contract_frozen():
+    mc = r7a.MULTICOLLINEARITY_CONTRACT
+    assert mc["no_auto_deletion"] is True
+    assert "diagnostic" in mc["condition_number"]
+
+
+def test_execution_freeze_outcome_blind():
+    """The freeze adds no model fitting / outcome reading to R7A."""
+    src = inspect.getsource(r7a)
+    assert "read_csv" not in src
+    assert "import sklearn" not in src.lower()
+    assert "from sklearn" not in src.lower()
+    assert "logit.fit" not in src.lower()

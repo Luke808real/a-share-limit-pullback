@@ -166,6 +166,82 @@ frozen / metric set frozen / success criteria frozen / 无 outcome
 contamination / CORRECTNESS_BLOCKER=NO；本任务未开始 R7B）
 ```
 
+# EXECUTION_FREEZE（R7A 执行冻结；在 outcome fit 前定稿，outcome-blind）
+
+## CORE_LADDER_SAMPLE
+
+```text
+M0/M1/M2/M3 共用同一 predictor-complete universe：
+  common_eligible == true
+  AND finite pullback_volume_ratio / min_volume_ratio / median_range_ratio /
+    quiet_days_n
+  AND target known（3D: outcome_3d != UNKNOWN；5D: outcome_5d != UNKNOWN）
+B4/B5/B6/B7 eligibility 由 common_eligible 保证。
+同一 target 内 N(M0)=N(M1)=N(M2)=N(M3)；禁止 M0/M1 使用更大 sample。
+```
+
+## F6_SAMPLE_CONTRACT
+
+```text
+F6A_SAMPLE：common_eligible + finite mrr/quiet/high_vs_pullback_high + known
+  在该 sample 上同时 fit M2_REF_A 与 M4A；只比较 M4A vs M2_REF_A
+F6B_SAMPLE：common_eligible + finite mrr/quiet/close_vs_pullback_high + known
+  同时 fit M2_REF_B 与 M4B；只比较 M4B vs M2_REF_B
+M2_REF_A/B = denominator-matched reference（非正式 family）；
+禁止 M4A vs M4B 直接比较；禁止不同 denominator 的全局 M2 直接比较。
+```
+
+## FITTER_CONTRACT
+
+```text
+statsmodels Logit；UNREGULARIZED MLE；intercept=YES；
+predictors = raw frozen values；standardization=NONE；regularization=NONE；
+method="newton"；max_iter=100（fit 前固定）；tol=1e-8（fit 前固定）；
+禁止 solver shopping / sklearn fallback / 看结果后换 optimizer。
+```
+
+## FIT_FAILURE_POLICY
+
+```text
+CORE（M0-M3）出现 non-convergence / perfect separation / singular Hessian /
+non-finite coefficients / non-finite prediction -> STATUS=BLOCKED_MODEL_FIT
+（不得换 solver 救结果）；M4A/M4B failure -> ROBUSTNESS_DATA_LIMITED
+（不污染 core result）。
+```
+
+## METRIC_FORMULAS（冻结）
+
+```text
+AUC    = r3a.binary_auc(predicted_probability, label)（不翻转）
+LogLoss = p_clip=clip(p,1e-15,1-1e-15)；mean(-log(p_clip[y==1])-log(1-p_clip[y==0]))
+Brier  = mean((p-y)^2)
+AIC    = 2*k - 2*log_likelihood
+BIC    = ln(N)*k - 2*log_likelihood
+k      = intercept + predictor count
+与 statsmodels 输出做 consistency check。
+```
+
+## CI_CONTRACT
+
+```text
+CI_TYPE = MODEL_BASED_NON_CLUSTERED
+CLUSTER_ROBUST_SE = DEFERRED
+OR = exp(beta)；95% CI = model-based MLE covariance
+CI 不得用于 RANGE/QUIET success gate；不做显著性筛选；
+报告注明：repeated episodes per symbol mean CI is descriptive and not
+  cluster-robust；不自行实现 sandwich estimator。
+```
+
+## MULTICOLLINEARITY
+
+```text
+只报告 pairwise Pearson correlation + condition number
+（condition number 在 intercept-excluded、仅诊断用 standardized 矩阵上）；
+模型本身仍用 raw predictors；禁止因 correlation/condition number 自动删变量。
+```
+
+## OUTCOME_BLINDNESS=true（A 阶段保持）
+
 ## CONFIRM
 
 ```text
