@@ -38,4 +38,5 @@ jobs:
             tests/test_r8a_intraday_acceptance_contract_v01.py \
             tests/test_r8a_asl5m_readiness_v01.py \
             tests/test_r8b_asl5m_dataset_readiness_v01.py \
+            tests/test_r8b_intraday_acceptance_execution_v01.py \
             -m "cloud_ci and not local_data"
