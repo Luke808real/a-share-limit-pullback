@@ -83,6 +83,124 @@ def _canonical_previous_close_index(
     return index
 
 
+def _canonical_daily_path(layout: WarehouseLayout, snapshot: Any) -> Path | None:
+    """Resolve the canonical daily parquet through canonical_file_hashes."""
+
+    relative = next(
+        (
+            key
+            for key in snapshot.canonical_file_hashes
+            if key.endswith("/daily_bars/" + snapshot.snapshot_id + ".parquet")
+        ),
+        None,
+    )
+    if relative is None:
+        return None
+    return layout.root / relative
+
+
+def _asl_daily_row_iter(daily_path: Path):
+    """Bounded per-row scan of the ASL canonical daily parquet.
+
+    Physical row order, one bounded batch at a time (65536 rows,
+    single-threaded).  Never materializes the full daily dataset.
+    """
+
+    import pyarrow.parquet as pq
+
+    for batch in pq.ParquetFile(daily_path).iter_batches(
+        batch_size=65536, use_threads=False
+    ):
+        yield from batch.to_pylist()
+
+
+def _asl_unique_and_preclose_issues(
+    daily_path: Path,
+) -> tuple[list[ValidationIssue], list[ValidationIssue]]:
+    """Bounded CANONICAL_UNIQUE + PRECLOSE_CONTINUITY for one ASL canonical
+    daily parquet.
+
+    ONE ordered scan (DuckDB ``read_parquet`` with ``ORDER BY code,
+    trade_date``, threads=1, memory_limit=512MB, fetchmany batches) maintains
+    only the previous row per code: no full key dictionary and no full
+    previous-close index are built.
+
+    Semantics match the frozen ASL canonical-chain rule exactly: for each
+    code ordered by trade_date, preclose[t] must equal the immediately
+    previous canonical close within the frozen tolerance; the first canonical
+    row per code has no invented predecessor; a null previous close skips the
+    comparison (the predecessor chain continues from the current close).
+    Duplicate (code, trade_date) keys remain a validation failure reported
+    under CANONICAL_UNIQUE with the same bounded evidence style (sorted keys,
+    at most 20).
+    """
+
+    import duckdb
+
+    unique_issues: list[ValidationIssue] = []
+    preclose_issues: list[ValidationIssue] = []
+    duplicates: dict[tuple[str, date], int] = {}
+    current_code: str | None = None
+    previous_trade_date: date | None = None
+    previous_close: Any = None
+    connection = duckdb.connect()
+    try:
+        connection.execute("SET threads = 1")
+        connection.execute("SET memory_limit = '512MB'")
+        cursor = connection.execute(
+            "SELECT code, trade_date, preclose, close "
+            "FROM read_parquet(?) "
+            "ORDER BY code, trade_date",
+            [str(daily_path)],
+        )
+        while True:
+            rows = cursor.fetchmany(65536)
+            if not rows:
+                break
+            for code, trade_date, preclose, close in rows:
+                if (
+                    current_code is not None
+                    and code == current_code
+                    and trade_date == previous_trade_date
+                ):
+                    # Duplicate canonical key: total-occurrence counting
+                    # (second occurrence -> 2x, third -> 3x, ...), identical
+                    # to the legacy full-key count semantics.
+                    duplicates[(code, trade_date)] = (
+                        duplicates.get((code, trade_date), 1) + 1
+                    )
+                    continue
+                if current_code == code and previous_close is not None:
+                    difference = abs(
+                        Decimal(preclose) - Decimal(previous_close)
+                    )
+                    scale = max(
+                        abs(Decimal(preclose)),
+                        abs(Decimal(previous_close)),
+                    )
+                    if difference > max(
+                        PRICE_TOLERANCE, PRICE_RELATIVE * scale
+                    ):
+                        preclose_issues.append(
+                            _issue(
+                                "PRECLOSE_CONTINUITY",
+                                f"{code} {trade_date} preclose vs "
+                                "ASL canonical prior close mismatch",
+                            )
+                        )
+                current_code = code
+                previous_trade_date = trade_date
+                previous_close = close
+    finally:
+        connection.close()
+
+    for key, count in sorted(duplicates.items()):
+        unique_issues.append(
+            _issue("CANONICAL_UNIQUE", f"{count}x duplicate for {key}")
+        )
+    return unique_issues, preclose_issues
+
+
 def _issue(check: str, detail: str, severity: str = "error") -> ValidationIssue:
     return ValidationIssue(check=check, severity=severity, detail=detail)
 
@@ -259,7 +377,34 @@ def data_validate(
             if sha256_file(path) != expected:
                 issues.append(_issue("CANONICAL_FILE_HASH", f"hash mismatch: {relative_path}"))
 
-        daily_rows = read_snapshot_daily(layout, snapshot)
+        asl_authoritative = is_asl_authoritative(snapshot)
+        if asl_authoritative:
+            # ASL authoritative: bounded streaming daily validation.
+            # read_snapshot_daily() (full Python row list) is NOT used.
+            daily_path = _canonical_daily_path(layout, snapshot)
+            asl_unique_issues: list[ValidationIssue] = []
+            asl_preclose_issues: list[ValidationIssue] = []
+            if daily_path is not None:
+                asl_unique_issues, asl_preclose_issues = (
+                    _asl_unique_and_preclose_issues(daily_path)
+                )
+            issues.extend(asl_unique_issues)
+            daily_rows = (
+                _asl_daily_row_iter(daily_path)
+                if daily_path is not None
+                else ()
+            )
+        else:
+            # Legacy path EXACTLY unchanged: full canonical row list plus the
+            # legacy CANONICAL_UNIQUE key scan over those rows.
+            daily_rows = read_snapshot_daily(layout, snapshot)
+            _check_unique(
+                daily_rows,
+                fields=("code", "trade_date"),
+                check="CANONICAL_UNIQUE",
+                issues=issues,
+            )
+            asl_preclose_issues = []
         pool_rows = read_snapshot_pool(layout, snapshot)
 
         raw_hashes_by_provider: dict[str, set[str]] = {
@@ -294,19 +439,12 @@ def data_validate(
         previous_closes_by_provider = _previous_close_index(raw_rows_by_provider)
 
         _check_unique(
-            daily_rows,
-            fields=("code", "trade_date"),
-            check="CANONICAL_UNIQUE",
-            issues=issues,
-        )
-        _check_unique(
             pool_rows,
             fields=("code", "trade_date"),
             check="POOL_UNIQUE",
             issues=issues,
         )
 
-        asl_authoritative = is_asl_authoritative(snapshot)
         if asl_authoritative and ASL_CONTRACT_PROVENANCE_KEY not in (
             snapshot.provider_versions or {}
         ):
@@ -370,19 +508,10 @@ def data_validate(
                 )
 
         if asl_authoritative:
-            # ASL continuity: canonical chain itself (previous canonical
-            # VALID close per code).  The first canonical row may have its
-            # predecessor outside the window; nothing is invented and no
-            # legacy raw data is queried.
-            issues.extend(
-                preclose_continuity_issues(
-                    daily_rows,
-                    previous_close_index=_canonical_previous_close_index(
-                        daily_rows
-                    ),
-                    provider_label="ASL canonical",
-                )
-            )
+            # ASL continuity: canonical chain itself, produced by the bounded
+            # ordered scan above (same rule and tolerance as the shared
+            # preclose_continuity_issues()).
+            issues.extend(asl_preclose_issues)
         else:
             for row in daily_rows:
                 provider = str(row["selected_provider"])
