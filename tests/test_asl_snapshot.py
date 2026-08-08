@@ -40,6 +40,17 @@ AS_OF = date(2026, 6, 15)
 START = date(2026, 6, 11)
 CODES = ["000001", "000010", "000524", "605198"]
 
+try:
+    import ashare_lake  # noqa: F401
+
+    HAS_ASL_QUERY = True
+except ImportError:
+    HAS_ASL_QUERY = False
+
+#: The builder's production default is the official Query API; environments
+#: without ashare_lake exercise the LEGACY_MIGRATION_FALLBACK reader.
+READER = "query" if HAS_ASL_QUERY else "physical"
+
 _WEEKEND = (date(2026, 6, 13), date(2026, 6, 14))
 _TRADING_DAYS = [date(2026, 6, 11), date(2026, 6, 12), date(2026, 6, 15)]
 
@@ -59,20 +70,30 @@ def _build_lake(
 ) -> None:
     """Minimal synthetic ASL lake (mirrors the Phase-1A fixture shape)."""
 
+    _FETCHED = datetime(2026, 8, 7, 2, 0, tzinfo=timezone.utc)
+
+    def _inst(symbol, list_date, delist_date):
+        return {
+            "symbol": symbol, "name": symbol, "exchange": "SH" if symbol.endswith(".SH") else "SZ",
+            "asset_type": "stock", "list_date": list_date, "delist_date": delist_date,
+            "prev_symbol": None, "source": "tdx_protocol", "data_version": "v1",
+            "fetched_at": _FETCHED,
+        }
+
     if "instruments" not in drop_datasets:
         _write(
             root / "curated" / "instruments" / "part-merged.parquet",
             [
-                {"symbol": "000001.SZ", "list_date": None, "delist_date": None},
-                {"symbol": "000010.SZ", "list_date": None, "delist_date": None},
-                {"symbol": "000524.SZ", "list_date": None, "delist_date": None},
-                {"symbol": "300750.SZ", "list_date": None, "delist_date": None},
-                {"symbol": "605198.SH", "list_date": None, "delist_date": None},
+                _inst("000001.SZ", None, None),
+                _inst("000010.SZ", None, None),
+                _inst("000524.SZ", None, None),
+                _inst("300750.SZ", None, None),
+                _inst("605198.SH", None, None),
                 # AS_OF scope edge instruments (AS_OF = 2026-06-15):
-                {"symbol": "600000.SH", "list_date": date(1995, 1, 1), "delist_date": date(2026, 6, 1)},   # delisted before AS_OF
-                {"symbol": "600001.SH", "list_date": date(2026, 6, 20), "delist_date": None},               # listed after AS_OF
-                {"symbol": "600002.SH", "list_date": date(2000, 1, 1), "delist_date": None},                # no AS_OF bar
-                {"symbol": "600003.SH", "list_date": date(2000, 1, 1), "delist_date": None},                # zero-volume AS_OF bar
+                _inst("600000.SH", date(1995, 1, 1), date(2026, 6, 1)),   # delisted before AS_OF
+                _inst("600001.SH", date(2026, 6, 20), None),               # listed after AS_OF
+                _inst("600002.SH", date(2000, 1, 1), None),                # no AS_OF bar
+                _inst("600003.SH", date(2000, 1, 1), None),                # zero-volume AS_OF bar
             ],
         )
     if "trading_calendar" not in drop_datasets:
@@ -83,7 +104,13 @@ def _build_lake(
             / "trade_date=2026"
             / "part-merged.parquet",
             [
-                {"trade_date": day, "is_trading": day in _TRADING_DAYS}
+                {
+                    "trade_date": day,
+                    "is_trading": day in _TRADING_DAYS,
+                    "source": "exchange_calendar",
+                    "data_version": "v1",
+                    "fetched_at": datetime(2026, 8, 7, 2, 0, tzinfo=timezone.utc),
+                }
                 for day in [
                     date(2026, 6, 11),
                     date(2026, 6, 12),
@@ -175,7 +202,7 @@ def _layout(tmp_path: Path) -> WarehouseLayout:
     return layout
 
 
-def _build(tmp_path: Path, lake: Path, codes=CODES) -> tuple[WarehouseLayout, object]:
+def _build(tmp_path: Path, lake: Path, codes=CODES, reader=READER) -> tuple[WarehouseLayout, object]:
     layout = _layout(tmp_path)
     snapshot = build_asl_candidate_snapshot(
         layout=layout,
@@ -183,6 +210,7 @@ def _build(tmp_path: Path, lake: Path, codes=CODES) -> tuple[WarehouseLayout, ob
         as_of=AS_OF,
         codes=codes,
         start=START,
+        reader=reader,
     )
     return layout, snapshot
 
@@ -328,6 +356,7 @@ def test_missing_required_asl_dataset_fails_closed(tmp_path, drop):
             as_of=AS_OF,
             codes=CODES,
             start=START,
+            reader=READER,
         )
 
 
@@ -367,6 +396,7 @@ def test_malformed_asl_value_fails_closed(tmp_path):
             as_of=AS_OF,
             codes=CODES,
             start=START,
+            reader=READER,
         )
 
 
@@ -416,6 +446,7 @@ def test_codes_none_resolves_asof_scope(tmp_path):
     layout = _layout(tmp_path)
     snapshot = build_asl_candidate_snapshot(
         layout=layout, asl_root=lake, as_of=AS_OF, codes=None, start=START,
+        reader=READER,
     )
     with WarehouseMetadata(layout.duckdb_path, read_only=True) as metadata:
         stored = metadata.snapshot_by_id(snapshot.snapshot_id)
@@ -577,6 +608,7 @@ def test_asof_scope_keeps_st_history_intact(tmp_path):
     layout = _layout(tmp_path)
     snapshot = build_asl_candidate_snapshot(
         layout=layout, asl_root=lake, as_of=AS_OF, codes=None, start=START,
+        reader=READER,
     )
     with WarehouseMetadata(layout.duckdb_path, read_only=True) as metadata:
         stored = metadata.snapshot_by_id(snapshot.snapshot_id)
@@ -594,6 +626,7 @@ def test_explicit_codes_still_work(tmp_path):
     layout = _layout(tmp_path)
     snapshot = build_asl_candidate_snapshot(
         layout=layout, asl_root=lake, as_of=AS_OF, codes=["000001"], start=START,
+        reader=READER,
     )
     with WarehouseMetadata(layout.duckdb_path, read_only=True) as metadata:
         stored = metadata.snapshot_by_id(snapshot.snapshot_id)
@@ -602,6 +635,10 @@ def test_explicit_codes_still_work(tmp_path):
     assert len(rows) == 2
 
 
+@pytest.mark.skipif(
+    not HAS_ASL_QUERY,
+    reason="CLI default reader is the official Query API; ashare_lake unavailable",
+)
 def test_cli_without_codes_builds_nonempty_snapshot(tmp_path, capsys):
     """The CLI path without --codes must NOT produce a zero-row snapshot:
     omitted --codes stays None and derives the ASL main-board universe."""
