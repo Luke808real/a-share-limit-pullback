@@ -147,7 +147,11 @@ O1 四个 READY benchmark 的 signal SUCCESS rate 均高于 non-signal（3D）�
    B5 与 B7 的 CI 包含 1
 O2 B6 固定缩量是最有区分度的简单基线（AUC 0.555）——与 R3 F3 contraction
    方向一致，但 R5B 不进行 F3/B6 组合（属 R6）
-O3 B5（深度 >=-4%）3D 弱正、5D 中性（rate 完全相等）——不稳定
+O3 B5（深度 >=-4%）3D formal POSITIVE、5D formal POSITIVE；
+   但 5D raw 356/6298 = 5.652588% vs 119/2108 = 5.645161%，
+   delta ≈ +0.00743pp，OR ≈ 1.001，AUC ≈ 0.50013，CI 包含 1
+   —— substantive interpretation = near-neutral / negligible discrimination，
+   无稳健区分能力
 O4 B7 代理方向正确但极弱（AUC ~0.506，CI 含 1）
 O5 失败模式普遍由 STRUCTURE_FAIL 主导（58%-70%），与 cohort 基数一致
 ```
