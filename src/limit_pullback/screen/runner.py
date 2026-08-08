@@ -11,6 +11,7 @@ from concurrent.futures import ProcessPoolExecutor
 from datetime import date, datetime, time, timezone
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from limit_pullback.config import load_strategy_config
 from limit_pullback.models.enums import SetupStage
@@ -36,6 +37,44 @@ from limit_pullback.warehouse.snapshot import (
     require_state_snapshot_usable,
     snapshot_status_map,
 )
+
+
+def _stream_merge_chunk_spools(
+    spool_dir: Path,
+    run_id: str,
+    indexes: Sequence[int],
+    spool_path: Path,
+) -> None:
+    """Stream-concatenate chunk spools in chunk-index order into ONE final
+    spool, atomically (temp file + fsync + os.replace; cleanup on failure).
+
+    Ordering contract: requested/universe codes are a sorted-unique tuple and
+    chunks are contiguous slices of it, so chunk-index concatenation
+    reproduces the global (code, trade_date) order WITHOUT materializing
+    every row in Python or performing a global sort.
+    """
+
+    spool_dir.mkdir(parents=True, exist_ok=True)
+    temporary = spool_path.with_name(f".{spool_path.name}.tmp-{uuid4().hex}")
+    try:
+        with temporary.open("w", encoding="utf-8") as stream:
+            for index in indexes:
+                chunk_spool = spool_dir / f"{run_id}.{index}.rows.jsonl"
+                with chunk_spool.open("r", encoding="utf-8") as chunk:
+                    for line in chunk:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        stream.write(line + "\n")
+                chunk_spool.unlink(missing_ok=True)
+        with temporary.open("rb") as handle:
+            os.fsync(handle.fileno())
+        os.replace(temporary, spool_path)
+        with spool_path.open("rb") as handle:
+            os.fsync(handle.fileno())
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
 
 
 class ScreenFailpointError(RuntimeError):
@@ -355,6 +394,15 @@ def _run_screen_parallel(
     )
     if not codes:
         raise ValueError("NO_CONFIRMED_DATA: snapshot has no CONFIRMED daily bars")
+    # Ordering invariant for bounded chunk-spool concatenation: codes must be
+    # sorted ascending and unique (requested is normalized to sorted(set(...))
+    # by run_screen; canonical_universe_codes is ORDER BY code).  Chunks are
+    # contiguous slices of this tuple.
+    if codes != tuple(sorted(set(codes))):
+        raise ValueError(
+            "SCREEN_CODES_NOT_SORTED_UNIQUE: screen codes must be sorted "
+            "ascending and unique"
+        )
     worker_count = max(1, min(workers, len(codes), os.cpu_count() or 1))
     chunk_size = (len(codes) + worker_count - 1) // worker_count
     chunks = [
@@ -397,20 +445,15 @@ def _run_screen_parallel(
         ]
     results.sort(key=lambda item: item[0])
 
-    merged: list[tuple[str, str, str]] = []
-    for index, _result in results:
-        chunk_spool = spool_dir / f"{run_id}.{index}.rows.jsonl"
-        with chunk_spool.open("r", encoding="utf-8") as stream:
-            for line in stream:
-                line = line.strip()
-                if not line:
-                    continue
-                row = json.loads(line)
-                merged.append((str(row["code"]), str(row["trade_date"]), line))
-    merged.sort(key=lambda item: (item[0], item[1]))
-    with spool_path.open("w", encoding="utf-8") as stream:
-        for _code, _day, line in merged:
-            stream.write(line + "\n")
+    # Bounded streaming merge: no all-row Python list, no global sort.
+    # Chunk-index concatenation is equivalent to the previous global
+    # (code, trade_date) sort by the ordering invariant above.
+    _stream_merge_chunk_spools(
+        spool_dir,
+        run_id,
+        [index for index, _result in results],
+        spool_path,
+    )
     output_hash = _spool_output_hash(spool_path)
 
     status_counts: dict[str, int] = {}
@@ -430,9 +473,6 @@ def _run_screen_parallel(
         rows_count += result["rows_count"]
         notes.extend(result["notes"])
     notes.sort()
-    for index, _result in results:
-        chunk_spool = spool_dir / f"{run_id}.{index}.rows.jsonl"
-        chunk_spool.unlink(missing_ok=True)
     return (
         codes,
         rows_count,
