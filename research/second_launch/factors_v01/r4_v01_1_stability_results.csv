@@ -1,0 +1,13 @@
+factor,dimension,stratum,n,success_n,auc,direction,reportable,note,verdict
+pullback_volume_ratio,t0_type,NORMAL_LIMIT,7837,370,0.42109063663904966,NEGATIVE,True,,DATA_LIMITED
+pullback_volume_ratio,overall,,7837,370,0.42109063663904966,NEGATIVE,True,no READY dims in V01.1,DATA_LIMITED
+min_volume_ratio,t0_type,NORMAL_LIMIT,7837,370,0.4122079492107616,NEGATIVE,True,,DATA_LIMITED
+min_volume_ratio,overall,,7837,370,0.4122079492107616,NEGATIVE,True,no READY dims in V01.1,DATA_LIMITED
+median_range_ratio,t0_type,NORMAL_LIMIT,7838,370,0.4156382547518059,NEGATIVE,True,,DATA_LIMITED
+median_range_ratio,overall,,7838,370,0.4156382547518059,NEGATIVE,True,no READY dims in V01.1,DATA_LIMITED
+quiet_days_n,t0_type,NORMAL_LIMIT,7838,370,0.5847042878443521,POSITIVE,True,,DATA_LIMITED
+quiet_days_n,overall,,7838,370,0.5847042878443521,POSITIVE,True,no READY dims in V01.1,DATA_LIMITED
+high_vs_pullback_high,t0_type,NORMAL_LIMIT,4225,219,0.5511230870589093,POSITIVE,True,,DATA_LIMITED
+high_vs_pullback_high,overall,,4263,222,0.5557400384794594,POSITIVE,True,no READY dims in V01.1,DATA_LIMITED
+close_vs_pullback_high,t0_type,NORMAL_LIMIT,4225,219,0.5862627291938804,POSITIVE,True,,DATA_LIMITED
+close_vs_pullback_high,overall,,4263,222,0.5897790886655029,POSITIVE,True,no READY dims in V01.1,DATA_LIMITED
