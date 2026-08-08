@@ -241,16 +241,30 @@ def state_semantic_root_hash(states_root: Path) -> tuple[str, int]:
 def compact_output_roundtrip_hash(
     compact_output_path: Path,
 ) -> tuple[str, int]:
-    table = pq.read_table(compact_output_path)
-    payloads = table["payload"].to_pylist()
+    """Bounded roundtrip hash over the compact-output payload column.
+
+    Streams payload batches in PHYSICAL row order with the EXACT existing
+    hash contract: ``b"["`` + payload0 + ``b", "`` + payload1 + ... + ``b"]"``
+    over ``str(payload).encode("utf-8")``.  Returns ``(digest, row_count)``
+    without materializing the full table or a full Python payload list.
+    """
+
     digest = hashlib.sha256()
     digest.update(b"[")
-    for index, payload in enumerate(payloads):
-        if index:
-            digest.update(b", ")
-        digest.update(str(payload).encode("utf-8"))
+    row_count = 0
+    first = True
+    batches = pq.ParquetFile(compact_output_path).iter_batches(
+        columns=["payload"], batch_size=65536, use_threads=False
+    )
+    for batch in batches:
+        for value in batch.column("payload").to_pylist():
+            if not first:
+                digest.update(b", ")
+            first = False
+            digest.update(str(value).encode("utf-8"))
+            row_count += 1
     digest.update(b"]")
-    return digest.hexdigest(), len(payloads)
+    return digest.hexdigest(), row_count
 
 
 def _verify_generation(
