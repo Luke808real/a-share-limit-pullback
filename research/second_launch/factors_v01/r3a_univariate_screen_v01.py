@@ -159,18 +159,34 @@ def binary_auc(values: np.ndarray, labels: np.ndarray) -> float:
 
 
 def auc_pvalue(values: np.ndarray, labels: np.ndarray) -> float:
+    """Two-sided asymptotic Mann-Whitney U p-value WITH tie correction.
+
+    Var(U) = n1*n0/12 * (N + 1 - sum(t^3 - t) / (N*(N-1)))
+    using pooled tie-group sizes t. Average ranks (ties) are unchanged.
+    All-equal values: variance = 0; if U equals the null expectation the
+    p-value is exactly 1.0; otherwise FAIL CLOSED (no epsilon hack).
+    AUC direction is never flipped.
+    """
     pos = values[labels == 1]
     neg = values[labels == 0]
     n_pos, n_neg = len(pos), len(neg)
     if n_pos == 0 or n_neg == 0 or n_pos + n_neg < 8:
         return float("nan")
-    ranks = _rankdata(np.concatenate([pos, neg]))
+    pooled = np.concatenate([pos, neg])
+    ranks = _rankdata(pooled)
     u = ranks[:n_pos].sum() - n_pos * (n_pos + 1) / 2.0
+    n = n_pos + n_neg
+    _, counts = np.unique(pooled, return_counts=True)
+    tie_adjustment = float(np.sum(counts ** 3 - counts))
+    var_u = n_pos * n_neg / 12.0 * (n + 1 - tie_adjustment / (n * (n - 1)))
     mu = n_pos * n_neg / 2.0
-    sigma = np.sqrt(n_pos * n_neg * (n_pos + n_neg + 1) / 12.0)
-    if sigma == 0:
-        return float("nan")
-    z = (u - mu) / sigma
+    if var_u <= 0:
+        if abs(u - mu) <= 1e-12:
+            return 1.0
+        raise RuntimeError(
+            "MWU variance <= 0 with U != null expectation (fail closed)"
+        )
+    z = (u - mu) / np.sqrt(var_u)
     return float(2.0 * (1.0 - _norm_cdf(abs(z))))
 
 
