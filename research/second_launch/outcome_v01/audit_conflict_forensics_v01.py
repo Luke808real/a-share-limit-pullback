@@ -29,6 +29,52 @@ RAW_AKSHARE_GLOB = gen.REPO_ROOT / "data/raw/akshare/daily_bars/*.parquet"
 PRICE_FIELDS = ["open", "high", "low", "close", "volume"]
 
 
+def dedupe_raw(df: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Dedupe raw provider rows by (code, trade_date), fail closed on conflicts.
+
+    - identical OHLCV duplicates: deterministically deduped (keep first),
+      counted in raw_duplicate_identical_n;
+    - conflicting OHLCV versions: kept as RAW_PROVIDER_VERSION_CONFLICT records
+      (not silently dropped); the conflict dates are returned so the provider
+      cross-check never marks them as a provider MATCH.
+    """
+    if df.empty:
+        return df, {
+            "raw_duplicate_identical_n": 0,
+            "raw_duplicate_conflict_n": 0,
+            "raw_duplicate_conflict_dates": [],
+        }
+    grouped = df.groupby(["code", "trade_date"], sort=False)
+    identical_n = 0
+    conflict_groups: set[tuple[str, date]] = set()
+    keep_indexes: list[int] = []
+    for (code, trade_date), group in grouped:
+        if len(group) == 1:
+            keep_indexes.append(group.index[0])
+            continue
+        rounded = group[PRICE_FIELDS].round(2)
+        first = rounded.iloc[0]
+        all_identical = bool((rounded == first).all(axis=1).all())
+        if all_identical:
+            identical_n += len(group) - 1
+            keep_indexes.append(group.index[0])
+        else:
+            conflict_groups.add((code, trade_date))
+            keep_indexes.extend(group.index.tolist())
+    deduped = df.loc[keep_indexes].reset_index(drop=True)
+    # Keep conflict dates flagged so provider matching never treats them as MATCH.
+    deduped["_raw_version_conflict"] = deduped.apply(
+        lambda r: (r["code"], r["trade_date"]) in conflict_groups, axis=1
+    )
+    return deduped, {
+        "raw_duplicate_identical_n": identical_n,
+        "raw_duplicate_conflict_n": len(conflict_groups),
+        "raw_duplicate_conflict_dates": sorted(
+            f"{c}:{d}" for c, d in conflict_groups
+        ),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Loaders (explicit snapshot paths; reconciliation-aware).
 # ---------------------------------------------------------------------------
@@ -39,7 +85,9 @@ def load_canonical_with_reconciliation(
     """Canonical bars with reconciliation/status columns for the given codes."""
     table = pq.read_table(
         path,
-        columns=gen.BAR_COLUMNS + ["reconciliation_status", "selected_provider"],
+        columns=list(
+            dict.fromkeys(gen.BAR_COLUMNS + ["reconciliation_status", "selected_provider"])
+        ),
         filters=[("code", "in", sorted(codes))],
     )
     df = table.to_pandas()
@@ -48,8 +96,10 @@ def load_canonical_with_reconciliation(
     return df.sort_values(["code", "trade_date"]).reset_index(drop=True)
 
 
-def load_raw_provider(glob_pattern: Path, codes: set[str]) -> pd.DataFrame:
-    """Raw provider daily bars for the given codes (deduped by code+date)."""
+def load_raw_provider(
+    glob_pattern: Path, codes: set[str]
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Raw provider daily bars + duplicate stats (fail closed on conflicts)."""
     frames = []
     for path in sorted(glob.glob(str(glob_pattern))):
         table = pq.read_table(
@@ -62,9 +112,16 @@ def load_raw_provider(glob_pattern: Path, codes: set[str]) -> pd.DataFrame:
         df["trade_date"] = pd.to_datetime(df["trade_date"]).dt.date
         frames.append(df)
     if not frames:
-        return pd.DataFrame(columns=["code", "trade_date"] + PRICE_FIELDS)
+        return (
+            pd.DataFrame(columns=["code", "trade_date"] + PRICE_FIELDS),
+            {
+                "raw_duplicate_identical_n": 0,
+                "raw_duplicate_conflict_n": 0,
+                "raw_duplicate_conflict_dates": [],
+            },
+        )
     out = pd.concat(frames, ignore_index=True)
-    return out.drop_duplicates(subset=["code", "trade_date"], keep="last")
+    return dedupe_raw(out)
 
 
 def _rounded(row: pd.Series) -> tuple[float, ...]:
@@ -154,15 +211,18 @@ def build_conflict_rows(
             pattern, window, s1, sig_vol, "3 sessions"
         )
 
-        # Candidate + event row reconciliation status.
+        # Candidate row reconciliation status (feature snapshot).
         cand_row = bars_keyed.loc[(code, cand)] if (code, cand) in bars_keyed.index else None
-        event_row = None
-        if len(s1_touch):
-            event_row = bars_keyed.loc[(code, s1_date)]
-        elif len(inv_touch):
-            event_row = bars_keyed.loc[(code, inv_date)]
-        elif pattern.name == "AMBIGUOUS" and len(window):
-            event_row = bars_keyed.loc[(code, window.iloc[0]["trade_date"])]
+        # Event row by REAL first-event order (recomputed), never by "S1 exists
+        # anywhere": S1_FIRST / INVALID_FIRST / AMBIGUOUS / NONE.
+        _, _, first_event_type, first_event_date = gen.first_event_times(
+            window, s1, invalid
+        )
+        event_row = (
+            bars_keyed.loc[(code, first_event_date)]
+            if first_event_date is not None
+            else None
+        )
 
         frozen_pat = str(
             episodes_keyed.loc[(case.name, cand), "pattern_3d"]
@@ -228,6 +288,16 @@ def provider_crosscheck(
     canon_keyed = canonical.set_index(["code", "trade_date"]).sort_index()
     tush_keyed = tushare.set_index(["code", "trade_date"]).sort_index()
     aksh_keyed = akshare.set_index(["code", "trade_date"]).sort_index()
+    tush_conflicts = set(
+        tushare[tushare["_raw_version_conflict"]][["code", "trade_date"]].itertuples(
+            index=False, name=None
+        )
+    ) if "_raw_version_conflict" in tushare.columns else set()
+    aksh_conflicts = set(
+        akshare[akshare["_raw_version_conflict"]][["code", "trade_date"]].itertuples(
+            index=False, name=None
+        )
+    ) if "_raw_version_conflict" in akshare.columns else set()
     rows: list[dict[str, Any]] = []
     for _, c in conflicts.iterrows():
         case = cases_keyed.loc[c["episode_id"]]
@@ -241,9 +311,14 @@ def provider_crosscheck(
         a_diffs: set[str] = set()
         t_present = 0
         a_present = 0
+        version_conflict = False
         for d in dates:
             c_row = canon_keyed.loc[(code, d)] if (code, d) in canon_keyed.index else None
             if c_row is None:
+                continue
+            if (code, d) in tush_conflicts or (code, d) in aksh_conflicts:
+                # Raw provider versions conflict on this date: never a MATCH.
+                version_conflict = True
                 continue
             t_row = tush_keyed.loc[(code, d)] if (code, d) in tush_keyed.index else None
             a_row = aksh_keyed.loc[(code, d)] if (code, d) in aksh_keyed.index else None
@@ -263,7 +338,9 @@ def provider_crosscheck(
                     )
         t_ok = t_present == len(dates) and not t_diffs
         a_ok = a_present == len(dates) and not a_diffs
-        if t_present == 0 and a_present == 0:
+        if version_conflict:
+            cls = "RAW_PROVIDER_VERSION_CONFLICT"
+        elif t_present == 0 and a_present == 0:
             cls = "RAW_DATA_MISSING"
         elif t_ok and a_ok:
             cls = "CURRENT_CANONICAL_MATCHES_BOTH"
@@ -295,43 +372,78 @@ def row_policy_audit(
     canonical_label: pd.DataFrame,
     conflict_ids: set[str],
 ) -> dict[str, Any]:
-    """Count CONFIRMED/PROVISIONAL rows in candidate + 3D + 5D windows (Part D)."""
+    """Row-policy metrics with two explicit semantics (Part D / A3).
+
+    - ROW_ROLE_EXPOSURE: every (case, date, snapshot) role occurrence counts
+      (a date present in both the feature 3D window and the label 5D window is
+      exposed twice — once per snapshot role);
+    - UNIQUE_CASE_DATE_SNAPSHOT: unique (case, date, snapshot) triples.
+    """
     feat_keyed = canonical_feature.set_index(["code", "trade_date"]).sort_index()
     label_keyed = canonical_label.set_index(["code", "trade_date"]).sort_index()
-    confirmed = 0
-    provisional = 0
+    role_confirmed = 0
+    role_provisional = 0
+    unique_status: dict[tuple[str, date, str], str] = {}
     per_case_provisional: dict[str, bool] = {}
     for _, case in cases.iterrows():
         code = case["symbol"]
         cand = case["candidate_date"]
-        roles: list[pd.Series | None] = []
-        roles.append(feat_keyed.loc[(code, cand)] if (code, cand) in feat_keyed.index else None)
+        roles: list[tuple[date, str, pd.Series | None]] = []
+        roles.append(
+            (cand, gen.FEATURE_SNAPSHOT_ID, feat_keyed.loc[(code, cand)] if (code, cand) in feat_keyed.index else None)
+        )
         fwin = gen.future_window(canonical_feature[canonical_feature["code"] == code], cand, 3)
         lwin = gen.future_window(canonical_label[canonical_label["code"] == code], cand, 5)
         for d in list(fwin["trade_date"]):
-            roles.append(feat_keyed.loc[(code, d)] if (code, d) in feat_keyed.index else None)
+            roles.append(
+                (d, gen.FEATURE_SNAPSHOT_ID, feat_keyed.loc[(code, d)] if (code, d) in feat_keyed.index else None)
+            )
         for d in list(lwin["trade_date"]):
-            roles.append(label_keyed.loc[(code, d)] if (code, d) in label_keyed.index else None)
+            roles.append(
+                (d, gen.LABEL_SNAPSHOT_ID, label_keyed.loc[(code, d)] if (code, d) in label_keyed.index else None)
+            )
         has_provisional = False
-        for r in roles:
+        for d, snap, r in roles:
             if r is None:
                 continue
             if r["reconciliation_status"] == "CONFIRMED":
-                confirmed += 1
+                role_confirmed += 1
+                unique_status[(case["episode_id"], d, snap)] = "CONFIRMED"
             elif r["reconciliation_status"] == "PROVISIONAL":
-                provisional += 1
+                role_provisional += 1
+                unique_status[(case["episode_id"], d, snap)] = "PROVISIONAL"
                 has_provisional = True
         per_case_provisional[case["episode_id"]] = has_provisional
     conflict_with_provisional = sum(
         1 for eid in conflict_ids if per_case_provisional.get(eid, False)
     )
     return {
-        "confirmed_n": confirmed,
-        "provisional_n": provisional,
-        "provisional_share": round(provisional / max(1, confirmed + provisional), 4),
+        "row_role_exposure": {
+            "confirmed_n": role_confirmed,
+            "provisional_n": role_provisional,
+            "provisional_share": round(
+                role_provisional / max(1, role_confirmed + role_provisional), 4
+            ),
+        },
+        "unique_case_date_snapshot": {
+            "confirmed_n": sum(1 for v in unique_status.values() if v == "CONFIRMED"),
+            "provisional_n": sum(1 for v in unique_status.values() if v == "PROVISIONAL"),
+        },
         "conflict_with_provisional_n": conflict_with_provisional,
         "conflict_all_confirmed_n": len(conflict_ids) - conflict_with_provisional,
     }
+
+
+def build_quarantine(conflicts_df: pd.DataFrame) -> pd.DataFrame:
+    """Freeze the quarantine artifact from the current 3D mismatch set."""
+    q = conflicts_df[
+        ["episode_id", "symbol", "candidate_date", "conflict_class"]
+    ].copy()
+    q["quarantine_reason"] = "3D_PROVENANCE_CONFLICT:" + q["conflict_class"]
+    q["source_forensic_artifact"] = (
+        "research/second_launch/outcome_v01/case_provenance_conflicts_v01.csv"
+    )
+    return q
 
 
 # ---------------------------------------------------------------------------
@@ -470,10 +582,21 @@ def main() -> None:
     print("CONFLICT_CLASS:", conflict_df["conflict_class"].value_counts().to_dict())
     gen.OUT_DIR.mkdir(parents=True, exist_ok=True)
     conflict_df.to_csv(gen.OUT_CONFLICTS_PATH, index=False)
+    quarantine = build_quarantine(conflict_df)
+    quarantine_path = gen.OUT_DIR / "quarantine_v01b.csv"
+    quarantine.to_csv(quarantine_path, index=False)
+    import hashlib
+
+    print(
+        "QUARANTINE_SHA256:",
+        hashlib.sha256(quarantine_path.read_bytes()).hexdigest(),
+    )
 
     # Part C: provider cross-check.
-    tushare = load_raw_provider(RAW_TUSHARE_GLOB, set(conflict_df["symbol"]))
-    akshare = load_raw_provider(RAW_AKSHARE_GLOB, set(conflict_df["symbol"]))
+    tushare, tush_stats = load_raw_provider(RAW_TUSHARE_GLOB, set(conflict_df["symbol"]))
+    akshare, aksh_stats = load_raw_provider(RAW_AKSHARE_GLOB, set(conflict_df["symbol"]))
+    print("RAW_DUP_TUSHARE:", json.dumps(tush_stats, sort_keys=True))
+    print("RAW_DUP_AKSHARE:", json.dumps(aksh_stats, sort_keys=True))
     cross = provider_crosscheck(
         conflict_df, cases, canonical_feature, tushare, akshare
     )
@@ -484,6 +607,14 @@ def main() -> None:
     # Part D: row policy.
     policy = row_policy_audit(cases, canonical_feature, canonical_label, conflict_ids)
     print("ROW_POLICY:", json.dumps(policy, sort_keys=True))
+    print(
+        "ROW_ROLE_EXPOSURE:",
+        json.dumps(policy["row_role_exposure"], sort_keys=True),
+    )
+    print(
+        "UNIQUE_CASE_DATE_SNAPSHOT:",
+        json.dumps(policy["unique_case_date_snapshot"], sort_keys=True),
+    )
 
     # Part E: cohort provenance.
     cohort = cohort_provenance(

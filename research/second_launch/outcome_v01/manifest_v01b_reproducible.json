@@ -1,0 +1,44 @@
+{
+  "3d_mismatch_after_quarantine_n": 0,
+  "3d_mismatch_before_quarantine_n": 64,
+  "allowed_use": "EXPLORATORY_FACTOR_RESEARCH_ONLY",
+  "artifact_id": "SECOND_LAUNCH_OUTCOME_V01B_REPRODUCIBLE",
+  "cohort_provenance": "PARTIAL",
+  "feature_snapshot_hash": "e7243dee3bafe46e725e2b6ee884b07ac97a01c0705b41df0562d35019593514",
+  "feature_snapshot_id": "snap-2026-07-31-b5f84004de8a",
+  "first_event_right_censored_10d_n": 16,
+  "generated_at": "2026-08-08T10:35:46.409326+00:00",
+  "generator_commit": "f9bea469675060c3980bd71ad98f106603964095",
+  "label_snapshot_hash": "7cc614bf4e1e7f91f34ed1a866827b3b70772a32ff5ff04a5ad67e205e23813e",
+  "label_snapshot_id": "snap-2026-08-06-e798f88ff67b",
+  "outcome_3d_counts": {
+    "FAILED_BREAKOUT": 949,
+    "NO_LAUNCH": 1724,
+    "STRUCTURE_FAIL": 5392,
+    "SUCCESS": 406,
+    "UNKNOWN": 211
+  },
+  "outcome_5d_counts": {
+    "FAILED_BREAKOUT": 1143,
+    "NO_LAUNCH": 1016,
+    "STRUCTURE_FAIL": 5826,
+    "SUCCESS": 481,
+    "UNKNOWN": 216
+  },
+  "parent_case_set_id": "SUCCESS_CONTROL_CASESET_V01B",
+  "parent_case_set_sha256": "b22eae1dd438ed1b4053ce2cfce7ce668010518462261cb724f149615894f4e6",
+  "parent_row_count": 8746,
+  "prohibited_use": [
+    "STRATEGY_PROMOTION",
+    "PRODUCTION",
+    "FORWARD",
+    "TRADEPLAN"
+  ],
+  "quarantine_n": 64,
+  "quarantine_path": "/Users/luke808/AI/V flash-r1a1-label/research/second_launch/outcome_v01/quarantine_v01b.csv",
+  "quarantine_sha256": "c5d028ca60c1b73f454aeec4da098c13129968bce26ad3f70f5fae96f45a2d66",
+  "reproducible_row_count": 8682,
+  "research_status": "INTERIM_PARTIAL_PROVENANCE",
+  "window_incomplete_10d_n": 88,
+  "window_incomplete_5d_n": 0
+}

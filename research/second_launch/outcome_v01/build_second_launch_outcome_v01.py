@@ -95,11 +95,15 @@ OUT_MANIFEST_PATH = OUT_DIR / "manifest.json"
 OUT_MISMATCH_PATH = OUT_DIR / "pattern_provenance_mismatch.csv"
 OUT_CONFLICTS_PATH = OUT_DIR / "case_provenance_conflicts_v01.csv"
 OUT_BOUNDED_DIR = OUT_DIR / "bounded"
+INTERIM_OUT_CSV = OUT_DIR / "second_launch_outcome_v01b_reproducible.csv"
+INTERIM_MANIFEST_PATH = OUT_DIR / "manifest_v01b_reproducible.json"
+QUARANTINE_PATH = OUT_DIR / "quarantine_v01b.csv"
 
 GENERATOR_PATH = "research/second_launch/outcome_v01/build_second_launch_outcome_v01.py"
 
 BAR_COLUMNS = ["code", "trade_date", "open", "high", "low", "close", "preclose",
-               "volume", "amount", "turnover_rate", "pct_change", "trade_status", "is_st"]
+               "volume", "amount", "turnover_rate", "pct_change", "trade_status",
+               "is_st", "reconciliation_status"]
 
 OUTPUT_COLUMNS = [
     "episode_id",
@@ -124,6 +128,34 @@ OUTPUT_COLUMNS = [
     "invalid_price",
     "data_quality",
     "quality_flags",
+]
+
+INTERIM_OUTPUT_COLUMNS = [
+    "episode_id",
+    "symbol",
+    "name",
+    "anchor_date",
+    "candidate_date",
+    "outcome_3d",
+    "outcome_reason_3d",
+    "outcome_5d",
+    "outcome_reason_5d",
+    "time_to_s1_10d",
+    "time_to_invalid_10d",
+    "first_event_type_10d",
+    "first_event_date_10d",
+    "window_incomplete_5d",
+    "window_incomplete_10d",
+    "first_event_right_censored_10d",
+    "candidate_reconciliation_status",
+    "feature_3d_has_provisional",
+    "label_5d_has_provisional",
+    "s1_price",
+    "invalid_price",
+    "data_quality",
+    "quality_flags",
+    "feature_snapshot_id",
+    "label_snapshot_id_5d",
 ]
 
 
@@ -492,18 +524,11 @@ def _source_commit() -> str:
     return result.stdout.strip()
 
 
-def build_package(
-    *,
-    case_set_path: Path = CASE_SET_PATH,
-    feature_snapshot_path: Path = FEATURE_SNAPSHOT_PATH,
-    label_snapshot_path: Path = LABEL_SNAPSHOT_PATH,
-    episodes_path: Path = EPISODES_PATH,
-    out_dir: Path = OUT_DIR,
-    codes_filter: set[str] | None = None,
-    case_set_expected_sha256: str | None = CASE_SET_SHA256,
-    case_set_expected_row_n: int | None = EXPECTED_ROW_N,
-) -> dict[str, Any]:
-    """Build the R1A.1 label package. Returns the manifest (and writes outputs)."""
+def verify_snapshot_hashes(
+    feature_snapshot_path: Path,
+    label_snapshot_path: Path,
+) -> None:
+    """Pin and verify both snapshot hashes before any run (fail closed)."""
     if not feature_snapshot_path.exists():
         raise RuntimeError(f"feature snapshot missing: {feature_snapshot_path}")
     if not label_snapshot_path.exists():
@@ -516,6 +541,21 @@ def build_package(
         raise RuntimeError(
             f"label snapshot hash mismatch (fail closed): {label_snapshot_path}"
         )
+
+
+def build_package(
+    *,
+    case_set_path: Path = CASE_SET_PATH,
+    feature_snapshot_path: Path = FEATURE_SNAPSHOT_PATH,
+    label_snapshot_path: Path = LABEL_SNAPSHOT_PATH,
+    episodes_path: Path = EPISODES_PATH,
+    out_dir: Path = OUT_DIR,
+    codes_filter: set[str] | None = None,
+    case_set_expected_sha256: str | None = CASE_SET_SHA256,
+    case_set_expected_row_n: int | None = EXPECTED_ROW_N,
+) -> dict[str, Any]:
+    """Build the R1A.1 label package. Returns the manifest (and writes outputs)."""
+    verify_snapshot_hashes(feature_snapshot_path, label_snapshot_path)
 
     cases = load_case_set(
         case_set_path,
@@ -610,6 +650,182 @@ def out_csv_name(codes_filter: set[str] | None) -> str:
     return f"second_launch_outcome_v01_codes_{'_'.join(sorted(codes_filter))}.csv"
 
 
+def _reconciliation_columns(
+    case: pd.Series,
+    feature_bars: pd.DataFrame,
+    label_bars: pd.DataFrame,
+) -> tuple[str, bool, bool]:
+    """(candidate_status, feature_3d_has_provisional, label_5d_has_provisional)."""
+    code = case["symbol"]
+    cand = case["candidate_date"]
+    cand_row = feature_bars[feature_bars["trade_date"] == cand]
+    candidate_status = str(
+        cand_row.iloc[0]["reconciliation_status"]
+    ) if len(cand_row) else ""
+    fwin = future_window(feature_bars, cand, HORIZON_3D)
+    lwin = future_window(label_bars, cand, HORIZON_5D)
+    feature_3d_has_provisional = bool(
+        (fwin["reconciliation_status"] == "PROVISIONAL").any()
+    )
+    label_5d_has_provisional = bool(
+        (lwin["reconciliation_status"] == "PROVISIONAL").any()
+    )
+    return candidate_status, feature_3d_has_provisional, label_5d_has_provisional
+
+
+def load_quarantine(
+    quarantine_path: Path,
+) -> tuple[set[str], str]:
+    """Load the frozen quarantine artifact; returns (id_set, sha256)."""
+    if not quarantine_path.exists():
+        raise RuntimeError(f"quarantine artifact missing: {quarantine_path}")
+    q = pd.read_csv(quarantine_path, dtype={"episode_id": str})
+    if "episode_id" not in q.columns:
+        raise RuntimeError(f"quarantine artifact malformed: {quarantine_path}")
+    return set(q["episode_id"]), sha256_file(quarantine_path)
+
+
+def build_interim_reproducible_package(
+    *,
+    case_set_path: Path = CASE_SET_PATH,
+    case_set_expected_sha256: str | None = CASE_SET_SHA256,
+    case_set_expected_row_n: int | None = EXPECTED_ROW_N,
+    feature_snapshot_path: Path = FEATURE_SNAPSHOT_PATH,
+    label_snapshot_path: Path = LABEL_SNAPSHOT_PATH,
+    quarantine_path: Path = QUARANTINE_PATH,
+    out_dir: Path = OUT_DIR,
+) -> dict[str, Any]:
+    """Publish the INTERIM reproducible label package (approved INTERIM_A).
+
+    Publishing gate (no generic bypass): the CURRENT 3D regression mismatch id
+    set must equal the registered quarantine id set EXACTLY (both directions),
+    and the reproducible subset must have 3D_MISMATCH_N == 0.
+    """
+    verify_snapshot_hashes(feature_snapshot_path, label_snapshot_path)
+    cases = load_case_set(
+        case_set_path,
+        expected_sha256=case_set_expected_sha256,
+        expected_row_n=case_set_expected_row_n,
+    )
+    all_codes = set(cases["symbol"])
+    feature_bars = load_bars_by_code(feature_snapshot_path, all_codes)
+    label_bars = load_bars_by_code(label_snapshot_path, all_codes)
+
+    rows, _ = _build_rows(cases, feature_bars, label_bars)
+    current_mismatch_ids = {
+        row["episode_id"]
+        for row in rows
+        if row["_gate_outcome_3d"] != row["outcome_3d"]
+    }
+    quarantine_ids, quarantine_sha = load_quarantine(quarantine_path)
+
+    if current_mismatch_ids != quarantine_ids:
+        raise RuntimeError(
+            "STATUS=BLOCKED: quarantine set != current 3D mismatch set "
+            f"(quarantine-only={len(quarantine_ids - current_mismatch_ids)}, "
+            f"mismatch-only={len(current_mismatch_ids - quarantine_ids)})"
+        )
+
+    reproducible_ids = set(cases["episode_id"]) - quarantine_ids
+    reproducible_cases = cases[cases["episode_id"].isin(reproducible_ids)].copy()
+    reproducible_rows = [
+        row for row in rows if row["episode_id"] in reproducible_ids
+    ]
+    subset_mismatch = [
+        row for row in reproducible_rows
+        if row["_gate_outcome_3d"] != row["outcome_3d"]
+    ]
+    if subset_mismatch:
+        raise RuntimeError(
+            f"STATUS=BLOCKED: reproducible subset 3D mismatch_n={len(subset_mismatch)}; "
+            "no interim package written"
+        )
+
+    out_rows: list[dict[str, Any]] = []
+    cases_keyed = reproducible_cases.set_index("episode_id")
+    for row in reproducible_rows:
+        case = cases_keyed.loc[row["episode_id"]]
+        cand_status, f3_prov, l5_prov = _reconciliation_columns(
+            case, feature_bars[case["symbol"]], label_bars[case["symbol"]]
+        )
+        out_rows.append(
+            {
+                "episode_id": row["episode_id"],
+                "symbol": row["symbol"],
+                "name": row["name"],
+                "anchor_date": row["anchor_date"],
+                "candidate_date": row["candidate_date"],
+                "outcome_3d": row["outcome_3d"],
+                "outcome_reason_3d": row["outcome_reason_3d"],
+                "outcome_5d": row["outcome_5d"],
+                "outcome_reason_5d": row["outcome_reason_5d"],
+                "time_to_s1_10d": row["time_to_s1_10d"],
+                "time_to_invalid_10d": row["time_to_invalid_10d"],
+                "first_event_type_10d": row["first_event_type_10d"],
+                "first_event_date_10d": row["first_event_date_10d"],
+                "window_incomplete_5d": row["window_incomplete_5d"],
+                "window_incomplete_10d": row["window_incomplete_10d"],
+                "first_event_right_censored_10d": row["first_event_right_censored_10d"],
+                "candidate_reconciliation_status": cand_status,
+                "feature_3d_has_provisional": f3_prov,
+                "label_5d_has_provisional": l5_prov,
+                "s1_price": row["s1_price"],
+                "invalid_price": row["invalid_price"],
+                "data_quality": row["data_quality"],
+                "quality_flags": row["quality_flags"],
+                "feature_snapshot_id": FEATURE_SNAPSHOT_ID,
+                "label_snapshot_id_5d": LABEL_SNAPSHOT_ID,
+            }
+        )
+    out_df = pd.DataFrame(out_rows, columns=INTERIM_OUTPUT_COLUMNS)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_df.to_csv(out_dir / "second_launch_outcome_v01b_reproducible.csv", index=False)
+
+    manifest = {
+        "artifact_id": "SECOND_LAUNCH_OUTCOME_V01B_REPRODUCIBLE",
+        "research_status": "INTERIM_PARTIAL_PROVENANCE",
+        "parent_case_set_id": "SUCCESS_CONTROL_CASESET_V01B",
+        "parent_case_set_sha256": sha256_file(case_set_path),
+        "parent_row_count": len(cases),
+        "quarantine_path": str(quarantine_path),
+        "quarantine_sha256": quarantine_sha,
+        "quarantine_n": len(quarantine_ids),
+        "reproducible_row_count": len(out_df),
+        "feature_snapshot_id": FEATURE_SNAPSHOT_ID,
+        "feature_snapshot_hash": EXPECTED_FEATURE_SNAPSHOT_SHA256,
+        "label_snapshot_id": LABEL_SNAPSHOT_ID,
+        "label_snapshot_hash": EXPECTED_LABEL_SNAPSHOT_SHA256,
+        "3d_mismatch_before_quarantine_n": len(current_mismatch_ids),
+        "3d_mismatch_after_quarantine_n": 0,
+        "outcome_3d_counts": {
+            k: int(v) for k, v in out_df["outcome_3d"].value_counts().items()
+        },
+        "outcome_5d_counts": {
+            k: int(v) for k, v in out_df["outcome_5d"].value_counts().items()
+        },
+        "window_incomplete_5d_n": int(out_df["window_incomplete_5d"].sum()),
+        "window_incomplete_10d_n": int(out_df["window_incomplete_10d"].sum()),
+        "first_event_right_censored_10d_n": int(
+            out_df["first_event_right_censored_10d"].sum()
+        ),
+        "cohort_provenance": "PARTIAL",
+        "allowed_use": "EXPLORATORY_FACTOR_RESEARCH_ONLY",
+        "prohibited_use": [
+            "STRATEGY_PROMOTION",
+            "PRODUCTION",
+            "FORWARD",
+            "TRADEPLAN",
+        ],
+        "generator_commit": _source_commit(),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    (out_dir / "manifest_v01b_reproducible.json").write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return manifest
+
+
 if __name__ == "__main__":
     import argparse
 
@@ -620,11 +836,19 @@ if __name__ == "__main__":
         default=None,
         help="restrict to explicit 6-digit codes (golden bounded check)",
     )
+    parser.add_argument(
+        "--interim",
+        action="store_true",
+        help="publish the INTERIM reproducible package (approved INTERIM_A)",
+    )
     args = parser.parse_args()
     try:
-        manifest = build_package(
-            codes_filter=set(args.codes) if args.codes else None
-        )
+        if args.interim:
+            manifest = build_interim_reproducible_package()
+        else:
+            manifest = build_package(
+                codes_filter=set(args.codes) if args.codes else None
+            )
     except RuntimeError as exc:
         # Fail closed: the only expected RuntimeError is the 3D regression gate.
         print(f"STATUS=BLOCKED: {exc}")
