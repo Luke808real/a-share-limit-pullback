@@ -216,6 +216,10 @@ def benchmark_row(
     non_signal_n = n_known - signal_n
     sig_succ = int((lbs[sig] == 1).sum())
     nonsig_succ = int((lbs[~sig] == 1).sum())
+    sig_rate_raw = sig_succ / signal_n if signal_n else float("nan")
+    nonsig_rate_raw = (
+        nonsig_succ / non_signal_n if non_signal_n else float("nan")
+    )
     row: dict[str, Any] = {
         "benchmark_id": benchmark_id,
         "sample": "OWN" if sample_mask.all() else "COMMON",
@@ -226,11 +230,9 @@ def benchmark_row(
         "signal_n": signal_n,
         "non_signal_n": non_signal_n,
         "signal_success_n": sig_succ,
-        "signal_success_rate": round(sig_succ / signal_n, 4) if signal_n else float("nan"),
+        "signal_success_rate": round(sig_rate_raw, 4),
         "nonsignal_success_n": nonsig_succ,
-        "nonsignal_success_rate": (
-            round(nonsig_succ / non_signal_n, 4) if non_signal_n else float("nan")
-        ),
+        "nonsignal_success_rate": round(nonsig_rate_raw, 4),
         "signal_fb_rate": float("nan"), "signal_nl_rate": float("nan"),
         "signal_sf_rate": float("nan"),
         "nonsignal_fb_rate": float("nan"), "nonsignal_nl_rate": float("nan"),
@@ -258,7 +260,7 @@ def benchmark_row(
     auc = binary_auc_signal(sig, lbs)
     row["binary_auc"] = auc
     row["classification"] = classify_benchmark(
-        row["signal_success_rate"], row["nonsignal_success_rate"],
+        sig_rate_raw, nonsig_rate_raw,
         row["or_value"], auc if isinstance(auc, float) else float("nan"),
     )
     return row

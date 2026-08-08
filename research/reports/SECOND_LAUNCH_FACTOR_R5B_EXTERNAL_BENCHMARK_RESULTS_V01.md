@@ -91,11 +91,15 @@ B6 信号组 SF 最低、SUCCESS 最高
 ```text
 benchmark  sig%    non%    OR(95%CI)          AUC      3D vs 5D
 B4 TIME    0.0624  0.0509  1.240(1.030-1.493) 0.5267   SAME(POSITIVE)
-B5 DEPTH   0.0565  0.0565  1.001(0.809-1.240) 0.5001   MIXED(POSITIVE->NEUTRAL)
+B5 DEPTH   0.0565  0.0565  1.001(0.809-1.240) 0.5001   SAME(POSITIVE)
 B6 VOLUME  0.0769  0.0482  1.646(1.361-1.991) 0.5555   SAME(POSITIVE)
 B7 NEW_HIGH 0.0625 0.0563  1.117(0.806-1.549) 0.5042   SAME(POSITIVE)
 描述性，不自动建规则
 ```
+
+（B5 5D raw：signal = 356/6,298 = 5.652588%，non-signal = 119/2,108 =
+5.645161%，delta ≈ +0.00743pp；formal classification 按 raw rate 判定
+POSITIVE，见 R5B_CLASSIFICATION_PRECISION_PATCH）
 
 ## MFE_MAE_DAYS_TO_LAUNCH
 
@@ -110,11 +114,12 @@ days_to_launch = DATA_UNAVAILABLE
 
 ```text
 B4 FIXED_PULLBACK_TIME:    3D POSITIVE_BENCHMARK / 5D POSITIVE_BENCHMARK
-B5 FIXED_PULLBACK_DEPTH:   3D POSITIVE_BENCHMARK（弱）/ 5D NEUTRAL_BENCHMARK
+B5 FIXED_PULLBACK_DEPTH:   3D POSITIVE_BENCHMARK（弱）/ 5D POSITIVE_BENCHMARK
 B6 FIXED_VOLUME_CONTRACTION: 3D POSITIVE_BENCHMARK / 5D POSITIVE_BENCHMARK
 B7 POST_LIMIT_NEW_HIGH_PROXY: 3D POSITIVE_BENCHMARK（弱）/ 5D POSITIVE_BENCHMARK
 说明：B5/B7 的 OR 95% CI 包含 1、AUC 接近 0.5 —— 区分能力弱；
-  分类规则为预注册机械规则（rate> & OR>1 & AUC>0.5），不因弱而改写
+  分类规则为预注册机械规则（raw rate> & OR>1 & AUC>0.5），不因弱而改写；
+  B5 5D 为 formal-sign-rule 下的 near-neutral positive，无实际预测价值
 ```
 
 ## B4_RESULT / B5_RESULT / B6_RESULT / B7_RESULT
@@ -124,7 +129,9 @@ B4（SIMPLE_SELF_BASELINE）：T+2..T+5 候选 SUCCESS 率高于其他回调时�
   （3D +1.03pp / OR 1.26 / AUC 0.528；5D 一致）——与项目自身 B1 最优窗口
   假设自洽，但效应为项目内自基准
 B5（SIMPLE_SELF_BASELINE）：D 收盘深度 >= -4% 的候选略优（3D +0.27pp /
-  OR 1.06 / AUC 0.506；5D 完全中性）——无稳定区分能力
+  OR 1.06 / AUC 0.506；5D raw 356/6298=5.6526% vs 119/2108=5.6452%，
+  delta +0.0074pp / OR 1.001 / AUC 0.5001）——formal POSITIVE 但
+  substantively near-neutral / negligible discrimination，无稳健区分能力
 B6（SIMPLE_SELF_BASELINE）：D 日量 <=0.85×T0 量 是最强简单基线
   （3D +2.39pp / OR 1.63 / AUC 0.555；5D +2.87pp / OR 1.65 / AUC 0.556）
 B7（MECHANICAL_EXTERNAL_PROXY）：D 收盘突破 pre-T0 60-session 前高的候选
@@ -135,8 +142,9 @@ B7（MECHANICAL_EXTERNAL_PROXY）：D 收盘突破 pre-T0 60-session 前高的�
 ## OBSERVATIONS
 
 ```text
-O1 四个 READY benchmark 的 signal SUCCESS rate 均高于 non-signal（3D），
-   但只有 B6 的 OR CI 严格 >1（1.33-2.00）；B4 的 CI 也 >1（1.03-1.54）
+O1 四个 READY benchmark 的 signal SUCCESS rate 均高于 non-signal（3D）；
+   B4 与 B6 的 OR 95% CI 严格 >1（B4 1.03-1.54；B6 1.33-2.00），
+   B5 与 B7 的 CI 包含 1
 O2 B6 固定缩量是最有区分度的简单基线（AUC 0.555）——与 R3 F3 contraction
    方向一致，但 R5B 不进行 F3/B6 组合（属 R6）
 O3 B5（深度 >=-4%）3D 弱正、5D 中性（rate 完全相等）——不稳定
@@ -226,5 +234,127 @@ research/reports/SECOND_LAUNCH_FACTOR_R5B_EXTERNAL_BENCHMARK_RESULTS_V01.md（�
 
 ```text
 COMMIT: research: add r5b external benchmark execution v01
+PUSH: origin/research/second-launch-factor-r5b-benchmark-execution-v01
+```
+
+---
+
+# R5B_CLASSIFICATION_PRECISION_PATCH
+
+> 2026-08-09 · 最小 correctness patch（classification 精度）· 未改 signal/threshold
+
+STATUS: **COMPLETE**
+
+```text
+BRANCH: research/second-launch-factor-r5b-benchmark-execution-v01
+BASE_HEAD: 2fb9ededa27b62b35035830c0ad65e6c289d2bbf
+HEAD_AFTER: 见 GIT 段
+REMOTE_SHA: 见 GIT 段（push 后核对）
+```
+
+## ROOT_CAUSE
+
+```text
+classification 使用了 round(rate, 4) 的显示值：
+  B5 5D raw 356/6298 = 0.0565259 vs 119/2108 = 0.0564516
+  -> round 后均 0.0565 -> 误判 NEUTRAL_BENCHMARK
+修复：classify 使用 raw rate（signal_success_n / signal_n），
+  显示 CSV 保留 round(.,4)；无 epsilon、无显著性门槛、未改预注册规则。
+```
+
+## B5_5D_RAW_RATES
+
+```text
+signal     = 356 / 6298 = 5.652588%
+non-signal = 119 / 2108 = 5.645161%
+delta      = +0.00743pp
+OR         = 1.001394 > 1
+AUC        = 0.500131 > 0.5
+95% CI     = 0.809-1.240（包含 1）
+```
+
+## B5_5D_CLASSIFICATION_FIXED
+
+```text
+B5 OWN 5D:   NEUTRAL_BENCHMARK -> POSITIVE_BENCHMARK
+B5 COMMON 5D: NEUTRAL_BENCHMARK -> POSITIVE_BENCHMARK
+B5 3D vs 5D: MIXED(POSITIVE->NEUTRAL) -> SAME(POSITIVE)
+形式分类为正，但实质性解读保持 near-neutral / negligible discrimination：
+  不得因 formal POSITIVE 升级为有效规则；
+  HYPOTHESES_NOT_SUPPORTED（B5 无稳健/有意义区分能力）保留。
+```
+
+## RAW_METRIC_INVARIANCE
+
+```text
+episode signals / eligible N / signal N / SUCCESS N / failure subtype N /
+OR / OR CI / AUC / cells：全部不变（cell-by-cell 核对）
+B4/B6/B7 3D+5D 结果：不变
+3D result CSV：byte-identical
+5D result CSV：仅 B5 OWN/COMMON classification 字段变化
+```
+
+## SIGNAL_INVARIANCE
+
+```text
+r5b_benchmark_episode_signals_v01.csv:  byte-identical
+r5b_benchmark_failure_profile_v01.csv:  byte-identical
+```
+
+## REPORT_CONSISTENCY_FIXED
+
+```text
+1. B5 5D "rate 完全相等" 措辞 -> 精确描述
+   （356/6298 vs 119/2108，delta +0.00743pp，OR 1.001，AUC 0.50013，
+   CI 包含 1；formal POSITIVE / substantive near-neutral）
+2. O1 自相矛盾修正 -> 统一为：
+   B4 与 B6 的 OR 95% CI 严格 >1；B5 与 B7 的 CI 包含 1
+3. classification 矩阵（B4-B7 3D/5D 全 POSITIVE）与效应强弱区别保留
+   （B4 weak / B5 near-neutral / B6 strongest / B7 weak）
+```
+
+## VALIDATION
+
+```text
+1. compile: PASS
+2. R5A targeted tests: 23 PASS
+3. R5B targeted tests: 24 PASS
+   （新增：raw-rate 陷阱 synthetic、B5 5D 冻结 cells regression、
+     classification 契约矩阵 B4-B7 3D/5D 全 POSITIVE）
+4. new raw-rate classification regression: PASS
+5. rerun R5B: PASS
+6. signal artifact byte comparison: PASS
+7. failure-profile byte comparison: PASS
+8. raw metric cell-by-cell invariance: PASS
+9. deterministic rerun: PASS
+10. git diff --check: PASS
+```
+
+## CORRECTNESS_BLOCKER
+
+```text
+NO
+```
+
+## R5_STATUS_RECOMMENDATION / R6_RECOMMENDATION
+
+```text
+R5_STATUS_RECOMMENDATION = COMPLETE
+R6_RECOMMENDATION = AUTHORIZED（本任务未开始 R6）
+```
+
+## CONFIRM
+
+```text
+STRATEGY_CHANGED=false
+PRODUCTION_CHANGED=false
+FORWARD_CHANGED=false
+TRADEPLAN_CHANGED=false
+```
+
+## GIT（patch）
+
+```text
+COMMIT: research: r5b classification precision patch
 PUSH: origin/research/second-launch-factor-r5b-benchmark-execution-v01
 ```

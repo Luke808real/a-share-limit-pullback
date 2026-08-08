@@ -185,6 +185,43 @@ def test_classification_rules():
     assert r5b.classify_benchmark(0.05, 0.04, 1.2, "NOT_IDENTIFIABLE") == "DATA_LIMITED"
 
 
+# ---- classification precision: raw rates, never rounded display rates ----
+
+
+def test_classification_uses_raw_rate_not_rounded():
+    """raw A > raw B but round(A,4) == round(B,4) -> still POSITIVE."""
+    a = 356 / 6298   # 0.056525881...
+    b = 119 / 2108   # 0.056451612...
+    assert round(a, 4) == round(b, 4) == 0.0565
+    assert r5b.classify_benchmark(a, b, 1.001394, 0.500131) == (
+        "POSITIVE_BENCHMARK")
+
+
+def test_b5_5d_frozen_raw_cells_classification():
+    """B5 5D frozen cells: 356/6298 vs 119/2108 -> POSITIVE by raw rates."""
+    r = r5b.classify_benchmark(356 / 6298, 119 / 2108,
+                               1.0013944318892147, 0.500130865557539)
+    assert r == "POSITIVE_BENCHMARK"
+    assert r5b.or_2x2(356, 6298 - 356, 119, 2108 - 119)["or"] > 1.0
+
+
+def test_classification_contract_matrix():
+    """Mechanical classification on committed result CSVs: all four
+    benchmarks are POSITIVE_BENCHMARK in both 3D and 5D."""
+    r3 = pd.read_csv(REPO_ROOT / "research" / "second_launch" / "factors_v01"
+                     / "r5b_benchmark_results_3d_v01.csv")
+    r5 = pd.read_csv(REPO_ROOT / "research" / "second_launch" / "factors_v01"
+                     / "r5b_benchmark_results_5d_v01.csv")
+    for bid in ["B4", "B5", "B6", "B7"]:
+        for sample in ["OWN", "COMMON"]:
+            c3 = r3[(r3["benchmark_id"] == bid) & (r3["sample"] == sample)]
+            c5 = r5[(r5["benchmark_id"] == bid) & (r5["sample"] == sample)]
+            assert (c3.iloc[0]["classification"] == "POSITIVE_BENCHMARK"), (
+                f"{bid} {sample} 3D")
+            assert (c5.iloc[0]["classification"] == "POSITIVE_BENCHMARK"), (
+                f"{bid} {sample} 5D")
+
+
 # ---- 3D/5D same signal invariance ----
 
 
