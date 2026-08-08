@@ -166,7 +166,8 @@ EXACT_COLLINEAR:
   #11 impulse_retrace_ratio 与 #12 t0_gain_retention：
     同一 min_pullback_close + 同一分母 (C0 − PRECLOSE0)
     => t0_gain_retention == 1 − impulse_retrace_ratio（恒等，golden sanity 验证 =1.0 精确）
-    按任务要求不删除，保留两个条目，留给 Thinker 决策（attribution 时只能算一个独立维度）
+    R1B.1 处置（冻结）：#12 = PRIMARY；#11 = DERIVED_ALIAS（保留于 25-row 合同供 R2 QA 输出；
+    univariate 独立维度只算 #12；multivariate 禁止同时放 #11+#12）
 
 NEAR_STRUCTURAL:
   #15/#16/#17（pullback_volume_ratio / min_volume_ratio / volume_slope）：
@@ -193,9 +194,37 @@ NEAR_STRUCTURAL:
 4. **days_above_t0_mid 用 close 还是 low**：推荐 **close-based**（`close >= T0_BODY_MID`）→
    已冻结（#14）。
 5. **pullback_duration 到底是什么**：仓库无可信既有定义；候选 A（自最近新高以来的 session 数）
-   是唯一与 #21/#22 不重复的独立概念 → **DECISION_REQUIRED**（#23），推荐候选 A。
+   是唯一与 #21/#22 不重复的独立概念 → **R1B.1 已冻结**（见 §13：#23 正式公式）。
 6. **quiet_days_n 的 <1/<1 是否接受**：推荐接受为 V01 冻结定义（固定结构，非阈值扫描；
    与既有 quiet_score 概念不同）→ 已冻结（#20）。
+
+## 12b. R1B.1 冻结决策汇总
+
+```text
+A. #11/#12 exact-collinear：PRIMARY / DERIVED_ALIAS（analysis_role 列）
+B. metadata：#9 unit → decimal fraction（无 <=0 限制、不 clamp）；
+   #14/#20 known_collinearity += NEAR_STRUCTURAL_WITH_TIME_EXPOSURE；
+   #17 记录恒等 slope(log(vol_i/V0)) == slope(log(vol_i))
+C. #23 pullback_duration 正式冻结（见下）
+D. CA truth = validated adjustment-factor event；preclose divergence = audit only
+E. 25 个 factor 全部完成 CA 依赖分类（ca_class 列；见 CORPORATE_ACTION_CONTRACT_V01.md）
+F. #5/#7 解锁 → FROZEN_FOR_R2（CA 覆盖 FULL 89.8-89.9% / NONE 0；缺失 fail-closed NULL）
+```
+
+## 13. #23 pullback_duration（R1B.1 冻结）
+
+```text
+PEAK_REFERENCE_WINDOW = {T0} ∪ PULLBACK_PRE_D
+peak_high = max(HIGH over PEAK_REFERENCE_WINDOW)
+最高 HIGH 多次出现 → PRE_D_PEAK_OFFSET = LAST session offset attaining peak_high
+pullback_duration = D_offset − PRE_D_PEAK_OFFSET
+
+语义：candidate day D 到来之前，距最近一次有效价格峰值已过多少 stock trading sessions
+T0 可以是 peak；D 绝不进入 peak reference
+示例：T0 最高、D=T+4 → 4；T+2 创新高、D=T+5 → 3；T+3 与旧高相同、D=T+5 → 2（last occurrence）
+无 T0/D bar → NULL（MISSING_T0_BAR / MISSING_D_BAR）
+CA 政策：跨 session HIGH level → CA_UNSAFE_LEVEL_ORDERING（窗口 CA/unknown → NULL）
+```
 
 ## 9. Missingness contract（冻结）
 
@@ -235,7 +264,7 @@ quality_flags（含 INFERRED_LIMIT_ANCHOR / anchor_quality）
 ## 12. 状态汇总
 
 ```text
-FROZEN_FOR_R2: 22
-DECISION_REQUIRED: 1（#23 pullback_duration）
-BLOCKED_PENDING_CA_POLICY: 2（#5 t0_position_20d、#7 pre_t0_return_20d）
+FROZEN_FOR_R2: 25（含 #11 DERIVED_ALIAS）
+DERIVED_ALIAS: 1（#11 impulse_retrace_ratio）
+BLOCKED: 0
 ```
