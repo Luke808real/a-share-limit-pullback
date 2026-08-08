@@ -7,12 +7,17 @@ contract: research/reports/SECOND_LAUNCH_FACTOR_R5A_EXTERNAL_BENCHMARK_CONTRACT_
 from __future__ import annotations
 
 from pathlib import Path
+import sys
 from typing import Any
 
 import pandas as pd
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(REPO_ROOT / "research" / "second_launch" / "factors_v01"))
+
+import r3a_univariate_screen_v01 as r3a  # noqa: E402
+
 OUT_REGISTRY = (
     REPO_ROOT / "research" / "second_launch" / "factors_v01"
     / "r5a_benchmark_registry_v01.csv"
@@ -24,16 +29,72 @@ FEATURE_SHA = "a485a484d68e80b7514112c19a7380b4296595c17f3634df0d1467151e7affa8"
 SNAPSHOT_SHA = "e7243dee3bafe46e725e2b6ee884b07ac97a01c0705b41df0562d35019593514"
 POOL_SHA = "45faa1a23583b04acfd6c4faf5ef42311c2575c93a4c702cf5846d0213f31517"
 
+CANONICAL_SNAPSHOT = (
+    REPO_ROOT / "data" / "canonical" / "daily_bars"
+    / "snap-2026-07-31-b5f84004de8a.parquet"
+)
+
+# Outcome CSV may ONLY be read with these identity columns (outcome-blind).
+OUTCOME_IDENTITY_COLUMNS = [
+    "episode_id",
+    "anchor_date",
+    "candidate_date",
+    "symbol",
+    "feature_snapshot_id",
+]
+
+
+def blind_input_gate(
+    feature_csv: Path = r3a.FEATURE_CSV,
+    outcome_csv: Path = r3a.OUTCOME_CSV,
+    expected_feature_sha: str = r3a.EXPECTED_FEATURE_SHA256,
+    expected_outcome_sha: str = r3a.EXPECTED_OUTCOME_SHA256,
+    expected_snapshot_id: str = r3a.EXPECTED_FEATURE_SNAPSHOT_ID,
+    canonical_snapshot: Path = CANONICAL_SNAPSHOT,
+    expected_snapshot_sha: str = SNAPSHOT_SHA,
+    expected_rows: int = 8682,
+) -> None:
+    """Reproducible outcome-blind input gate (fail closed).
+
+    Outcome CSV is read ONLY with OUTCOME_IDENTITY_COLUMNS (never outcome
+    fields such as outcome_3d/outcome_5d/MFE/MAE).
+    """
+    if r3a.sha256_file(feature_csv) != expected_feature_sha:
+        raise RuntimeError("feature CSV SHA mismatch (fail closed)")
+    if r3a.sha256_file(outcome_csv) != expected_outcome_sha:
+        raise RuntimeError("outcome CSV SHA mismatch (fail closed)")
+    feat = pd.read_csv(feature_csv, dtype={"symbol": str})
+    out = pd.read_csv(
+        outcome_csv, usecols=OUTCOME_IDENTITY_COLUMNS, dtype={"symbol": str}
+    )
+    if len(feat) != expected_rows or len(out) != expected_rows:
+        raise RuntimeError(
+            f"row counts {len(feat)}/{len(out)} != {expected_rows}/{expected_rows}"
+        )
+    if feat["episode_id"].duplicated().any() or out["episode_id"].duplicated().any():
+        raise RuntimeError("duplicate episode_id (fail closed)")
+    if set(feat["episode_id"]) != set(out["episode_id"]):
+        raise RuntimeError("episode_id sets not 1:1 exact (fail closed)")
+    merged = feat.merge(out, on="episode_id", suffixes=("_f", "_o"))
+    for col in ["anchor_date", "candidate_date", "symbol"]:
+        if not (merged[f"{col}_f"] == merged[f"{col}_o"]).all():
+            raise RuntimeError(f"identity binding mismatch on {col} (fail closed)")
+    if not (out["feature_snapshot_id"] == expected_snapshot_id).all():
+        raise RuntimeError("feature_snapshot_id binding mismatch (fail closed)")
+    if r3a.sha256_file(canonical_snapshot) != expected_snapshot_sha:
+        raise RuntimeError("canonical snapshot SHA mismatch (fail closed)")
+
 
 REGISTRY: list[dict[str, str]] = [
     {
         "benchmark_id": "B1",
         "benchmark_name": "N_PATTERN",
-        "definition_source": "PROJECT_DOCUMENTED",
+        "definition_source": "UNDERDEFINED",
         "status": "UNDERDEFINED",
         "exact_rule": (
-            "NOT_DEFINED: project lists 'N字战法' name only; mechanical shape "
-            "requires subjective thresholds -> kept UNDERDEFINED"
+            "NOT_DEFINED: benchmark name/listing source = project research "
+            "plan (Second-Launch-Factor-Research-V01.md section 3/8); no "
+            "mechanical rule exists; shape requires subjective thresholds"
         ),
         "required_fields": "",
         "input_window": "",
@@ -49,11 +110,12 @@ REGISTRY: list[dict[str, str]] = [
     {
         "benchmark_id": "B2",
         "benchmark_name": "DRAGON_RETURN_2N",
-        "definition_source": "PROJECT_DOCUMENTED",
+        "definition_source": "UNDERDEFINED",
         "status": "UNDERDEFINED",
         "exact_rule": (
-            "NOT_DEFINED: project lists '龙回头 / 2+N' name only; '回头' depth/"
-            "duration/confirmation undefined"
+            "NOT_DEFINED: benchmark name/listing source = project research "
+            "plan (section 3/8); no mechanical rule; '回头' depth/duration/"
+            "confirmation undefined"
         ),
         "required_fields": "",
         "input_window": "",
@@ -67,10 +129,11 @@ REGISTRY: list[dict[str, str]] = [
     {
         "benchmark_id": "B3",
         "benchmark_name": "SINGLE_YANG_HOLD",
-        "definition_source": "PROJECT_DOCUMENTED",
+        "definition_source": "UNDERDEFINED",
         "status": "UNDERDEFINED",
         "exact_rule": (
-            "NOT_DEFINED: project lists '单阳不破' name only; yang scale, hold "
+            "NOT_DEFINED: benchmark name/listing source = project research "
+            "plan (section 3/8); no mechanical rule; yang scale, hold "
             "reference, duration undefined"
         ),
         "required_fields": "",
@@ -151,25 +214,35 @@ REGISTRY: list[dict[str, str]] = [
         "definition_source": "MECHANICAL_PROXY",
         "status": "READY",
         "exact_rule": (
-            "close_D > max(high, sessions [T0-60 .. T0-1]); reference "
-            "excludes T0 and D; strict greater (no equality); close-based "
-            "breakout; window from frozen resistance.left_high_lookback_days=60"
+            "close_D > max(high, last min(60, available) sessions strictly "
+            "before T0); fully reuses frozen PRE_ANCHOR_LEFT_HIGH helper "
+            "semantics (src/limit_pullback/strategy/structure.py "
+            "generate_resistance_candidates, resistance."
+            "left_high_lookback_days=60): pre_anchor[-60:] takes all "
+            "available sessions when <60 (no min-history gate); 20~59 "
+            "sessions allowed; missing bars simply absent from reference; "
+            "no CA filtering (helper does none); max(high) with "
+            "(high, trade_date) tie-break (value unaffected); strict "
+            "greater, equality is not a signal; reference excludes T0 and D"
         ),
         "required_fields": (
-            "high over 60 pre-T0 sessions, close_D, preclose (CA detection)"
+            "high over pre-T0 sessions (up to 60, as available), close_D"
         ),
-        "input_window": "[T0-60 .. T0-1] (high) + D (close)",
+        "input_window": "pre-T0 sessions (last min(60, available)) + D (close)",
         "latest_allowed_date": "D (candidate_date)",
         "pit_status": "PIT-SAFE (pre-T0 high + D close only)",
         "data_source": "canonical daily_bars snap-2026-07-31-b5f84004de8a",
         "artifact_sha": SNAPSHOT_SHA,
         "missing_semantics": (
-            "CA event in reference window or <20 valid prior sessions -> "
-            "episode excluded (fail closed)"
+            "no pre-T0 session at all -> no reference high -> episode "
+            "excluded (NO_REFERENCE, fail closed); otherwise all available "
+            "pre-T0 sessions up to 60 enter the reference"
         ),
         "known_limitation": (
-            "mechanical proxy assembled from name structure + frozen window; "
-            "'break T0 high' variant considered but not selected (single rule)"
+            "mechanical proxy assembled from name structure + frozen "
+            "resistance helper semantics; '<20 sessions exclude' and 'CA "
+            "exclude' clauses from the earlier draft were NOT in the frozen "
+            "helper and were removed (reuse-only)"
         ),
     },
     {

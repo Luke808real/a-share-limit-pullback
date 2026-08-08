@@ -9,6 +9,7 @@ from pathlib import Path
 import sys
 
 import pandas as pd
+import pytest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -44,6 +45,23 @@ def test_status_matrix():
     assert status["B8"] == "DATA_UNAVAILABLE"
 
 
+def test_definition_source_semantics():
+    """PROJECT_DOCUMENTED requires an explicit mechanical rule; B1/B2/B3 have
+    names only -> definition_source must be UNDERDEFINED."""
+    src = {r["benchmark_id"]: r["definition_source"] for r in r5a.REGISTRY}
+    assert src["B1"] == "UNDERDEFINED"
+    assert src["B2"] == "UNDERDEFINED"
+    assert src["B3"] == "UNDERDEFINED"
+    assert src["B4"] == "PROJECT_FROZEN"
+    assert src["B5"] == "PROJECT_FROZEN"
+    assert src["B6"] == "PROJECT_FROZEN"
+    assert src["B7"] == "MECHANICAL_PROXY"
+    for bid in ("B1", "B2", "B3"):
+        r = next(x for x in r5a.REGISTRY if x["benchmark_id"] == bid)
+        assert "name/listing source = project research plan" in r["exact_rule"]
+        assert r["status"] == "UNDERDEFINED"
+
+
 def test_ready_benchmarks_pit_complete():
     for r in r5a.REGISTRY:
         if r["status"] != "READY":
@@ -67,6 +85,19 @@ def test_b7_proxy_semantics():
     assert "strict greater" in b7["exact_rule"]
     assert "excludes T0 and D" in b7["exact_rule"]
     assert "close_D >" in b7["exact_rule"]
+
+
+def test_b7_frozen_history_semantics():
+    """B7 must fully reuse the frozen PRE_ANCHOR_LEFT_HIGH helper: no
+    min-history gate, no CA filtering, NO_REFERENCE only when empty."""
+    b7 = next(r for r in r5a.REGISTRY if r["benchmark_id"] == "B7")
+    assert b7["status"] == "READY"
+    assert "min(60, available)" in b7["exact_rule"]
+    assert "no min-history gate" in b7["exact_rule"]
+    assert "20~59" in b7["exact_rule"]
+    assert "no CA filtering" in b7["exact_rule"]
+    assert "NO_REFERENCE" in b7["missing_semantics"]
+    assert "PRE_ANCHOR_LEFT_HIGH" in b7["exact_rule"]
 
 
 def test_b8_data_unavailable_reason():
@@ -102,3 +133,104 @@ def test_registry_csv_deterministic(tmp_path):
     df.to_csv(p1, index=False)
     df.to_csv(p2, index=False)
     assert p1.read_bytes() == p2.read_bytes()
+
+
+# ---- outcome-blind input gate ----
+
+
+def test_outcome_read_usecols_guard():
+    assert r5a.OUTCOME_IDENTITY_COLUMNS == [
+        "episode_id", "anchor_date", "candidate_date", "symbol",
+        "feature_snapshot_id",
+    ]
+    forbidden = {
+        "outcome_3d", "outcome_5d", "SUCCESS", "FAILED_BREAKOUT",
+        "NO_LAUNCH", "STRUCTURE_FAIL", "MFE", "MAE", "days_to_launch",
+    }
+    assert not (forbidden & set(r5a.OUTCOME_IDENTITY_COLUMNS))
+
+
+def test_blind_gate_positive():
+    r5a.blind_input_gate()  # real frozen files: SHA + 8,682 + 1:1 + binding
+
+
+def _write_frame(tmp_path, name, df):
+    p = tmp_path / name
+    df.to_csv(p, index=False)
+    return p
+
+
+def _blind_gate_files(tmp_path, feature_df, outcome_df):
+    fp = _write_frame(tmp_path, "feature.csv", feature_df)
+    op = _write_frame(tmp_path, "outcome.csv", outcome_df)
+    snap = _write_frame(tmp_path, "snap.csv", pd.DataFrame({"x": [1]}))
+    return {
+        "feature_csv": fp, "outcome_csv": op,
+        "expected_feature_sha": r5a.r3a.sha256_file(fp),
+        "expected_outcome_sha": r5a.r3a.sha256_file(op),
+        "expected_snapshot_id": "snap-x",
+        "canonical_snapshot": snap,
+        "expected_snapshot_sha": r5a.r3a.sha256_file(snap),
+        "expected_rows": 1,
+    }
+
+
+def _ident_df(episodes, anchor="2024-07-01"):
+    return pd.DataFrame({
+        "episode_id": episodes,
+        "anchor_date": [anchor] * len(episodes),
+        "candidate_date": ["2024-07-03"] * len(episodes),
+        "symbol": ["600000"] * len(episodes),
+        "feature_snapshot_id": ["snap-x"] * len(episodes),
+    })
+
+
+def test_blind_feature_sha_mismatch(tmp_path):
+    kwargs = _blind_gate_files(
+        tmp_path, _ident_df(["e1"]), _ident_df(["e1"])
+    )
+    kwargs["expected_feature_sha"] = "0" * 64
+    with pytest.raises(RuntimeError, match="feature CSV SHA mismatch"):
+        r5a.blind_input_gate(**kwargs)
+
+
+def test_blind_outcome_sha_mismatch(tmp_path):
+    kwargs = _blind_gate_files(
+        tmp_path, _ident_df(["e1"]), _ident_df(["e1"])
+    )
+    kwargs["expected_outcome_sha"] = "0" * 64
+    with pytest.raises(RuntimeError, match="outcome CSV SHA mismatch"):
+        r5a.blind_input_gate(**kwargs)
+
+
+def test_blind_episode_set_mismatch(tmp_path):
+    kwargs = _blind_gate_files(
+        tmp_path, _ident_df(["e1"]), _ident_df(["e2"])
+    )
+    with pytest.raises(RuntimeError, match="not 1:1 exact"):
+        r5a.blind_input_gate(**kwargs)
+
+
+def test_blind_identity_binding_mismatch(tmp_path):
+    out_df = _ident_df(["e1"])
+    out_df.loc[0, "anchor_date"] = "2024-07-02"
+    kwargs = _blind_gate_files(tmp_path, _ident_df(["e1"]), out_df)
+    with pytest.raises(RuntimeError, match="identity binding mismatch"):
+        r5a.blind_input_gate(**kwargs)
+
+
+def test_blind_snapshot_binding_mismatch(tmp_path):
+    out_df = _ident_df(["e1"])
+    out_df.loc[0, "feature_snapshot_id"] = "snap-wrong"
+    kwargs = _blind_gate_files(tmp_path, _ident_df(["e1"]), out_df)
+    with pytest.raises(RuntimeError, match="feature_snapshot_id binding"):
+        r5a.blind_input_gate(**kwargs)
+
+
+def test_blind_canonical_snapshot_sha_mismatch(tmp_path):
+    kwargs = _blind_gate_files(
+        tmp_path, _ident_df(["e1"]), _ident_df(["e1"])
+    )
+    kwargs["expected_snapshot_sha"] = "0" * 64
+    with pytest.raises(RuntimeError, match="canonical snapshot SHA mismatch"):
+        r5a.blind_input_gate(**kwargs)

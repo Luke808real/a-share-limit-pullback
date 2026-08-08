@@ -168,3 +168,131 @@ tests/test_r5a_benchmark_contract_v01.py（新增）
 COMMIT: research: add r5a external benchmark contract and availability
 PUSH: origin/research/second-launch-factor-r5a-benchmark-contract-v01
 ```
+
+---
+
+# R5A_AUDIT_PATCH
+
+> 2026-08-08 · contract cleanup（独立审查收尾）· 未运行任何 benchmark outcome
+
+STATUS: **COMPLETE**
+
+```text
+BRANCH: research/second-launch-factor-r5a-benchmark-contract-v01
+BASE_HEAD: 123f6f2a37571c3479a3a1ad41250ae11274ad31
+HEAD_AFTER: 见 GIT 段
+REMOTE_SHA: 见 GIT 段（push 后核对）
+```
+
+## DEFINITION_SOURCE_FIXED
+
+```text
+按 frozen source contract 修正语义：
+  PROJECT_DOCUMENTED = 已有明确机械规则但未冻结
+  UNDERDEFINED       = 必须主观猜测关键规则
+B1/B2/B3 仅有 benchmark 名称、无机械规则：
+  definition_source = UNDERDEFINED（原 PROJECT_DOCUMENTED 已修正）
+  保留说明：benchmark name/listing source = project research plan（§3/§8）
+未给 B1/B2/B3 新增任何机械定义。
+```
+
+## B7_HISTORY_SEMANTICS
+
+```text
+bounded inspect 现有 frozen helper：
+  src/limit_pullback/strategy/structure.py generate_resistance_candidates
+  PRE_ANCHOR_LEFT_HIGH = pre_anchor[-resistance.left_high_lookback_days:]
+结论（Option A：frozen implementation 语义唯一明确）：
+  - reference = 最后 min(60, available) 个 pre-T0 会话（无最小历史门槛）
+  - 20~59 会话允许；missing bars 即不在 reference
+  - CA semantics：无（helper 不做 CA 过滤）
+  - equality：严格大于（close_D == reference high 不是信号）
+  - max(high)，平局 (high, trade_date) 取最新（不影响条件值）
+  - reference 不含 T0/D；无 pre-T0 会话 -> NO_REFERENCE，episode 排除
+早稿中“<20 会话排除 / CA 排除”条款不属于 frozen helper，已移除（复用-only）。
+B7 保持 READY（POST_LIMIT_NEW_HIGH_PROXY，MECHANICAL_PROXY）。
+```
+
+## BLIND_INPUT_GATE
+
+```text
+新增可复现 outcome-blind gate：r5a_benchmark_contract_v01.blind_input_gate()
+  - FEATURE SHA == a485a484…；OUTCOME SHA == 01a9f2fa…
+  - row N 8,682/8,682；episode_id unique + exact 1:1
+  - anchor/candidate/symbol identity binding
+  - feature_snapshot_id binding == snap-2026-07-31-b5f84004de8a
+  - canonical daily snapshot SHA == e7243dee…（READY benchmark 数据源）
+  - outcome CSV 仅以 identity columns 读取：
+    episode_id / anchor_date / candidate_date / symbol / feature_snapshot_id
+  - MUST NOT load outcome_3d/outcome_5d/SUCCESS/FAILED_BREAKOUT/
+    NO_LAUNCH/STRUCTURE_FAIL/MFE/MAE/days_to_launch（usecols guard）
+  - 任一失败 fail closed
+```
+
+## OUTCOME_BLINDNESS_CONFIRM
+
+```text
+本 patch 全程未查看 outcome class 分布 / SUCCESS rate / OR / AUC /
+MFE/MAE；registry 与 B7 语义仅由 frozen 定义/实现决定。
+```
+
+## REGISTRY_DIFF（仅允许范围）
+
+```text
+B1/B2/B3: definition_source PROJECT_DOCUMENTED -> UNDERDEFINED
+B7: exact_rule / input_window / required_fields / missing_semantics /
+  known_limitation 更新为 frozen helper 复用语义（status READY 不变，
+  definition_source MECHANICAL_PROXY 不变）
+B4/B5/B6/B8: 规则 / status / threshold 字节不变
+未新增 benchmark
+```
+
+## VALIDATION
+
+```text
+1. compile: PASS
+2. targeted R5A tests: tests/test_r5a_benchmark_contract_v01.py 20 PASS
+   （新增：definition_source 语义回归、B7 frozen-history 语义、
+     blind gate 正向 + feature/outcome SHA 错、episode 集不匹配、
+     identity 绑定错、snapshot 绑定错、canonical SHA 错、usecols guard）
+3. blind input gate positive/negative: PASS
+4. registry deterministic rerun: PASS（两次生成哈希一致）
+5. git diff --check: PASS
+未运行 benchmark outcome / R5B / R6 / full-market / ML / production / forward。
+```
+
+## CORRECTNESS_BLOCKER
+
+```text
+NO
+```
+
+## READY_BENCHMARKS
+
+```text
+B4 FIXED_PULLBACK_TIME / B5 FIXED_PULLBACK_DEPTH /
+B6 FIXED_VOLUME_CONTRACTION / B7 POST_LIMIT_NEW_HIGH_PROXY
+```
+
+## R5B_RECOMMENDATION
+
+```text
+AUTHORIZED（B7 语义唯一冻结、blind gate PASS、>=1 个 READY benchmark、
+无 correctness blocker；本任务未开始 R5B）
+```
+
+## CONFIRM
+
+```text
+STRATEGY_CHANGED=false
+PRODUCTION_CHANGED=false
+FORWARD_CHANGED=false
+TRADEPLAN_CHANGED=false
+```
+
+## GIT（audit patch）
+
+```text
+COMMIT: research: r5a contract audit cleanup - source semantics and blind gate
+PUSH: origin/research/second-launch-factor-r5a-benchmark-contract-v01
+```

@@ -12,7 +12,14 @@ FEATURE_SHA: a485a484d68e80b7514112c19a7380b4296595c17f3634df0d1467151e7affa8
 OUTCOME_SHA: 01a9f2fac6cab66686648b112c53eebf0526cee8a5c07559bdd3381578fa108d
 EPISODE_N: 8,682 / episode_id 1:1 / anchor/candidate/symbol binding PASS
 snapshot binding: snap-2026-07-31-b5f84004de8a PASS
+canonical daily snapshot SHA: e7243dee… PASS
 outcome 仅做 SHA/schema/join-key gate；未读取 outcome class 分布
+可复现 outcome-blind gate：r5a_benchmark_contract_v01.blind_input_gate()
+  - outcome CSV 仅以 identity columns 读取：
+    episode_id / anchor_date / candidate_date / symbol / feature_snapshot_id
+  - MUST NOT load：outcome_3d / outcome_5d / SUCCESS / FAILED_BREAKOUT /
+    NO_LAUNCH / STRUCTURE_FAIL / MFE / MAE / days_to_launch
+  - 任一失败 fail closed
 ```
 
 ## OUTCOME_BLINDNESS_CONFIRM
@@ -44,17 +51,22 @@ B8 HOT_SECTOR_FILTER        热点/板块过滤基线
 
 ```text
 PROJECT_FROZEN   = 项目内已有明确、冻结、可机械执行定义
-PROJECT_DOCUMENTED = 项目文档已有明确规则但未冻结（原样转写候选）
+PROJECT_DOCUMENTED = 已有明确机械规则但未冻结（原样转写候选）
 MECHANICAL_PROXY = 名称结构清楚、缺部分非结果驱动细节（命名 <NAME>_PROXY）
-UNDERDEFINED     = 必须主观猜测关键阈值/形态才能实现
+UNDERDEFINED     = 必须主观猜测关键规则/阈值/形态才能实现
 ```
+
+`PROJECT_DOCUMENTED` 只用于“已有明确机械规则但未冻结”；
+仅有名称、无机械规则者 -> `UNDERDEFINED`（名称/名录来源另行注明）。
 
 ## BENCHMARK_DEFINITIONS（冻结；全部 PIT as-of D）
 
 ### B1 N_PATTERN — UNDERDEFINED
 
 ```text
-项目文档（§3/§8）仅列出名称“N字战法”，无任何机械定义；
+definition_source = UNDERDEFINED
+benchmark name/listing source = project research plan（§3/§8，名录）
+项目文档仅列出名称“N字战法”，无任何机械定义；
 实现需主观猜测形态关键（第一腿定义、回调深度/时长、确认规则）-> 保持
 UNDERDEFINED。禁止为 READY 自行发明规则。
 ```
@@ -62,13 +74,17 @@ UNDERDEFINED。禁止为 READY 自行发明规则。
 ### B2 DRAGON_RETURN_2N — UNDERDEFINED
 
 ```text
-同上：仅名称“龙回头 / 2+N”；无机械定义（“回头”深度/时长/确认未定义）。
+definition_source = UNDERDEFINED
+name/listing source = project research plan（§3/§8）
+仅名称“龙回头 / 2+N”；无机械定义（“回头”深度/时长/确认未定义）。
 ```
 
 ### B3 SINGLE_YANG_HOLD — UNDERDEFINED
 
 ```text
-同上：仅名称“单阳不破”；无机械定义（阳线尺度、不破基准、时长未定义）。
+definition_source = UNDERDEFINED
+name/listing source = project research plan（§3/§8）
+仅名称“单阳不破”；无机械定义（阳线尺度、不破基准、时长未定义）。
 ```
 
 ### B4 FIXED_PULLBACK_TIME — READY（PROJECT_FROZEN）
@@ -118,22 +134,27 @@ known_limitation: 同 B4（自基准）；使用 D 当日 volume（非 PB median
 ### B7 POST_LIMIT_NEW_HIGH — READY（POST_LIMIT_NEW_HIGH_PROXY，MECHANICAL_PROXY）
 
 ```text
-exact_rule: close_D > max(high over sessions [T0-60 .. T0-1])
-  - 比较对象：pre-T0 60-session 前高（reference 不含 T0、不含 D）
-  - 使用 D 收盘 close（收盘突破），非 intraday high 突破
-  - D 不允许等于 reference high（严格大于）
-  - 窗口长度：config/strategy.yaml resistance.left_high_lookback_days=60
-    （冻结生产配置）
-  - reference 内 CA 事件（preclose divergence > 0.5%）-> episode 不计入
-  - reference 有效前会话 < 20 -> episode 不计入（INSUFFICIENT_HISTORY）
-input_window: [T0-60 .. T0-1]（high）+ D（close）
+exact_rule: close_D > max(high, last min(60, available) sessions strictly
+  before T0) —— 完全复用 frozen PRE_ANCHOR_LEFT_HIGH helper 语义
+  （src/limit_pullback/strategy/structure.py generate_resistance_candidates，
+  resistance.left_high_lookback_days=60）：
+  - reference session selection：pre_anchor[-60:]（最后 60 个 pre-T0 会话）
+  - 20~59 session：允许（helper 无最小历史门槛，取全部可用）
+  - missing bars：不存在即不在 reference（bars = 实际存在的会话）
+  - CA semantics：无（frozen helper 不做 CA 过滤）
+  - equality：严格大于（close_D == reference high 不是信号）
+  - max(high) 平局 (high, trade_date) 取最新 —— 不影响条件值
+  - reference 不含 T0、不含 D；使用 D 收盘 close（收盘突破）
+input_window: pre-T0 sessions（last min(60, available)）+ D（close）
 latest_allowed_date: D
-required_fields: high（60 个 pre-T0 会话）, close_D, preclose（CA 检测）
+required_fields: high（pre-T0 会话，最多 60）, close_D
 data_source: canonical daily_bars snap-2026-07-31-b5f84004de8a
 artifact_sha: e7243dee…
-missing_semantics: CA / insufficient history -> 不计入（fail closed）
+missing_semantics: 无任何 pre-T0 会话 -> NO_REFERENCE，episode 不计入
+  （fail closed）；否则全部可用 pre-T0 会话（最多 60）进入 reference
 known_limitation: 代理为机械规则（名称结构 + 冻结窗口组装）；
-  “突破 T0 自身高点”变体已考虑但未选择（单规则，无 grid，无 outcome 输入）
+  “突破 T0 自身高点”变体已考虑但未选择（单规则，无 grid，无 outcome 输入）；
+  早稿中的“<20 会话排除 / CA 排除”条款不属于 frozen helper，已移除（复用-only）
 ```
 
 ### B8 HOT_SECTOR_FILTER — DATA_UNAVAILABLE
