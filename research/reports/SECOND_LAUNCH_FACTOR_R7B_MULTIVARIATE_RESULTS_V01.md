@@ -65,13 +65,28 @@ improvements = AUC + LogLoss + Brier（>=2）
 ## M3_VOLUME_REDUNDANCY（M3 vs M2；DIAGNOSTIC ONLY）
 
 ```text
-M3 AUC 0.6074 / LogLoss 0.1870（Delta AUC +0.0052 vs M2）
+M3 vs M2：
+  Delta AUC     +0.0052168
+  Delta LogLoss -0.0005773
+  Delta Brier   -0.0000284
+  Delta AIC     -5.048
+  Delta BIC     +8.885
 pullback_volume_ratio: beta = +0.3876（POSITIVE，与 R3 NEGATIVE 不匹配）
 min_volume_ratio:      beta = -0.7199（NEGATIVE，匹配 R3；CI [-1.41,-0.02]）
 median_range_ratio:    beta = -0.2011（NEGATIVE，CI 含 0 —— 控制 pvr/mvr 后弱化）
 quiet_days_n:          beta = +0.0378（POSITIVE，CI 含 0）
-解读：pvr/mvr 高度共线（corr 0.957），多变量下符号分裂、系数不稳定
-  —— 与 R6 的 volume 冗余观察一致；M3 仅诊断，不做 model selection。
+pvr/mvr correlation = 0.957
+pvr coefficient direction reverses；mvr remains negative
+
+INTERPRETATION:
+  INDIVIDUAL_ATTRIBUTION_UNSTABLE
+  JOINT_INCREMENTAL_EVIDENCE=MIXED
+（ΔAUC/ΔLogLoss/ΔBrier 整体小幅改善、ΔAIC 改善而 ΔBIC 恶化；
+  单个 volume coefficient 方向不稳定 —— 不能写作
+  "pvr/mvr completely absorbed" 或 "no joint incremental information"；
+  也不能据此做 model selection）
+
+M3 = DIAGNOSTIC ONLY（保持）
 ```
 
 ## F6_ROBUSTNESS（matched sample N=4,225；ROBUSTNESS_OBSERVATION ONLY）
