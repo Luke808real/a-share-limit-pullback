@@ -144,10 +144,47 @@ def input_gate() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     ids = [set(df["episode_id"]) for df in (feat, out, sig)]
     if not (ids[0] == ids[1] == ids[2]):
         raise RuntimeError("episode_id sets not 1:1 exact (fail closed)")
-    m = feat.merge(out, on="episode_id", suffixes=("_f", "_o"))
-    for col in ["anchor_date", "candidate_date", "symbol"]:
-        if not (m[f"{col}_f"] == m[f"{col}_o"]).all():
-            raise RuntimeError(f"identity binding mismatch on {col}")
+    feat, out, sig = align_three_way(feat, out, sig)
+    return feat, out, sig
+
+
+def align_three_way(
+    feat: pd.DataFrame, out: pd.DataFrame, sig: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Explicitly align feature / outcome / R5B signals by episode_id.
+
+    Canonical research order = feature CSV order. Positional row order of
+    the other CSVs is never trusted.
+    """
+    order = feat["episode_id"].to_numpy()
+    for name, df in (("outcome", out), ("signals", sig)):
+        if set(df["episode_id"]) != set(order):
+            raise RuntimeError(
+                f"{name} episode_id set mismatch (fail closed)")
+    out = out.set_index("episode_id").loc[order].reset_index()
+    sig = sig.set_index("episode_id").loc[order].reset_index()
+    # three-way identity gate (row-wise exact)
+    for name, df in (("outcome", out), ("signals", sig)):
+        if not (df["episode_id"].to_numpy() == order).all():
+            raise RuntimeError(f"{name} episode_id alignment failed (fail closed)")
+    # identity binding: symbol / anchor_date / candidate_date
+    date_cols = ["anchor_date", "candidate_date"]
+    feat_norm = feat.copy()
+    out_norm = out.copy()
+    sig_norm = sig.copy()
+    for c in date_cols:
+        feat_norm[c] = pd.to_datetime(feat_norm[c]).dt.strftime("%Y-%m-%d")
+        out_norm[c] = pd.to_datetime(out_norm[c]).dt.strftime("%Y-%m-%d")
+        sig_norm[c] = pd.to_datetime(sig_norm[c]).dt.strftime("%Y-%m-%d")
+    for col in ["symbol", *date_cols]:
+        if not (feat_norm[col].to_numpy() == out_norm[col].to_numpy()).all():
+            raise RuntimeError(
+                f"feature/outcome identity binding mismatch on {col} "
+                f"(fail closed)")
+        if not (feat_norm[col].to_numpy() == sig_norm[col].to_numpy()).all():
+            raise RuntimeError(
+                f"feature/signals identity binding mismatch on {col} "
+                f"(fail closed)")
     return feat, out, sig
 
 

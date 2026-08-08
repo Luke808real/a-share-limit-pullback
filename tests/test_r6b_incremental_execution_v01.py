@@ -201,3 +201,115 @@ def test_frozen_registry_values():
 def test_input_gate_positive():
     feat, out, sig = r6b.input_gate()
     assert len(feat) == 8682 and len(out) == 8682 and len(sig) == 8682
+    assert (feat["episode_id"].to_numpy() == out["episode_id"].to_numpy()).all()
+    assert (feat["episode_id"].to_numpy() == sig["episode_id"].to_numpy()).all()
+
+
+# ---- three-way episode alignment (R6B alignment closeout) ----
+
+
+def _aligned_frames():
+    feat = pd.DataFrame({
+        "episode_id": ["e1", "e2", "e3", "e4"],
+        "symbol": ["600001", "600002", "600003", "600004"],
+        "anchor_date": ["2024-07-01"] * 4,
+        "candidate_date": ["2024-07-03"] * 4,
+        "median_range_ratio": [0.4, 0.5, 0.6, 0.7],
+    })
+    out = pd.DataFrame({
+        "episode_id": ["e1", "e2", "e3", "e4"],
+        "symbol": ["600001", "600002", "600003", "600004"],
+        "anchor_date": ["2024-07-01"] * 4,
+        "candidate_date": ["2024-07-03"] * 4,
+        "outcome_3d": ["SUCCESS", "SUCCESS", "STRUCTURE_FAIL", "NO_LAUNCH"],
+        "outcome_5d": ["SUCCESS", "SUCCESS", "STRUCTURE_FAIL", "NO_LAUNCH"],
+    })
+    sig = pd.DataFrame({
+        "episode_id": ["e1", "e2", "e3", "e4"],
+        "symbol": ["600001", "600002", "600003", "600004"],
+        "anchor_date": ["2024-07-01"] * 4,
+        "candidate_date": ["2024-07-03"] * 4,
+        "B6_eligible": [True] * 4,
+        "B6_signal": [True, True, False, False],
+        "common_eligible": [True] * 4,
+    })
+    return feat, out, sig
+
+
+def test_shuffle_alignment_recovers_canonical_order():
+    feat, out, sig = _aligned_frames()
+    shuffled_out = out.iloc[[2, 0, 3, 1]].reset_index(drop=True)   # e3 e1 e4 e2
+    shuffled_sig = sig.iloc[[3, 1, 0, 2]].reset_index(drop=True)   # e4 e2 e1 e3
+    a, b, c = r6b.align_three_way(feat, shuffled_out, shuffled_sig)
+    assert b["episode_id"].tolist() == ["e1", "e2", "e3", "e4"]
+    assert c["episode_id"].tolist() == ["e1", "e2", "e3", "e4"]
+
+
+def test_shuffle_metrics_identical_to_canonical_order():
+    feat, out, sig = _aligned_frames()
+    reg = pd.Series({
+        "baseline_id": "B6", "baseline_role": "PRIMARY_BASELINE",
+        "factor_name": "median_range_ratio", "factor_family": "F3",
+        "factor_role": "PRIMARY_INCREMENTAL_CANDIDATE",
+        "r3_direction": "NEGATIVE",
+    })
+    canon = r6b.conditional_row(feat, out, sig, "B6", "median_range_ratio",
+                                "COMMON", "SIGNAL", "outcome_3d", reg)
+    shuffled_out = out.iloc[[2, 0, 3, 1]].reset_index(drop=True)
+    shuffled_sig = sig.iloc[[3, 1, 0, 2]].reset_index(drop=True)
+    a, b, c = r6b.align_three_way(feat, shuffled_out, shuffled_sig)
+    aligned = r6b.conditional_row(a, b, c, "B6", "median_range_ratio",
+                                  "COMMON", "SIGNAL", "outcome_3d", reg)
+    for key in ["eligible_group_n", "outcome_known_n", "success_n",
+                "non_success_n", "native_auc", "effect", "native_direction"]:
+        av, cv = aligned[key], canon[key]
+        same = (av == cv) or (
+            isinstance(av, float) and isinstance(cv, float)
+            and pd.isna(av) and pd.isna(cv)
+        )
+        assert same, key
+
+
+def test_alignment_identity_mismatch_fails_closed():
+    feat, out, sig = _aligned_frames()
+    bad_sig = sig.copy()
+    bad_sig.loc[0, "symbol"] = "999999"
+    with pytest.raises(RuntimeError, match="feature/signals identity binding"):
+        r6b.align_three_way(feat, out, bad_sig)
+
+
+def test_alignment_anchor_mismatch_fails_closed():
+    feat, out, sig = _aligned_frames()
+    bad_sig = sig.copy()
+    bad_sig.loc[1, "anchor_date"] = "2024-07-02"
+    with pytest.raises(RuntimeError, match="feature/signals identity binding"):
+        r6b.align_three_way(feat, out, bad_sig)
+
+
+def test_alignment_candidate_mismatch_fails_closed():
+    feat, out, sig = _aligned_frames()
+    bad_out = out.copy()
+    bad_out.loc[2, "candidate_date"] = "2024-07-04"
+    with pytest.raises(RuntimeError, match="feature/outcome identity binding"):
+        r6b.align_three_way(feat, bad_out, sig)
+
+
+def test_alignment_episode_set_mismatch_fails_closed():
+    feat, out, sig = _aligned_frames()
+    bad_out = out.copy()
+    bad_out.loc[0, "episode_id"] = "e9"
+    with pytest.raises(RuntimeError, match="episode_id set mismatch"):
+        r6b.align_three_way(feat, bad_out, sig)
+
+
+def test_b6_mrr_primary_exact_pin():
+    """Frozen byte-invariance pin: B6 x median_range_ratio x COMMON x SIGNAL."""
+    s = pd.read_csv(REPO_ROOT / "research" / "second_launch" / "factors_v01"
+                    / "r6b_incremental_summary_v01.csv")
+    row = s[(s["baseline_id"] == "B6") & (s["factor_name"] == "median_range_ratio")
+            & (s["sample_scope"] == "COMMON")].iloc[0]
+    # CSV round-trip keeps full precision within 1e-14 of the in-memory value
+    assert abs(row["auc_3d_signal"] - 0.42221997070987116) < 1e-14
+    assert abs(row["effect_3d_signal"] - 0.07778002929012884) < 1e-14
+    assert abs(row["auc_5d_signal"] - 0.40993238304093566) < 1e-14
+    assert row["incremental_classification"] == "INCREMENTAL_SUPPORTED"

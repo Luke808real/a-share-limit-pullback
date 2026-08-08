@@ -203,3 +203,65 @@ cloud CI 命令（4 文件）：72 passed, 3 deselected（本地等价）
 ci.yml 最小扩展：加入 test_r6b_incremental_execution_v01.py
 git diff --check: PASS
 ```
+
+---
+
+# R6B_ALIGNMENT_CLOSEOUT
+
+> 2026-08-09 · three-way episode alignment 收尾（审计补丁）
+
+## THREE_WAY_EPISODE_ALIGNMENT
+
+```text
+input_gate 现显式按 episode_id 对齐 feature / outcome / R5B signals：
+  order = feature（canonical research order）
+  outcome = outcome.set_index("episode_id").loc[order].reset_index()
+  signals = signals.set_index("episode_id").loc[order].reset_index()
+不再依赖任何 CSV 原始 row order（positional arrays 假设已消除）。
+```
+
+## THREE_WAY_IDENTITY_BINDING
+
+```text
+对齐后逐行验证 episode_id 三方 exact 相等；
+symbol / anchor_date / candidate_date：feature==outcome 且 feature==signals；
+日期统一为 canonical "%Y-%m-%d" 后比较；任一 mismatch -> FAIL CLOSED。
+```
+
+## SHUFFLE_REGRESSION
+
+```text
+synthetic shuffle 测试：
+  feature e1..e4；outcome e3,e1,e4,e2；signals e4,e2,e1,e3
+  -> 对齐后恢复 e1..e4，且 conditional metrics 与原顺序完全一致
+负向测试：signal symbol mismatch / anchor mismatch / candidate mismatch /
+  episode set mismatch -> 全部 fail closed
+```
+
+## RESULT_BYTE_INVARIANCE
+
+```text
+对齐修复后重新执行 R6B：
+  r6b_incremental_conditional_results_v01.csv: byte-identical
+  r6b_incremental_summary_v01.csv:            byte-identical
+PRIMARY pin（B6 x median_range_ratio x COMMON x SIGNAL）：
+  3D AUC 0.42221997070987116（CSV 往返容差 1e-14）
+  3D effect 0.07778002929012884
+  5D AUC 0.40993238304093566
+  classification = INCREMENTAL_SUPPORTED
+结论：原 positional 假设未污染结果（三方 CSV 顺序本就一致），
+  但显式对齐 + 门禁已固化，防未来漂移。
+```
+
+## CORRECTNESS_BLOCKER
+
+```text
+NO
+```
+
+## R6_STATUS / R7_RECOMMENDATION
+
+```text
+R6_STATUS = COMPLETE
+R7_RECOMMENDATION = AUTHORIZED（byte-identical=true；未开始 R7）
+```
