@@ -218,3 +218,112 @@ research/reports/SECOND_LAUNCH_FACTOR_R4_V01_1_COVERAGE_REPORT.md（本报告）
 COMMIT: research: add r4 v01.1 coverage extension audit
 PUSH: origin/research/second-launch-factor-r4-v011-coverage-v01
 ```
+
+---
+
+# R4_V01_1_AUDIT_PATCH
+
+> 2026-08-08 · audit cleanup（独立审查收尾）· 不新增研究、不重做 coverage
+
+STATUS: **COMPLETE**
+
+```text
+BRANCH: research/second-launch-factor-r4-v011-coverage-v01
+BASE_HEAD: 9ebffe8b56b4710be86f005bffedef0935559025
+HEAD_AFTER: 见 GIT 段
+REMOTE_SHA: 见 GIT 段（push 后核对）
+```
+
+## TUSHARE_EXECUTABLE_DEPENDENCY_REMOVED
+
+```text
+已删除：PRICE_LIMITS_GLOB / price_limits_coverage() / main() 中对该 raw
+  tushare 数据的读取；BOARD 判定证据不再引用 price_limits。
+BOARD=DATA_LIMITED 证据仅保留：
+  frozen feature cohort（SH_MAIN 4,244 / SZ_MAIN 4,438 / other 0）
+  + hash-pin 的 canonical limit_up_pool（manifest SHA 45faa1a2…，15 日，
+    仅 10% 主板代码）作为历史 pool coverage 旁证。
+未新增任何 provider fallback。
+lineage 声明（已写入契约）：legacy raw provider artifacts may exist in
+  repository, but are excluded from R4 V01.1 executable/statistical lineage.
+```
+
+## STRICT_REGIME_AVAILABILITY_SEMANTICS_FIXED
+
+```text
+动态 index_artifact_search() 已从统计 artifact 生成路径删除；
+strict-regime 可用性改为 PRE-FLIGHT AVAILABILITY EVIDENCE（一次性冻结证据）：
+  实际搜索 roots：data/canonical、data/raw/akshare|baostock|tushare、
+    data/outcome-study、data/manifests、research/、src/
+  identifiers / terms：*index* / *000001* / *000300* 文件名；raw daily-bar
+    code 列 '.' / sh. / sz. 模式；上证指数 / index close / hs300 文本
+  RESULT：no eligible PIT-safe index artifact found
+  => STRICT_REGIME = UNAVAILABLE
+R4 script 重跑不执行任何动态仓库扫描，结果不受仓库未来文件变化影响。
+```
+
+## LOW_COUNT_FIXED
+
+```text
+contract 中 LOW 计数 279 -> 276（严格 <1/3 边界）；
+frozen-data regression 已固化：
+  position_decomposition(frozen_feature):
+    low_n == 276 / nonmissing_n == 7232 / missing_n == 1450 /
+    CA_UNKNOWN == 737 / CA_EVENT == 713
+未修改 <1/3 边界 / feature / cohort / outcome。
+```
+
+## BASELINE_INVARIANCE
+
+```text
+R4 V01 original 4 CSV（global/strata/verdicts/sensitivity）: byte-identical
+r4_v01_1_board_strata.csv:      byte-identical
+r4_v01_1_stability_results.csv: byte-identical
+r4_v01_1_coverage_audit.csv:    允许变化（仅 BOARD / STRICT_REGIME 两行
+  证据文本，移除 price_limits 与动态 hits；LOW 行本就为 276）
+factor AUC / verdict / sample classification：无任何变化
+```
+
+## VALIDATION
+
+```text
+1. compile: PASS
+2. tests/test_r4_stability_v01.py: 32 PASS
+3. tests/test_r4_v011_coverage_v01.py: 16 PASS
+   （新增 frozen LOW-count regression + legacy/dynamic-scan 缺失守卫）
+4. frozen LOW-count regression: PASS（276/7232/1450/737/713）
+5. rerun R4 V01.1: PASS
+6. deterministic output check: PASS（两次输出哈希一致）
+7. baseline byte comparison: PASS（上述不变文件全部字节一致）
+8. git diff --check: PASS
+未运行 full-market / forward / production / R5。
+```
+
+## CORRECTNESS_BLOCKER
+
+```text
+NO
+```
+
+## R4_COMPLETION_RECOMMENDATION
+
+```text
+不变（同 V01.1）：R4 数据可答问题均已答；board/严格 regime/LOW 覆盖
+需未来冻结新 cohort / 指数 artifact（R-未来契约）。
+```
+
+## CONFIRM
+
+```text
+STRATEGY_CHANGED=false
+PRODUCTION_CHANGED=false
+FORWARD_CHANGED=false
+TRADEPLAN_CHANGED=false
+```
+
+## GIT（audit patch）
+
+```text
+COMMIT: research: r4 v01.1 audit cleanup - legacy dep and preflight semantics
+PUSH: origin/research/second-launch-factor-r4-v011-coverage-v01
+```

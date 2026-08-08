@@ -46,16 +46,6 @@ LIMIT_POOL_SNAPSHOT = (
 EXPECTED_LIMIT_POOL_SHA256 = (
     "45faa1a23583b04acfd6c4faf5ef42311c2575c93a4c702cf5846d0213f31517"
 )
-PRICE_LIMITS_GLOB = REPO_ROOT / "data" / "raw" / "tushare" / "price_limits" / "*.parquet"
-
-INDEX_SEARCH_DIRS = [
-    REPO_ROOT / "data" / "canonical",
-    REPO_ROOT / "data" / "raw" / "akshare",
-    REPO_ROOT / "data" / "raw" / "baostock",
-    REPO_ROOT / "data" / "raw" / "tushare",
-    REPO_ROOT / "data" / "outcome-study",
-    REPO_ROOT / "data" / "manifests",
-]
 
 
 def load_canonical_bars_gated(
@@ -150,48 +140,21 @@ def pool_coverage(
     }
 
 
-def price_limits_coverage(
-    feat: pd.DataFrame,
-) -> dict[str, Any]:
-    files = sorted(PRICE_LIMITS_GLOB.parent.glob(PRICE_LIMITS_GLOB.name))
-    frames = [pd.read_parquet(p, columns=["code", "trade_date", "ingest_run_id"])
-              for p in files]
-    pl = pd.concat(frames, ignore_index=True)
-    runs = set(pl["ingest_run_id"].astype(str).unique())
-    key = set(zip(
-        feat["symbol"].astype(str),
-        pd.to_datetime(feat["anchor_date"]).dt.date,
-    ))
-    pl_key = set(zip(
-        pl["code"].astype(str),
-        pd.to_datetime(pl["trade_date"]).dt.date,
-    ))
-    return {
-        "price_limits_rows": int(len(pl)),
-        "price_limits_codes": int(pl["code"].nunique()),
-        "price_limits_prefixes": (
-            pl["code"].astype(str).str[:3].value_counts().to_dict()
-        ),
-        "ingest_run_ids": sorted(runs),
-        "episode_anchor_coverage": int(len(key & pl_key)),
-        "episode_anchor_total": int(len(key)),
-    }
+# STRICT-REGIME availability is PRE-FLIGHT EVIDENCE only (frozen once on
+# 2026-08-08 before any V01.1 calculation; see contract section 2.2):
+#   search roots: data/canonical, data/raw/akshare, data/raw/baostock,
+#     data/raw/tushare, data/outcome-study, data/manifests, research/, src/
+#   identifiers: filenames *index* / *000001* / *000300*; code-pattern scan
+#     ('.' separators, sh./sz. prefixes) over raw daily-bar parquet code
+#     columns; text terms 上证指数 / index close / hs300 over research/ and src/
+#   RESULT: no eligible PIT-safe market-index artifact found
+# => STRICT_REGIME = UNAVAILABLE. This is NOT a runtime dependency: reruns
+#    must not change results when repository files change.
 
-
-def index_artifact_search() -> dict[str, Any]:
-    """Bounded search for any market-index artifact (contract 2.2)."""
-    hits: list[str] = []
-    for d in INDEX_SEARCH_DIRS:
-        if not d.is_dir():
-            continue
-        for p in d.rglob("*"):
-            if p.is_file() and (
-                "index" in p.name.lower()
-                or "000001" in p.name
-                or "000300" in p.name
-            ):
-                hits.append(str(p.relative_to(REPO_ROOT)))
-    return {"index_artifact_hits": hits}
+# NOTE: legacy raw provider artifacts (tushare/akshare/baostock) may exist in
+# the repository, but are EXCLUDED from the R4 V01.1 executable/statistical
+# lineage. The only non-frozen-cohort artifact read by this script is the
+# hash-pinned canonical limit_up_pool (manifest SHA 45faa1a2...).
 
 
 def build_t0_types(
@@ -267,8 +230,6 @@ def main() -> None:
     boards = board_composition(feat["symbol"])
     low = position_decomposition(feat)
     pool = pool_coverage(feat)
-    plim = price_limits_coverage(feat)
-    idx = index_artifact_search()
     t0types, n_ca = build_t0_types(feat)
     feat2 = feat.merge(t0types, on="episode_id", validate="1:1")
     t0_dist = feat2["t0_type"].value_counts().to_dict()
@@ -277,7 +238,7 @@ def main() -> None:
         {
             "target": "BOARD",
             "status": "DATA_LIMITED",
-            "artifact": "frozen case set + feature CSV (cohort composition)",
+            "artifact": "frozen feature cohort (deterministic)",
             "artifact_sha256": r3a.sha256_file(
                 REPO_ROOT / "research" / "intraday" / "success_control_cases_v01b.csv"
             ),
@@ -285,21 +246,27 @@ def main() -> None:
             "episode_coverage": f"main-board only: {boards}",
             "pit_status": "n/a (cohort property)",
             "missing_reason": (
-                "cohort 100% 10% limit main-board; pool 15d / price_limits "
-                "65 eps cannot add boards without frozen cohort change"
+                "frozen cohort 100% 10% limit main-board (SH 4244 / SZ 4438 / "
+                "other 0); hash-pinned canonical limit_up_pool (SHA "
+                "45faa1a2...) covers only 15 days and main-board codes; "
+                "extension requires frozen cohort change (forbidden)"
             ),
         },
         {
             "target": "STRICT_REGIME",
             "status": "UNAVAILABLE",
-            "artifact": "none found",
+            "artifact": "none found (pre-flight evidence, not runtime scan)",
             "artifact_sha256": "",
             "date_coverage": "",
             "episode_coverage": "",
             "pit_status": "formula pre-registered (000001.SH close vs MA60, PIT)",
             "missing_reason": (
-                "no index artifact in bounded search "
-                f"hits={idx['index_artifact_hits']}; temp fetch forbidden"
+                "pre-flight bounded inspection (roots: data/canonical, "
+                "data/raw/akshare|baostock|tushare, data/outcome-study, "
+                "data/manifests, research/, src/; identifiers: *index*, "
+                "*000001*, *000300*, sh./sz. code patterns, 上证指数/index "
+                "close/hs300 terms): no eligible PIT-safe index artifact; "
+                "temp fetch forbidden"
             ),
         },
         {

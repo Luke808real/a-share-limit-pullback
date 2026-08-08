@@ -183,3 +183,32 @@ def test_frozen_files_sha_match_pins():
 
     assert r3a.sha256_file(FEATURE_CSV) == r3a.EXPECTED_FEATURE_SHA256
     assert r3a.sha256_file(OUTCOME_CSV) == r3a.EXPECTED_OUTCOME_SHA256
+
+
+# ---- audit cleanup regression: frozen LOW count (strict < 1/3) ----
+
+
+def test_frozen_low_position_counts():
+    """Frozen-data regression: LOW(<1/3) = 276 / nonmissing 7,232 /
+    missing 1,450 = CA_UNKNOWN 737 + CA_EVENT 713."""
+    feat = pd.read_csv(r3a.FEATURE_CSV, dtype={"symbol": str})
+    d = r4v11.position_decomposition(feat)
+    assert d["low_n"] == 276
+    assert d["nonmissing_n"] == 7232
+    assert d["missing_n"] == 1450
+    assert d["missing_CA_UNKNOWN"] == 737
+    assert d["missing_CA_EVENT"] == 713
+    assert d["low_share_of_nonmissing"] == 0.0382
+    assert d["total_n"] == 8682
+
+
+# ---- audit cleanup regression: no legacy raw-provider / dynamic-scan path ----
+
+
+def test_legacy_provider_and_dynamic_scan_not_in_lineage():
+    """R4 V01.1 executable lineage must not depend on legacy raw providers
+    or on a dynamic repository index scan."""
+    assert not hasattr(r4v11, "PRICE_LIMITS_GLOB")
+    assert not hasattr(r4v11, "price_limits_coverage")
+    assert not hasattr(r4v11, "INDEX_SEARCH_DIRS")
+    assert not hasattr(r4v11, "index_artifact_search")

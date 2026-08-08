@@ -32,20 +32,31 @@ TradePlan 修改、ML/回测/参数寻优、修改 frozen SUCCESS/outcome 定义
   frozen feature CSV 同（8,682 行，SH_MAIN 4,244 / SZ_MAIN 4,438）
   历史涨停池：canonical limit_up_pool 仅 2026-07-13..07-31（15 日，
   且只含 10% 主板代码）-> 无法覆盖 2024-07..2026-06 cohort
-  price_limits（raw tushare，ingest 50ed7fb2…，624 日）仅 72 个
-  600 前缀代码 -> episode 覆盖 65/8,682 = 0.7%
 结论：不改变 frozen cohort/anchor 定义则无法增加板块 episode；
   扩 cohort 属 R-未来冻结决策，本任务禁止。
 判定：BOARD = DATA_LIMITED（>=3 reportable 规则无法满足，
   且"两块主板一致"不得升级为 STABLE）
+lineage 注：legacy raw provider artifacts（tushare/akshare/baostock）可能
+  存在于仓库，但被排除在 R4 V01.1 executable/statistical lineage 之外；
+  本脚本唯一读取的非 frozen-cohort artifact = hash-pin 的 canonical
+  limit_up_pool（manifest SHA 45faa1a2…）
 ```
 
 ### 2.2 STRICT REGIME（指数）— UNAVAILABLE
 
 ```text
-bounded search 范围（data/canonical、data/raw/**、data/outcome-study、
-  data/manifests、research/、src/）未发现任何指数 artifact
-  （无 000001.SH / sh.000001 / 沪深300 等代码或文件）。
+PRE-FLIGHT AVAILABILITY EVIDENCE（2026-08-08 冻结前完成的一次 bounded
+  repository/data inspection，不是 R4 statistical script 的运行时输入）：
+  实际搜索 roots：data/canonical、data/raw/akshare、data/raw/baostock、
+    data/raw/tushare、data/outcome-study、data/manifests、research/、src/
+  搜索 identifiers / terms：文件名 *index* / *000001* / *000300*；
+    raw daily-bar parquet code 列的 '.' / sh. / sz. 代码模式；
+    research/ 与 src/ 中文本 上证指数 / index close / hs300
+  RESULT：未发现任何符合 provenance/PIT 的指数 artifact
+  （无 000001.SH / sh.000001 / 沪深300 等代码或文件）
+因此 STRICT_REGIME = UNAVAILABLE。该结论是冻结时的一次性证据；
+  R4 script 重跑不得因仓库未来新增文件而改变既有结果
+  （脚本不执行任何动态仓库扫描）。
 禁止临时抓取 / 新增 provider。
 公式（为未来 artifact 预注册，本任务不执行）：
   index = 上证指数 000001.SH daily close（需独立 provenance artifact）
@@ -64,7 +75,7 @@ bounded search 范围（data/canonical、data/raw/**、data/outcome-study、
     + CORPORATE_ACTION_EVENT 713（全部为 CA 契约原因，无其他原因）
   非缺失分布：mean 0.811 / p25 0.645 / median 0.926 / p75 1.000
     -> cohort 锚点强烈右偏（强势启动多位于 20 日高位）
-  LOW(<1/3) N = 279（非缺失的 3.9%）；anchor 范围 2024-07-01..2026-07-27
+  LOW(<1/3 严格边界) N = 276（非缺失的 3.8%）；anchor 范围 2024-07-01..2026-07-27
     覆盖全期 -> 非时间窗口缺口，是自然样本稀少
   无额外 frozen cohort/feature artifact 可扩展（intraday case set 多出的
     64 行来自 corrected-episodes 66d5943f…，不属于 frozen 8,682 cohort，
