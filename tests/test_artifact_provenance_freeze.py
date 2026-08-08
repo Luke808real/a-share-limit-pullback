@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 import shutil
@@ -44,6 +45,16 @@ def _build(tmp_path, monkeypatch):
     return manifest, out, feature, label
 
 
+def _simulate_clean_source_generator_sha(mpath):
+    """Synthetic builds run on a dirty worktree; simulate clean-source semantics
+    by recording the COMMITTED generator blob SHA (as the CLI gate enforces)."""
+    m = json.loads(mpath.read_text(encoding="utf-8"))
+    blob = gen.git_blob_at_commit(m["generator_commit"], gen.GENERATOR_PATH)
+    m["generator_sha256"] = hashlib.sha256(blob).hexdigest()
+    mpath.write_text(json.dumps(m), encoding="utf-8")
+    return m
+
+
 def test_manifest_paths_are_repo_relative(tmp_path, monkeypatch):
     manifest, out, *_ = _build(tmp_path, monkeypatch)
     gen.validate_manifest_paths_portable(manifest)
@@ -83,6 +94,7 @@ def test_absolute_quarantine_path_rejected(tmp_path, monkeypatch):
 
 def test_artifact_csv_sha_verifies(tmp_path, monkeypatch):
     manifest, out, feature, label = _build(tmp_path, monkeypatch)
+    _simulate_clean_source_generator_sha(out / "manifest_v01b_reproducible.json")
     verified = gen.verify_interim_manifest_artifacts(
         manifest_path=out / "manifest_v01b_reproducible.json",
         feature_snapshot_path=feature,
@@ -121,16 +133,101 @@ def test_mutated_quarantine_fails_closed(tmp_path, monkeypatch):
 
 def test_mutated_generator_fails_closed(tmp_path, monkeypatch):
     manifest, out, feature, label = _build(tmp_path, monkeypatch)
-    generator_copy = tmp_path / "generator_mutated.py"
-    generator_copy.write_bytes(
-        (gen.REPO_ROOT / gen.GENERATOR_PATH).read_bytes() + b"\n# mutated\n"
-    )
-    with pytest.raises(RuntimeError, match="generator_sha256"):
+    # Point generator_commit at a valid commit whose generator blob DIFFERS
+    # (8a4890b = R1A.1 commit, generator content changed since) -> FAIL.
+    mpath = out / "manifest_v01b_reproducible.json"
+    m = json.loads(mpath.read_text(encoding="utf-8"))
+    m["generator_commit"] = "8a4890bcad13c150c793e294fdc6f980dbd1ccab"
+    mpath.write_text(json.dumps(m), encoding="utf-8")
+    with pytest.raises(RuntimeError, match="generator_sha256|committed generator"):
         gen.verify_interim_manifest_artifacts(
-            manifest_path=out / "manifest_v01b_reproducible.json",
-            generator_path=generator_copy,
+            manifest_path=mpath,
             feature_snapshot_path=feature,
             label_snapshot_path=label,
+        )
+
+
+def test_immutable_verify_passes_with_ancestor_generator_commit(tmp_path, monkeypatch):
+    """generator_commit = ancestor, HEAD = later commit => verify must PASS."""
+    manifest, out, feature, label = _build(tmp_path, monkeypatch)
+    ancestor = "307e75bcffd80b1a9c9762ad3be8aa8615b513b8"
+    assert gen._source_commit() != ancestor
+    mpath = out / "manifest_v01b_reproducible.json"
+    m = json.loads(mpath.read_text(encoding="utf-8"))
+    blob = gen.git_blob_at_commit(ancestor, gen.GENERATOR_PATH)
+    m["generator_commit"] = ancestor
+    m["generator_sha256"] = hashlib.sha256(blob).hexdigest()
+    mpath.write_text(json.dumps(m), encoding="utf-8")
+    verified = gen.verify_interim_manifest_artifacts(
+        manifest_path=mpath,
+        feature_snapshot_path=feature,
+        label_snapshot_path=label,
+    )
+    assert verified["generator_commit"] == ancestor
+
+
+def test_invalid_generator_commit_fails_closed(tmp_path, monkeypatch):
+    manifest, out, feature, label = _build(tmp_path, monkeypatch)
+    mpath = out / "manifest_v01b_reproducible.json"
+    m = json.loads(mpath.read_text(encoding="utf-8"))
+    m["generator_commit"] = "0" * 40
+    mpath.write_text(json.dumps(m), encoding="utf-8")
+    with pytest.raises(RuntimeError, match="committed generator blob missing"):
+        gen.verify_interim_manifest_artifacts(
+            manifest_path=mpath,
+            feature_snapshot_path=feature,
+            label_snapshot_path=label,
+        )
+
+
+def test_generator_path_missing_at_commit_fails_closed(tmp_path, monkeypatch):
+    manifest, out, feature, label = _build(tmp_path, monkeypatch)
+    # 0f08348f = base commit before the generator existed: valid commit, no path.
+    mpath = out / "manifest_v01b_reproducible.json"
+    m = json.loads(mpath.read_text(encoding="utf-8"))
+    m["generator_commit"] = "0f08348fd1fa7e04bdf468acc5516d6001e169b9"
+    mpath.write_text(json.dumps(m), encoding="utf-8")
+    with pytest.raises(RuntimeError, match="committed generator blob missing"):
+        gen.verify_interim_manifest_artifacts(
+            manifest_path=mpath,
+            feature_snapshot_path=feature,
+            label_snapshot_path=label,
+        )
+
+
+def test_tampered_generator_sha_fails_closed(tmp_path, monkeypatch):
+    manifest, out, feature, label = _build(tmp_path, monkeypatch)
+    mpath = out / "manifest_v01b_reproducible.json"
+    m = json.loads(mpath.read_text(encoding="utf-8"))
+    m["generator_sha256"] = "0" * 64
+    mpath.write_text(json.dumps(m), encoding="utf-8")
+    with pytest.raises(RuntimeError, match="generator_sha256|committed generator"):
+        gen.verify_interim_manifest_artifacts(
+            manifest_path=mpath,
+            feature_snapshot_path=feature,
+            label_snapshot_path=label,
+        )
+
+
+def test_worktree_mutation_does_not_break_immutable_verify(tmp_path, monkeypatch):
+    """Immutable verifier uses the committed blob; reproduction verifier fails."""
+    manifest, out, feature, label = _build(tmp_path, monkeypatch)
+    _simulate_clean_source_generator_sha(out / "manifest_v01b_reproducible.json")
+    mutated = tmp_path / "generator_mutated.py"
+    mutated.write_bytes(
+        (gen.REPO_ROOT / gen.GENERATOR_PATH).read_bytes() + b"\n# mutated\n"
+    )
+    # Immutable artifact verifier: unaffected by the worktree copy.
+    gen.verify_interim_manifest_artifacts(
+        manifest_path=out / "manifest_v01b_reproducible.json",
+        feature_snapshot_path=feature,
+        label_snapshot_path=label,
+    )
+    # Reproduction-environment verifier: the mutated generator fails.
+    with pytest.raises(RuntimeError, match="generator SHA"):
+        gen.verify_reproduction_environment(
+            manifest_path=out / "manifest_v01b_reproducible.json",
+            generator_path=mutated,
         )
 
 

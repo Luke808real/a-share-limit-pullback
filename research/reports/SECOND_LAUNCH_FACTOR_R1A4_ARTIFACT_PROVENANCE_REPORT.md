@@ -64,8 +64,9 @@ VERIFY_STATUS: PASS（verify_interim_manifest_artifacts 全项通过：
   另校验 generator_commit == 生成时 HEAD）
 ```
 
-发布语义：CSV 写 .tmp → 完整 close → 计算 SHA → manifest 写 .tmp（含 CSV SHA）→
-os.replace 双文件原子替换 → 清理 temp；manifest 存在 + 哈希验证成功 = published。
+发布语义：temp write → CSV atomic replace → manifest-last atomic replace →
+hash verification → mismatch fail closed（即 manifest-last, hash-verified
+publication；manifest 存在 + 哈希验证成功 = published）。
 
 ## CONTENT_STABILITY
 

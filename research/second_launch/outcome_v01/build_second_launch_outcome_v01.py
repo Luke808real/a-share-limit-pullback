@@ -525,6 +525,22 @@ def _source_commit() -> str:
     return result.stdout.strip()
 
 
+def git_blob_at_commit(commit: str, repo_relative_path: str) -> bytes:
+    """Read a committed blob; fail closed if commit or path is missing."""
+    result = subprocess.run(
+        ["git", "cat-file", "-p", f"{commit}:{repo_relative_path}"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            "committed generator blob missing (fail closed): "
+            f"{commit}:{repo_relative_path}"
+        )
+    return result.stdout
+
+
 def _repo_relative(path: Path) -> str:
     """Repo-relative POSIX path; fail closed for anything outside the repo."""
     try:
@@ -875,8 +891,10 @@ def build_interim_reproducible_package(
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
     try:
-        # Publication semantics: nothing is "published" until both files are
-        # atomically replaced AND the manifest hash fields are consistent.
+        # Publication semantics: manifest-last, hash-verified publication.
+        # temp write -> CSV atomic replace -> manifest-last atomic replace ->
+        # hash verification -> any mismatch fails closed. Nothing is published
+        # until both files are replaced AND the manifest hash fields verify.
         out_df.to_csv(csv_tmp, index=False)
         artifact_sha = sha256_file(csv_tmp)
         manifest["artifact_path"] = _repo_relative(csv_final)
@@ -897,14 +915,19 @@ def build_interim_reproducible_package(
 def verify_interim_manifest_artifacts(
     manifest_path: Path = INTERIM_MANIFEST_PATH,
     *,
-    generator_path: Path | None = None,
     feature_snapshot_path: Path = FEATURE_SNAPSHOT_PATH,
     label_snapshot_path: Path = LABEL_SNAPSHOT_PATH,
 ) -> dict[str, Any]:
-    """Verify every manifest hash against the actual files. FAIL CLOSED."""
+    """Immutable artifact integrity verification. FAIL CLOSED.
+
+    generator_commit is the exact committed source version that generated the
+    artifact; it is NOT required to equal the current HEAD. The verifier reads
+    the committed generator blob at <generator_commit>:<generator_path> and
+    compares its SHA-256 against manifest.generator_sha256 (never the current
+    working-tree generator).
+    """
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     validate_manifest_paths_portable(manifest)
-    generator_path = generator_path or (REPO_ROOT / GENERATOR_PATH)
     artifact_csv = REPO_ROOT / manifest["artifact_path"]
     quarantine = REPO_ROOT / manifest["quarantine_path"]
     parent_case_set = REPO_ROOT / manifest["parent_case_set_path"]
@@ -912,7 +935,6 @@ def verify_interim_manifest_artifacts(
         ("artifact_sha256", artifact_csv, manifest["artifact_sha256"]),
         ("quarantine_sha256", quarantine, manifest["quarantine_sha256"]),
         ("parent_case_set_sha256", parent_case_set, manifest["parent_case_set_sha256"]),
-        ("generator_sha256", generator_path, manifest["generator_sha256"]),
         ("feature_snapshot_hash", feature_snapshot_path, manifest["feature_snapshot_hash"]),
         ("label_snapshot_hash", label_snapshot_path, manifest["label_snapshot_hash"]),
     ]
@@ -921,9 +943,40 @@ def verify_interim_manifest_artifacts(
             raise RuntimeError(
                 f"manifest verification FAILED (fail closed): {field} mismatch for {path}"
             )
+    committed_blob = git_blob_at_commit(
+        manifest["generator_commit"], manifest["generator_path"]
+    )
+    if hashlib.sha256(committed_blob).hexdigest() != manifest["generator_sha256"]:
+        raise RuntimeError(
+            "manifest verification FAILED (fail closed): committed generator "
+            f"blob SHA at {manifest['generator_commit']}:{manifest['generator_path']} "
+            "!= manifest.generator_sha256"
+        )
+    return manifest
+
+
+def verify_reproduction_environment(
+    manifest_path: Path = INTERIM_MANIFEST_PATH,
+    *,
+    generator_path: Path | None = None,
+) -> dict[str, Any]:
+    """Optional check: is this checkout the exact reproduction environment?
+
+    Requires HEAD == manifest.generator_commit AND the current generator file
+    SHA == manifest.generator_sha256. Kept separate from the immutable artifact
+    integrity verifier (which must NOT depend on the current worktree/HEAD).
+    """
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    generator_path = generator_path or (REPO_ROOT / GENERATOR_PATH)
     if manifest["generator_commit"] != _source_commit():
         raise RuntimeError(
-            "manifest verification FAILED (fail closed): generator_commit != git HEAD"
+            "reproduction environment mismatch (fail closed): "
+            f"HEAD={_source_commit()} != generator_commit={manifest['generator_commit']}"
+        )
+    if sha256_file(generator_path) != manifest["generator_sha256"]:
+        raise RuntimeError(
+            "reproduction environment mismatch (fail closed): "
+            "current generator SHA != manifest.generator_sha256"
         )
     return manifest
 
