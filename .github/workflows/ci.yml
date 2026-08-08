@@ -32,4 +32,5 @@ jobs:
             tests/test_r5a_benchmark_contract_v01.py \
             tests/test_r5b_benchmark_execution_v01.py \
             tests/test_r6a_incremental_contract_v01.py \
+            tests/test_r6b_incremental_execution_v01.py \
             -m "cloud_ci and not local_data"
