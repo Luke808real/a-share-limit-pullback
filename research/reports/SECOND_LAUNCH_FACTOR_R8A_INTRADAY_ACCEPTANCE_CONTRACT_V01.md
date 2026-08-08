@@ -224,6 +224,82 @@ compile PASS；tests/test_r8a_asl5m_readiness_v01.py 7 PASS
 全量回归 PASS；deterministic rerun PASS；git diff --check PASS
 ```
 
+# R8_ASL5M_SEED_FREEZE（2026-08-09 · bounded seed；DATA_FREEZE=true）
+
+## PROVENANCE_HYGIENE
+
+```text
+VFLASH_ASL_INTEGRATION_HEAD = 097fcb7（V Flash integration provenance，
+  不是 upstream ASL code SHA）
+R8_ASL_CANDIDATE_SHA = 04bd94936587b35cae55c833627260866d025184
+  （rootSunc/ashare-lake，detached exact SHA；不是 ASL_ACTIVE）
+```
+
+## ISOLATED_CHECKOUT / RESEARCH_LAKE
+
+```text
+ASL_REPO_PATH = /Users/luke808/AI/ashare-lake-r8-candidate
+  （clone @ 04bd949…，rev-parse 验证，worktree clean，未 pull/升级）
+R8_ASL_DATA_ROOT = /Users/luke808/AI/asl-r8-5m-lake（RESEARCH_ONLY；
+  NOT ASL_ACTIVE；NOT PRODUCTION）
+旧 /tmp/asl_phase1a|phase1b_lake 未动
+```
+
+## BOOTSTRAP / BACKFILL（有界）
+
+```text
+最小 bootstrap：init_phases = ["phase1_reference"]
+  （仅 instruments 7,399 + trading_calendar；无 daily backfill）
+请求集：r8a_asl5m_provenance_v01.csv -> 146 events（SUCCESS 43 /
+  FAILED_BREAKOUT 103）；UNIQUE_SYMBOL_N = 141（67 SH / 79 SZ，无 BJ）
+BACKFILL_START = 2026-06-04（MIN_EVENT_DATE 前一交易日）
+BACKFILL_END = 2026-07-30
+命令：asl backfill minute_bars_5m --start 2026-06-04 --end 2026-07-30
+  --symbols <141>（5m only；首 run 部分截断后重跑补齐；DATA_FREEZE=false 阶段）
+TDX 5m 视野（~491 交易日）覆盖本窗口。
+```
+
+## ASL_5M_SCHEMA / BAR_SEMANTICS / UNITS（真实数据验证）
+
+```text
+schema：symbol / trade_date / bar_time / frequency / open / high / low /
+  close / volume / amount / source / data_version / fetched_at
+  frequency = 5m；source = tdx_protocol；data_version = v1
+BAR_LABEL = RIGHT_LABELED_COMPLETED（真实数据验证）：
+  09:35..11:30 上午 24 bars；13:05..15:00 下午 24 bars；48 bars/全日
+  09:45 = 3 / 10:00 = 6 / 10:30 = 12 / 11:30 = 24（PASS）
+  unique(symbol, trade_date, bar_time) = 0 dup；时间严格递增；
+  无 13:00 phantom；无 off-session bars
+UNITS：volume = shares；amount = RMB（实测 5m 汇总 / canonical 日线
+  volume = 1.000、amount = 1.000；per-bar amount/volume 落在 [low, high]
+  价格区间内）-> VWAP_STATUS = READY
+```
+
+## DATASET_LOCK / COVERAGE
+
+```text
+dataset_lock_sha = 3914887a81908dfc6745c412a3f0406c3ba6a7ddc7e7e2902b0af0fb730add9a
+（40 partitions x 6,750 rows；total 270,000；partition 行数+sha256 全记录于
+  r8_asl5m_dataset_lock_v01.csv；raw bars 不提交 GitHub）
+COVERAGE（真实 frozen lake）：
+  TOTAL_EVENT_COHORT = 146；ASL_EVENT_DAY_FOUND_N = 146；
+  ASL_MORNING_COMPLETE_N = 146；SUCCESS_MORNING_COMPLETE_N = 43；
+  FAILED_BREAKOUT_MORNING_COMPLETE_N = 103；FULL_DAY_COMPLETE_N = 146；
+  MISSING = 0；INCOMPLETE_MORNING = 0；VWAP_READY_N = 146；
+  D1_CONTROL_READY_N = 141（2026-06-04 全 symbols；15 个缺失 symbol-day
+  为停牌，与 canonical 日线一致）
+```
+
+## HARD_R8B_GATE
+
+```text
+S1_PROVENANCE = PASS
+BAR_SEMANTICS = RIGHT_LABELED_VERIFIED
+SUCCESS_MORNING_COMPLETE_N = 43 >= 20；FAILED = 103 >= 20
+无重复 bars；无 checkpoint leakage；dataset frozen
+-> R8_CORE_DATA_STATUS = READY（VWAP 单独 READY；未执行任何 R8 attribution）
+```
+
 ## CONFIRM
 
 ```text
