@@ -8,6 +8,7 @@ no factor/score/threshold optimization, no strategy changes.
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 import sys
 from typing import Any
@@ -42,6 +43,13 @@ OUT_SENS = (
 CANONICAL_SNAPSHOT = (
     REPO_ROOT / "data" / "canonical" / "daily_bars"
     / "snap-2026-07-31-b5f84004de8a.parquet"
+)
+# Pinned from data/manifests/snap-2026-07-31-b5f84004de8a.json
+# canonical_file_hashes["canonical/daily_bars/snap-2026-07-31-b5f84004de8a.parquet"];
+# identical to build_second_launch_outcome_v01.EXPECTED_FEATURE_SNAPSHOT_SHA256.
+FEATURE_SNAPSHOT_ID = "snap-2026-07-31-b5f84004de8a"
+EXPECTED_FEATURE_SNAPSHOT_SHA256 = (
+    "e7243dee3bafe46e725e2b6ee884b07ac97a01c0705b41df0562d35019593514"
 )
 
 PRIMARY_FACTORS = [
@@ -130,20 +138,65 @@ def t0_gap_bucket(value: float) -> str | None:
 
 
 def direction_of(auc: float) -> str:
+    """sign(AUC - 0.5); exact 0.5 -> NEUTRAL (frozen contract section 4)."""
     if not np.isfinite(auc):
         return "UNKNOWN"
-    return "POSITIVE" if auc >= 0.5 else "NEGATIVE"
+    if auc > 0.5:
+        return "POSITIVE"
+    if auc < 0.5:
+        return "NEGATIVE"
+    return "NEUTRAL"
 
 
-def build_breadth_series(canonical_parquet: Path) -> pd.DataFrame:
-    """Market breadth per session from the canonical snapshot (contract 3.2).
+def sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def load_regime_snapshot(
+    path: Path,
+    expected_sha: str = EXPECTED_FEATURE_SNAPSHOT_SHA256,
+    expected_id: str = FEATURE_SNAPSHOT_ID,
+) -> pd.DataFrame:
+    """Immutable provenance gate for the regime canonical snapshot.
+
+    1. file SHA256 must equal the frozen pin (fail closed);
+    2. every row's dataset_snapshot_id must equal the frozen snapshot id.
+    """
+    if sha256_file(path) != expected_sha:
+        raise RuntimeError("regime canonical snapshot SHA mismatch (fail closed)")
+    df = pd.read_parquet(
+        path, columns=["trade_date", "pct_change", "dataset_snapshot_id"]
+    )
+    ids = set(df["dataset_snapshot_id"].astype(str).unique())
+    if ids != {expected_id}:
+        raise RuntimeError(
+            f"regime snapshot binding mismatch: {sorted(ids)} (fail closed)"
+        )
+    return df
+
+
+def verify_date_coverage(snapshot: pd.DataFrame, cand_min: Any, cand_max: Any) -> None:
+    """Snapshot session range must cover the cohort candidate-date range."""
+    sess_min = pd.to_datetime(snapshot["trade_date"]).dt.date.min()
+    sess_max = pd.to_datetime(snapshot["trade_date"]).dt.date.max()
+    if sess_min > cand_min or sess_max < cand_max:
+        raise RuntimeError(
+            f"regime snapshot date coverage {sess_min}..{sess_max} "
+            f"does not cover cohort {cand_min}..{cand_max} (fail closed)"
+        )
+
+
+def build_breadth_series(snapshot: pd.DataFrame) -> pd.DataFrame:
+    """Market breadth per session from a verified canonical snapshot (contract 3.2).
 
     breadth(s) = share of stocks with pct_change > 0 on session s;
     sessions with fewer than REGIME_MIN_STOCKS rows are dropped (fail closed).
     """
-    df = pd.read_parquet(
-        canonical_parquet, columns=["trade_date", "pct_change"]
-    )
+    df = snapshot
     pc = pd.to_numeric(df["pct_change"], errors="coerce")
     day = pd.to_datetime(df["trade_date"]).dt.date
     g = pd.DataFrame({"day": day, "up": pc.fillna(-1.0) > 0.0})
@@ -309,7 +362,12 @@ def dimension_verdict(
         return "DATA_LIMITED", float("nan"), 0, 0
     same = sum(1 for s in reportable if s["direction"] == global_dir)
     consistency = same / len(reportable)
-    opposite_n = len(reportable) - same
+    # NEUTRAL strata are evidence of neither direction: denominator only.
+    opposite_n = sum(
+        1 for s in reportable
+        if s["direction"] in ("POSITIVE", "NEGATIVE")
+        and s["direction"] != global_dir
+    )
     reversals = [
         s for s in reportable
         if s["direction"] != global_dir and s["effect"] >= MATERIAL_EFFECT
@@ -430,7 +488,9 @@ def main() -> None:
     )
 
     # ---- regime (PIT-safe breadth proxy; same canonical snapshot family) ----
-    breadth = build_breadth_series(CANONICAL_SNAPSHOT)
+    snapshot = load_regime_snapshot(CANONICAL_SNAPSHOT)
+    verify_date_coverage(snapshot, cand.min(), cand.max())
+    breadth = build_breadth_series(snapshot)
     reg_labels, reg_audit = regime_labels(breadth["breadth"])
     reg_by_day = cand.map(reg_labels)
     df["regime"] = reg_by_day.fillna("DATA_LIMITED")

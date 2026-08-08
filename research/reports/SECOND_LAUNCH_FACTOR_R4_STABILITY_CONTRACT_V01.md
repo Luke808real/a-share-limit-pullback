@@ -89,6 +89,13 @@ regime(D) = RISK_ON   if breadth(D) > median(breadth, 20 sessions < D)
 前置条件：D 之前至少 15 个有效 breadth 会话，否则该 D 标记 DATA_LIMITED
 数据源：与 feature 同一 canonical 快照族
   snap-2026-07-31-b5f84004de8a（仅使用 trade_date <= D 的行）
+  immutable gate（V01.1 修正，预注册）：
+    文件 SHA256 == e7243dee3bafe46e725e2b6ee884b07ac97a01c0705b41df0562d35019593514
+      （pin 自 data/manifests/snap-2026-07-31-b5f84004de8a.json
+        canonical_file_hashes[...]，与 outcome/extractor pin 相同）
+    全部行的 dataset_snapshot_id == snap-2026-07-31-b5f84004de8a
+    会话日期范围必须覆盖 cohort 的 candidate_date 范围
+  任一失败 -> FAIL CLOSED（RuntimeError，不输出结果）
 ```
 
 严格指数式 bull/bear regime（上证指数 close vs 60-session MA）需要独立
@@ -140,7 +147,10 @@ label/feature 扩展，例如历史期 limit_up_pool / consecutive_count）。
 Primary   : outcome_3d, SUCCESS vs KNOWN_NON_SUCCESS（UNKNOWN 排除）
 Sensitivity: outcome_5d（仅 PRIMARY 6 因子）
 指标      : binary AUC（R3A.1 同一实现，不翻转方向）
-direction = sign(AUC - 0.5)
+direction = sign(AUC - 0.5)（严格语义）
+  AUC > 0.5 -> POSITIVE；AUC < 0.5 -> NEGATIVE；AUC == 0.5（精确）-> NEUTRAL
+  NEUTRAL 层：effect = 0，计入 reportable 分母，不计入 same/opposite，
+  永不构成 material reversal
 effect    = |AUC - 0.5|
 空值      : factor NULL 按 R3A 语义排除（结构化 missing 不入列）
 层报告门槛 REPORTABLE：n_known >= 60 且 success_n >= 10 且 nonsuccess_n >= 10

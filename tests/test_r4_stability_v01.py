@@ -7,6 +7,7 @@ import sys
 
 import numpy as np
 import pandas as pd
+import pytest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -153,7 +154,7 @@ def _stratum(auc, reportable=True):
     return {
         "auc": auc,
         "effect": abs(auc - 0.5),
-        "direction": "POSITIVE" if auc >= 0.5 else "NEGATIVE",
+        "direction": r4.direction_of(auc),
         "reportable": reportable,
     }
 
@@ -276,3 +277,93 @@ def test_auc_direction_not_flipped():
     auc = r4.r3a.binary_auc(vals, labels)
     assert auc < 0.5
     assert r4.direction_of(auc) == "NEGATIVE"
+
+
+# ---- exact AUC == 0.5 direction semantics (strict sign(AUC - 0.5)) ----
+
+
+def test_direction_exact_0_5_is_neutral():
+    assert r4.direction_of(0.5) == "NEUTRAL"
+    assert r4.direction_of(0.5 + 1e-12) == "POSITIVE"
+    assert r4.direction_of(0.5 - 1e-12) == "NEGATIVE"
+    assert r4.direction_of(0.0) == "NEGATIVE"
+    assert r4.direction_of(1.0) == "POSITIVE"
+    assert r4.direction_of(float("nan")) == "UNKNOWN"
+
+
+def test_stratum_exact_0_5_neutral_effect_zero():
+    # all-equal values -> MWU at null -> AUC exactly 0.5
+    vals = [0.1] * 200
+    lbs = ["SUCCESS"] * 100 + ["NON"] * 100
+    df, known, labels = _frame_with_values(vals, lbs)
+    st = r4.stratum_stats(df, "factor", known, labels, np.ones(len(df), dtype=bool))
+    assert st["reportable"] is True
+    assert st["auc"] == 0.5
+    assert st["direction"] == "NEUTRAL"
+    assert st["effect"] == 0.0
+
+
+def test_verdict_neutral_stratum_counts_denominator_only():
+    # 3 POSITIVE + 1 exact-0.5 NEUTRAL -> consistency 0.75 -> MIXED (no UNSTABLE)
+    strata = [_stratum(0.58), _stratum(0.55), _stratum(0.53), _stratum(0.50)]
+    verdict, consistency, reversals, opposite = r4.dimension_verdict(
+        "POSITIVE", strata
+    )
+    assert verdict == "MIXED"
+    assert consistency == 0.75
+    assert reversals == 0 and opposite == 0
+
+
+def test_verdict_neutral_never_material_reversal():
+    # NEUTRAL must never count as a material reversal even vs NEGATIVE global
+    strata = [_stratum(0.42), _stratum(0.45), _stratum(0.40), _stratum(0.50)]
+    verdict, _, reversals, opposite = r4.dimension_verdict("NEGATIVE", strata)
+    # NEUTRAL sits in the denominator only -> consistency 0.75 -> MIXED,
+    # never UNSTABLE (no opposite stratum, no material reversal).
+    assert verdict == "MIXED"
+    assert reversals == 0 and opposite == 0
+
+
+# ---- regime snapshot immutable provenance / hash gate ----
+
+
+def _write_snapshot(tmp_path, rows, snapshot_id):
+    import pandas as pd
+
+    df = pd.DataFrame(rows)
+    df["dataset_snapshot_id"] = snapshot_id
+    p = tmp_path / "snap.parquet"
+    df.to_parquet(p, index=False)
+    return p, r4.sha256_file(p)
+
+
+def test_snapshot_gate_pass(tmp_path):
+    rows = {"trade_date": ["2024-01-02"], "pct_change": ["0.01"]}
+    p, sha = _write_snapshot(tmp_path, rows, "snap-x")
+    out = r4.load_regime_snapshot(p, expected_sha=sha, expected_id="snap-x")
+    assert len(out) == 1
+
+
+def test_snapshot_gate_hash_mismatch_fails(tmp_path):
+    rows = {"trade_date": ["2024-01-02"], "pct_change": ["0.01"]}
+    p, _ = _write_snapshot(tmp_path, rows, "snap-x")
+    with pytest.raises(RuntimeError, match="SHA mismatch"):
+        r4.load_regime_snapshot(p, expected_sha="0" * 64, expected_id="snap-x")
+
+
+def test_snapshot_gate_binding_mismatch_fails(tmp_path):
+    rows = {"trade_date": ["2024-01-02"], "pct_change": ["0.01"]}
+    p, sha = _write_snapshot(tmp_path, rows, "snap-x")
+    with pytest.raises(RuntimeError, match="binding mismatch"):
+        r4.load_regime_snapshot(p, expected_sha=sha, expected_id="snap-y")
+
+
+def test_snapshot_date_coverage_gate(tmp_path):
+    rows = {"trade_date": ["2024-01-02", "2024-06-30"], "pct_change": ["0.01", "-0.01"]}
+    p, sha = _write_snapshot(tmp_path, rows, "snap-x")
+    snap = r4.load_regime_snapshot(p, expected_sha=sha, expected_id="snap-x")
+    from datetime import date
+
+    r4.verify_date_coverage(snap, date(2024, 3, 1), date(2024, 6, 1))  # covered
+    with pytest.raises(RuntimeError, match="date coverage"):
+        r4.verify_date_coverage(snap, date(2024, 1, 1), date(2024, 7, 1))  # not covered

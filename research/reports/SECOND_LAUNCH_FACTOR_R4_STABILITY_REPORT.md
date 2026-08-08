@@ -227,3 +227,78 @@ research/reports/SECOND_LAUNCH_FACTOR_R4_STABILITY_REPORT.md（本报告）
 COMMIT: research: add r4 factor stability analysis v01
 PUSH: origin/research/second-launch-factor-r4-stability-v01
 ```
+
+---
+
+# R4.1 PATCH — direction NEUTRAL 语义 + regime snapshot immutable gate
+
+> 2026-08-08 · 审计补丁 · 不改研究结论
+
+## 1. AUC == 0.5 direction 语义（严格符合 frozen contract §4）
+
+```text
+修正前：direction_of(auc) = POSITIVE if auc >= 0.5 else NEGATIVE
+        （0.5 精确值被归为 POSITIVE，与 sign(AUC - 0.5) = 0 矛盾）
+修正后：AUC > 0.5 -> POSITIVE；AUC < 0.5 -> NEGATIVE；
+        AUC == 0.5（精确）-> NEUTRAL
+NEUTRAL 语义（契约已明确）：effect = 0；计入 reportable 分母；
+  不计入 same / opposite；永不构成 material reversal；
+  不得因此触发 UNSTABLE
+```
+
+同时修正 `dimension_verdict` 的 opposite 计数：NEUTRAL 层不再计入
+opposite（此前 `len(reportable) - same` 会把 NEUTRAL 误计为反向证据）。
+
+## 2. Regime canonical snapshot immutable provenance/hash gate
+
+```text
+gate 1（不可变哈希）: SHA256(snap-2026-07-31-b5f84004de8a.parquet)
+  == e7243dee3bafe46e725e2b6ee884b07ac97a01c0705b41df0562d35019593514
+  （pin 自 data/manifests/snap-2026-07-31-b5f84004de8a.json
+    canonical_file_hashes[...]；与 outcome/extractor 的
+    EXPECTED_FEATURE_SNAPSHOT_SHA256 相同值）
+gate 2（快照绑定）: 全部行 dataset_snapshot_id == snap-2026-07-31-b5f84004de8a
+gate 3（日期覆盖）: 快照会话范围必须覆盖 cohort candidate_date 范围
+任一失败 -> RuntimeError（FAIL CLOSED，不输出结果）
+```
+
+## 3. 新增 regression tests（test_r4_stability_v01.py：24 -> 32）
+
+```text
+test_direction_exact_0_5_is_neutral             （sign 语义 + 边界）
+test_stratum_exact_0_5_neutral_effect_zero      （全同值 -> AUC 精确 0.5）
+test_verdict_neutral_stratum_counts_denominator_only（NEUTRAL 只进分母）
+test_verdict_neutral_never_material_reversal    （NEUTRAL 不触发 UNSTABLE）
+test_snapshot_gate_pass / _hash_mismatch_fails / _binding_mismatch_fails
+test_snapshot_date_coverage_gate
+```
+
+## 4. Before / After 对比（patch 前后 PRIMARY 6 必须不变）
+
+```text
+r4_stability_global_3d.csv         : PRIMARY 6 字节级一致（0 行变化）
+r4_stability_strata_3d.csv         : PRIMARY 6 字节级一致
+r4_stability_verdicts_3d.csv       : PRIMARY 6 字节级一致
+r4_stability_sensitivity_5d.csv    : PRIMARY 6 字节级一致
+
+全量变化（唯一）：
+  t0_close_location（CONTROL / NO_GLOBAL_SIGNAL）
+    - 2026Q3 层 direction: POSITIVE -> NEUTRAL（AUC 精确 0.5）
+    - quarter consistency: 0.7778 -> 0.6667（同分母 9、same 6）
+    - quarter verdict: MIXED -> MIXED（不变）
+
+主结论不变：
+  F3 x4      OVERALL DATA_LIMITED（维度覆盖受限，非不稳定）
+  high_vs_pullback_high OVERALL UNSTABLE（quarter 维度）
+  close_vs_pullback_high OVERALL TIME_DEPENDENT（quarter 维度）
+  5D 敏感度与 3D 全部 SAME
+```
+
+## 5. 验证
+
+```text
+仅运行 R4 targeted tests + R4 script（按要求，未跑其他测试集）
+tests: 32 passed
+全脚本重跑: gate PASS（哈希 / 绑定 / 覆盖），输出确定（两次哈希一致）
+CONFIRM: STRATEGY/PRODUCTION/FORWARD/TRADEPLAN 均未改变
+```
