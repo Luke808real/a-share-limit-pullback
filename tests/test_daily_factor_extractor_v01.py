@@ -191,59 +191,61 @@ def test_t0_position_20d_window():
 
 
 def test_pre_t0_return_5d_intervals():
-    ds = dates(date(2026, 2, 2), 8)
-    closes = [2.0, 3.0, 4.0, 5.0, 6.0, 6.0, 9.0, 10.0]
+    ds = dates(date(2026, 2, 2), 9)
+    closes = [2.0, 3.0, 4.0, 5.0, 6.0, 6.0, 9.0, 10.0, 11.0]
     bars = make_bars("600000", [(d, 10, 11, 9, closes[i], 100, 10) for i, d in enumerate(ds)])
-    ctx = ctx_for(bars, i0=6, iD=7)
+    ctx = ctx_for(bars, i0=7, iD=8)
     res = ext.f_pre_t0_return_5d(ctx)
     # close(T0-1)=9, close(T0-6)=3 -> 9/3-1 = 2.0 (NOT close(T0-5)=6)
     assert value(res) == pytest.approx(2.0)
 
 
 def test_pre_t0_return_20d_intervals():
-    ds = dates(date(2026, 1, 2), 23)
-    closes = [1.0] + [2.0] * 20 + [3.0, 4.0]
+    ds = dates(date(2026, 1, 2), 24)
+    closes = [2.0, 1.0] + [2.0] * 20 + [3.0, 4.0]
     bars = make_bars("600000", [(d, 10, 11, 9, closes[i], 100, 10) for i, d in enumerate(ds)])
-    ctx = ctx_for(bars, i0=21, iD=22)
+    ctx = ctx_for(bars, i0=22, iD=23)
     res = ext.f_pre_t0_return_20d(ctx)
-    # close(T0-1)=close(20)=2.0, close(T0-21)=close(0)=1.0
+    # close(T0-1)=close(21)=3.0, close(T0-21)=close(1)=1.0
     assert value(res) == pytest.approx(2.0 / 1.0 - 1.0)
 
 
 def test_t0_volume_ratio_excludes_t0():
-    ds = dates(date(2026, 2, 2), 7)
-    vols = [10.0, 10.0, 10.0, 10.0, 10.0, 100.0, 10.0]
+    ds = dates(date(2026, 2, 2), 8)
+    vols = [10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 100.0, 10.0]
     bars = make_bars("600000", [(d, 10, 11, 9, 10.5, vols[i], 10) for i, d in enumerate(ds)])
-    ctx = ctx_for(bars, i0=5, iD=6)
+    ctx = ctx_for(bars, i0=6, iD=7)
     res = ext.f_t0_volume_ratio_5d(ctx)
     assert value(res) == pytest.approx(100.0 / 10.0)  # T0 (100) excluded from mean
 
 
 def test_max_drawdown_excludes_current_day_high():
-    ds = dates(date(2026, 3, 2), 4)
+    ds = dates(date(2026, 3, 2), 5)
     rows = [
-        (ds[0], 10, 10, 9.5, 10, 100, 10),   # T0 high=10
-        (ds[1], 10, 11, 9.0, 10, 100, 10),   # PB s1: high 11, low 9
-        (ds[2], 10, 12, 7.0, 10, 100, 10),   # PB s2: high 12, low 7
-        (ds[3], 10, 10, 9.5, 10, 100, 10),   # D: prior_peak=12 -> 9.5/12-1
+        (ds[0], 10, 10, 9.5, 10, 100, 10),   # predecessor
+        (ds[1], 10, 10, 9.5, 10, 100, 10),   # T0 high=10
+        (ds[2], 10, 11, 9.0, 10, 100, 10),   # PB s1: high 11, low 9
+        (ds[3], 10, 12, 7.0, 10, 100, 10),   # PB s2: high 12, low 7
+        (ds[4], 10, 10, 9.5, 10, 100, 10),   # D: prior_peak=12 -> 9.5/12-1
     ]
     bars = make_bars("600000", rows)
-    ctx = ctx_for(bars, i0=0, iD=3)
+    ctx = ctx_for(bars, i0=1, iD=4)
     res = ext.f_max_drawdown(ctx)
     # s2 prior_peak = max(10, 11) = 11 (NOT 12): dd2 = 7/11-1; D dd = 9.5/12-1
     assert value(res) == pytest.approx(7.0 / 11.0 - 1.0)
 
 
 def test_impulse_retention_identity():
-    ds = dates(date(2026, 3, 2), 4)
+    ds = dates(date(2026, 3, 2), 5)
     rows = [
-        (ds[0], 10, 11, 9.5, 10.8, 100, 10),
-        (ds[1], 10, 10.5, 9.2, 9.5, 100, 10),
-        (ds[2], 10, 10.2, 9.4, 9.8, 100, 10),
-        (ds[3], 10, 10.6, 9.8, 10.4, 100, 10),
+        (ds[0], 10, 10, 9.5, 10, 100, 10),
+        (ds[1], 10, 11, 9.5, 10.8, 100, 10),
+        (ds[2], 10, 10.5, 9.2, 9.5, 100, 10),
+        (ds[3], 10, 10.2, 9.4, 9.8, 100, 10),
+        (ds[4], 10, 10.6, 9.8, 10.4, 100, 10),
     ]
     bars = make_bars("600000", rows)
-    ctx = ctx_for(bars, i0=0, iD=3)
+    ctx = ctx_for(bars, i0=1, iD=4)
     imp = ext.f_impulse_retrace_ratio(ctx)
     ret = ext.f_t0_gain_retention(ctx)
     assert imp.value is not None and ret.value is not None
@@ -251,53 +253,66 @@ def test_impulse_retention_identity():
 
 
 def test_days_above_t0_mid_is_close_based():
-    ds = dates(date(2026, 3, 2), 3)
+    ds = dates(date(2026, 3, 2), 4)
     # T0 body mid = (10+11)/2 = 10.5
     rows = [
-        (ds[0], 10, 11, 9.5, 11, 100, 10),
-        (ds[1], 10, 10.8, 10.6, 10.4, 100, 10),  # low>=mid but close<mid
-        (ds[2], 10, 10.9, 10.2, 10.2, 100, 10),  # D
+        (ds[0], 10, 10, 9.5, 10, 100, 10),
+        (ds[1], 10, 11, 9.5, 11, 100, 10),
+        (ds[2], 10, 10.8, 10.6, 10.4, 100, 10),  # low>=mid but close<mid
+        (ds[3], 10, 10.9, 10.2, 10.2, 100, 10),  # D
     ]
     bars = make_bars("600000", rows)
-    ctx = ctx_for(bars, i0=0, iD=2)
+    ctx = ctx_for(bars, i0=1, iD=3)
     res = ext.f_days_above_t0_mid(ctx)
     assert res.value == 0  # close-based: neither PB close >= 10.5
 
 
 def test_volume_slope_min_sessions_and_positive_volume():
-    ds = dates(date(2026, 3, 2), 3)
-    rows = [(ds[0], 10, 11, 9, 10.5, 100, 10), (ds[1], 10, 11, 9, 10.5, 50, 10), (ds[2], 10, 11, 9, 10.5, 50, 10)]
+    ds = dates(date(2026, 3, 2), 4)
+    rows = [
+        (ds[0], 10, 10, 9, 10, 100, 10),
+        (ds[1], 10, 11, 9, 10.5, 100, 10),
+        (ds[2], 10, 11, 9, 10.5, 50, 10),
+        (ds[3], 10, 11, 9, 10.5, 50, 10),
+    ]
     bars = make_bars("600000", rows)
-    ctx1 = ctx_for(bars, i0=0, iD=1)  # only 1 PB session
+    ctx1 = ctx_for(bars, i0=1, iD=2)  # only 1 PB session
     assert ext.f_volume_slope(ctx1).missing_reason == ext.INSUFFICIENT_PULLBACK_SESSIONS
-    ctx2 = ctx_for(bars, i0=0, iD=2)  # 2 PB sessions, vol>0
+    ctx2 = ctx_for(bars, i0=1, iD=3)  # 2 PB sessions, vol>0
     res = ext.f_volume_slope(ctx2)
     assert res.value is not None
-    rows_bad = [(ds[0], 10, 11, 9, 10.5, 100, 10), (ds[1], 10, 11, 9, 10.5, 0, 10), (ds[2], 10, 11, 9, 10.5, 50, 10)]
-    ctx3 = ctx_for(make_bars("600000", rows_bad), i0=0, iD=2)
+    rows_bad = [
+        (ds[0], 10, 10, 9, 10, 100, 10),
+        (ds[1], 10, 11, 9, 10.5, 100, 10),
+        (ds[2], 10, 11, 9, 10.5, 0, 10),
+        (ds[3], 10, 11, 9, 10.5, 50, 10),
+    ]
+    ctx3 = ctx_for(make_bars("600000", rows_bad), i0=1, iD=3)
     assert ext.f_volume_slope(ctx3).missing_reason == ext.NONPOSITIVE_VOLUME
 
 
 def test_quiet_days_exact_lt_one_thresholds():
-    ds = dates(date(2026, 3, 2), 4)
+    ds = dates(date(2026, 3, 2), 5)
     rows = [
-        (ds[0], 10, 11, 9, 10.5, 100, 10),   # T0: range=(11-9)/10=0.2
-        (ds[1], 10, 11, 9.5, 10.5, 100, 10),  # vol ratio 1.0 (not <1) -> not quiet
-        (ds[2], 10, 10.6, 9.9, 10.5, 50, 10), # vol 0.5, range 0.07/0.2<1 -> quiet
-        (ds[3], 10, 11, 9, 10.5, 60, 10),     # D
+        (ds[0], 10, 10, 9, 10, 100, 10),      # predecessor
+        (ds[1], 10, 11, 9, 10.5, 100, 10),    # T0: range=(11-9)/10=0.2
+        (ds[2], 10, 11, 9.5, 10.5, 100, 10),  # vol ratio 1.0 (not <1) -> not quiet
+        (ds[3], 10, 10.6, 9.9, 10.5, 50, 10), # vol 0.5, range 0.07/0.2<1 -> quiet
+        (ds[4], 10, 11, 9, 10.5, 60, 10),     # D
     ]
     bars = make_bars("600000", rows)
-    ctx = ctx_for(bars, i0=0, iD=3)
+    ctx = ctx_for(bars, i0=1, iD=4)
     res = ext.f_quiet_days_n(ctx)
     assert res.value == 1  # exact boundary ratio 1.0 is NOT quiet
 
 
 def test_days_to_pullback_low_first_occurrence():
-    ds = dates(date(2026, 3, 2), 5)
-    lows = [10.0, 9.0, 8.0, 8.0, 9.0]
+    ds = dates(date(2026, 3, 2), 6)
+    lows = [10.0, 10.0, 9.0, 8.0, 8.0, 9.0]
     rows = [(ds[i], 10, 11, lows[i], 10.5, 100, 10) for i in range(5)]
+    rows = [(ds[i], 10, 11, lows[i], 10.5, 100, 10) for i in range(6)]
     bars = make_bars("600000", rows)
-    ctx = ctx_for(bars, i0=0, iD=4)
+    ctx = ctx_for(bars, i0=1, iD=5)
     res = ext.f_days_to_pullback_low(ctx)
     assert res.value == 2  # first offset of min LOW (offset 1-based from T0+1)
 
@@ -312,48 +327,49 @@ def test_days_to_pullback_low_first_occurrence():
     ],
 )
 def test_pullback_duration_frozen_examples(label, rows, expected):
-    ds = dates(date(2026, 3, 2), 7)
+    ds = dates(date(2026, 3, 2), 8)
     if label == "t0_peak":
-        highs = [10.0, 9.0, 9.5, 9.0, 9.2, 9.0, 9.1]  # T0 peak; D=T+4
-        iD = 4
+        highs = [9.0, 10.0, 9.0, 9.5, 9.0, 9.2, 9.0, 9.1]  # [pre, T0 peak]; D=T+4
+        iD = 5
     elif label == "t2_new_high":
-        highs = [10.0, 9.0, 11.0, 9.5, 9.6, 9.4]  # T+2 new high; D=T+5
-        iD = 5
+        highs = [9.0, 10.0, 9.0, 11.0, 9.5, 9.6, 9.4]  # [pre, T0]; T+2 new high; D=T+5
+        iD = 6
     elif label == "t3_tie":
-        highs = [10.0, 9.0, 9.5, 10.0, 9.6, 9.4]  # T+3 ties T0 high; D=T+5
-        iD = 5
+        highs = [9.0, 10.0, 9.0, 9.5, 10.0, 9.6, 9.4]  # [pre, T0]; T+3 ties; D=T+5
+        iD = 6
     else:  # d_t1
         highs = [9.0, 10.0, 9.5]  # [predecessor, T0 peak, D]; D=T+1, empty PRE_D
         iD = 2
     rows = [(ds[i], 10, highs[i], 9, 10.5, 100, 10) for i in range(len(highs))]
     bars = make_bars("600000", rows)
-    i0 = 1 if label == "d_t1" else 0
+    i0 = 1
     ctx = ctx_for(bars, i0=i0, iD=iD)
     res = ext.f_pullback_duration(ctx)
     assert res.value == expected
 
 
 def test_f6_reference_excludes_d():
-    ds = dates(date(2026, 3, 2), 5)
+    ds = dates(date(2026, 3, 2), 6)
     rows = [
-        (ds[0], 10, 10, 9, 10, 100, 10),
-        (ds[1], 10, 10.5, 9.5, 10.2, 100, 10),
-        (ds[2], 10, 10.3, 9.6, 10.1, 100, 10),
-        (ds[3], 10, 10.4, 9.7, 10.3, 100, 10),
-        (ds[4], 10, 50.0, 9.8, 49.0, 100, 10),  # D huge high/close
+        (ds[0], 10, 10, 9, 10, 100, 10),       # predecessor
+        (ds[1], 10, 10, 9, 10, 100, 10),       # T0
+        (ds[2], 10, 10.5, 9.5, 10.2, 100, 10),
+        (ds[3], 10, 10.3, 9.6, 10.1, 100, 10),
+        (ds[4], 10, 10.4, 9.7, 10.3, 100, 10),
+        (ds[5], 10, 50.0, 9.8, 49.0, 100, 10),  # D huge high/close
     ]
     bars = make_bars("600000", rows)
-    ctx = ctx_for(bars, i0=0, iD=4)
+    ctx = ctx_for(bars, i0=1, iD=5)
     res = ext.f_close_vs_pullback_high(ctx)
     # reference = max(10.5, 10.3, 10.4) = 10.5; D close 49
     assert value(res) == pytest.approx(49.0 / 10.5 - 1.0)
 
 
 def test_f6_empty_pre_d():
-    ds = dates(date(2026, 3, 2), 2)
-    rows = [(ds[0], 10, 10, 9, 10, 100, 10), (ds[1], 10, 11, 9, 10.5, 100, 10)]
+    ds = dates(date(2026, 3, 2), 3)
+    rows = [(ds[0], 10, 10, 9, 10, 100, 10), (ds[1], 10, 10, 9, 10, 100, 10), (ds[2], 10, 11, 9, 10.5, 100, 10)]
     bars = make_bars("600000", rows)
-    ctx = ctx_for(bars, i0=0, iD=1)
+    ctx = ctx_for(bars, i0=1, iD=2)
     assert ext.f_high_vs_pullback_high(ctx).missing_reason == ext.EMPTY_PULLBACK_WINDOW
     assert ext.f_close_vs_pullback_high(ctx).missing_reason == ext.EMPTY_PULLBACK_WINDOW
 
@@ -375,3 +391,56 @@ def test_factor_result_invariant():
         ext.FactorResult(value=float("nan"))
     ok = ext.FactorResult(value=Decimal("0.5"))
     assert ok.missing_reason is None
+
+
+def test_ca_predecessor_outside_history_unknown():
+    """T0 at snapshot session 0: predecessor session does not exist ->
+    PB-window factors must be CORPORATE_ACTION_UNKNOWN (fail closed)."""
+    ds = dates(date(2026, 3, 2), 3)
+    rows = [
+        (ds[0], 10, 11, 9, 10.5, 100, 10),   # T0 (index 0, no predecessor)
+        (ds[1], 10, 10.5, 9.2, 9.5, 100, 10),
+        (ds[2], 10, 10.6, 9.8, 10.4, 100, 10),  # D
+    ]
+    bars = make_bars("600000", rows)
+    ctx = ctx_for(bars, i0=0, iD=2)
+    assert ext.f_pullback_depth_close(ctx).missing_reason == ext.CORPORATE_ACTION_UNKNOWN
+    # F6's required span starts at T0 (its predecessor is T0 itself, which
+    # exists at i0=0) -> CA guard passes; with PRE_D non-empty it computes.
+    assert ext.f_high_vs_pullback_high(ctx).missing_reason is None
+
+
+def test_pre_t0_predecessor_outside_history_unknown():
+    """#6 at exactly minimum history (i0=6): predecessor T0-7 missing ->
+    CORPORATE_ACTION_UNKNOWN."""
+    ds = dates(date(2026, 2, 2), 7)
+    closes = [2.0, 3.0, 4.0, 5.0, 6.0, 6.0, 9.0]
+    bars = make_bars("600000", [(d, 10, 11, 9, closes[i], 100, 10) for i, d in enumerate(ds)])
+    ctx = ctx_for(bars, i0=6, iD=6)
+    assert ext.f_pre_t0_return_5d(ctx).missing_reason == ext.CORPORATE_ACTION_UNKNOWN
+
+
+def test_t0_preclose_zero_denominator():
+    ds = dates(date(2026, 3, 2), 3)
+    rows = [
+        (ds[0], 10, 11, 9, 10.5, 100, 10),
+        (ds[1], 10, 11, 9, 10.5, 100, 0),   # T0 preclose = 0
+        (ds[2], 10, 11, 9, 10.5, 100, 10),
+    ]
+    bars = make_bars("600000", rows)
+    ctx = ctx_for(bars, i0=1, iD=2)
+    assert ext.f_t0_return(ctx).missing_reason == ext.ZERO_DENOMINATOR
+    assert ext.f_t0_range_pct(ctx).missing_reason == ext.ZERO_DENOMINATOR
+
+
+def test_pb_preclose_zero_denominator():
+    ds = dates(date(2026, 3, 2), 4)
+    rows = [
+        (ds[0], 10, 10, 9, 10, 100, 10),
+        (ds[1], 10, 11, 9, 10.5, 100, 10),
+        (ds[2], 10, 10.6, 9.9, 10.5, 100, 0),  # PB session preclose = 0
+        (ds[3], 10, 10.6, 9.9, 10.5, 100, 10),
+    ]
+    bars = make_bars("600000", rows)
+    ctx = ctx_for(bars, i0=1, iD=3)
+    assert ext.f_median_range_ratio(ctx).missing_reason == ext.ZERO_DENOMINATOR

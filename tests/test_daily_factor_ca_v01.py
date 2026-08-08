@@ -99,23 +99,25 @@ def test_ca_predecessor_left_edge_missing_is_unknown():
 
 
 def test_f18_f19_ca_event_null():
-    ds = dates(date(2026, 3, 2), 4)
+    ds = dates(date(2026, 3, 2), 5)
     rows = [
-        (ds[0], 10, 11, 9, 10.5, 100, 10),
-        (ds[1], 10, 11, 9, 10.5, 100, 10),
+        (ds[0], 10, 10, 9, 10, 100, 10),      # predecessor
+        (ds[1], 10, 11, 9, 10.5, 100, 10),    # T0
         (ds[2], 10, 11, 9, 10.5, 100, 10),
         (ds[3], 10, 11, 9, 10.5, 100, 10),
+        (ds[4], 10, 11, 9, 10.5, 100, 10),    # D
     ]
     bars = make_bars("600000", rows)
-    adj = {ds[0]: Decimal("1.0"), ds[1]: Decimal("0.8"), ds[2]: Decimal("0.8"), ds[3]: Decimal("0.8")}
+    adj = {ds[0]: Decimal("1.0"), ds[1]: Decimal("0.8"), ds[2]: Decimal("0.8"),
+           ds[3]: Decimal("0.8"), ds[4]: Decimal("0.8")}
     case = ext.FactorCaseContext(
-        episode_id="E:1", symbol="600000", name="", anchor_date=ds[0],
-        candidate_date=ds[3], s1_price="10", invalid_price="9",
+        episode_id="E:1", symbol="600000", name="", anchor_date=ds[1],
+        candidate_date=ds[4], s1_price="10", invalid_price="9",
         data_quality="OK", quality_flags="[]",
         candidate_reconciliation_status="CONFIRMED",
         feature_3d_has_provisional=False, label_5d_has_provisional=False,
     )
-    ctx = ext.FactorContext(case=case, bars=bars, i0=0, iD=3, adj={case.symbol: adj})
+    ctx = ext.FactorContext(case=case, bars=bars, i0=1, iD=4, adj={case.symbol: adj})
     assert ext.f_median_range_ratio(ctx).missing_reason == ext.CORPORATE_ACTION_EVENT
     assert ext.f_range_slope(ctx).missing_reason == ext.CORPORATE_ACTION_EVENT
 

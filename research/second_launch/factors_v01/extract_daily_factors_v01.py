@@ -12,7 +12,7 @@ in this round).
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 import glob
@@ -320,13 +320,19 @@ def ca_edges_status(
     return "OK"
 
 
-def ca_guard(
-    ctx: FactorContext,
-    required_observations: list[date],
-) -> str | None:
-    """Return missing reason for CA_UNSAFE factors; None when CA-OK."""
+def ca_guard(ctx: FactorContext, span_start: int, span_end: int) -> str | None:
+    """CA guard for CA_UNSAFE factors over the required observation span.
+
+    Required observations = comparison span + one immediately preceding
+    canonical session (to judge whether the span's first session is a CA
+    transition). If the predecessor lies outside available history
+    (span_start < 0), the edge is unevaluable -> CORPORATE_ACTION_UNKNOWN.
+    """
     if ctx.bars is None:
         return None  # bar-level missing handled by the factor itself
+    if span_start < 0:
+        return CORPORATE_ACTION_UNKNOWN
+    required_observations = _ca_obs_from_span(ctx, span_start, span_end)
     adj = ctx.adj.get(ctx.case.symbol, {})
     status = ca_edges_status(ctx.bars, required_observations, adj)
     if status == "CA_EVENT":
@@ -362,11 +368,6 @@ def _ca_obs_from_span(ctx: FactorContext, start: int, end: int) -> list[date]:
     return list(ctx.bars.iloc[lo:end + 1]["trade_date"])
 
 
-def _pb_factors_ca_obs(ctx: FactorContext) -> list[date]:
-    """PB-window factors: predecessor + {T0} ∪ PULLBACK_ASOF_D."""
-    return _ca_obs_from_span(ctx, ctx.i0 - 1, ctx.iD)
-
-
 # ---------------------------------------------------------------------------
 # The 25 formulas (contract order; no extra factors).
 # ---------------------------------------------------------------------------
@@ -378,9 +379,11 @@ def f_t0_return(ctx: FactorContext) -> FactorResult:
     b0 = ctx.bars.iloc[ctx.i0]
     if pd.isna(b0["preclose"]):
         return FactorResult(None, MISSING_PRECLOSE)
-    ca = ca_guard(ctx, _ca_obs_from_span(ctx, ctx.i0 - 1, ctx.i0))
+    ca = ca_guard(ctx, ctx.i0 - 1, ctx.i0)
     if ca:
         return FactorResult(None, ca)
+    if D(b0["preclose"]) <= 0:
+        return FactorResult(None, ZERO_DENOMINATOR)
     return FactorResult(D(b0["close"]) / D(b0["preclose"]) - 1)
 
 
@@ -391,9 +394,11 @@ def f_t0_gap(ctx: FactorContext) -> FactorResult:
     b0 = ctx.bars.iloc[ctx.i0]
     if pd.isna(b0["preclose"]):
         return FactorResult(None, MISSING_PRECLOSE)
-    ca = ca_guard(ctx, _ca_obs_from_span(ctx, ctx.i0 - 1, ctx.i0))
+    ca = ca_guard(ctx, ctx.i0 - 1, ctx.i0)
     if ca:
         return FactorResult(None, ca)
+    if D(b0["preclose"]) <= 0:
+        return FactorResult(None, ZERO_DENOMINATOR)
     return FactorResult(D(b0["open"]) / D(b0["preclose"]) - 1)
 
 
@@ -404,9 +409,11 @@ def f_t0_range_pct(ctx: FactorContext) -> FactorResult:
     b0 = ctx.bars.iloc[ctx.i0]
     if pd.isna(b0["preclose"]):
         return FactorResult(None, MISSING_PRECLOSE)
-    ca = ca_guard(ctx, _ca_obs_from_span(ctx, ctx.i0 - 1, ctx.i0))
+    ca = ca_guard(ctx, ctx.i0 - 1, ctx.i0)
     if ca:
         return FactorResult(None, ca)
+    if D(b0["preclose"]) <= 0:
+        return FactorResult(None, ZERO_DENOMINATOR)
     return FactorResult((D(b0["high"]) - D(b0["low"])) / D(b0["preclose"]))
 
 
@@ -428,7 +435,7 @@ def f_t0_position_20d(ctx: FactorContext) -> FactorResult:
         return FactorResult(None, r)
     if ctx.i0 < 19:
         return FactorResult(None, INSUFFICIENT_PRE_T0_HISTORY)
-    ca = ca_guard(ctx, _ca_obs_from_span(ctx, ctx.i0 - 20, ctx.i0))
+    ca = ca_guard(ctx, ctx.i0 - 20, ctx.i0)
     if ca:
         return FactorResult(None, ca)
     win = ctx.bars.iloc[ctx.i0 - 19:ctx.i0 + 1]
@@ -447,7 +454,7 @@ def f_pre_t0_return_5d(ctx: FactorContext) -> FactorResult:
         return FactorResult(None, r)
     if ctx.i0 < 6:
         return FactorResult(None, INSUFFICIENT_PRE_T0_HISTORY)
-    ca = ca_guard(ctx, _ca_obs_from_span(ctx, ctx.i0 - 7, ctx.i0 - 1))
+    ca = ca_guard(ctx, ctx.i0 - 7, ctx.i0 - 1)
     if ca:
         return FactorResult(None, ca)
     close_1 = D(ctx.bars.iloc[ctx.i0 - 1]["close"])
@@ -463,7 +470,7 @@ def f_pre_t0_return_20d(ctx: FactorContext) -> FactorResult:
         return FactorResult(None, r)
     if ctx.i0 < 21:
         return FactorResult(None, INSUFFICIENT_PRE_T0_HISTORY)
-    ca = ca_guard(ctx, _ca_obs_from_span(ctx, ctx.i0 - 22, ctx.i0 - 1))
+    ca = ca_guard(ctx, ctx.i0 - 22, ctx.i0 - 1)
     if ca:
         return FactorResult(None, ca)
     close_1 = D(ctx.bars.iloc[ctx.i0 - 1]["close"])
@@ -479,7 +486,7 @@ def f_t0_volume_ratio_5d(ctx: FactorContext) -> FactorResult:
         return FactorResult(None, r)
     if ctx.i0 < 5:
         return FactorResult(None, INSUFFICIENT_PRE_T0_HISTORY)
-    ca = ca_guard(ctx, _ca_obs_from_span(ctx, ctx.i0 - 6, ctx.i0 - 1))
+    ca = ca_guard(ctx, ctx.i0 - 6, ctx.i0 - 1)
     if ca:
         return FactorResult(None, ca)
     v0 = float(ctx.bars.iloc[ctx.i0]["volume"])
@@ -503,7 +510,7 @@ def f_pullback_depth_close(ctx: FactorContext) -> FactorResult:
     pb, r = _pb_window(ctx)
     if r:
         return FactorResult(None, r)
-    ca = ca_guard(ctx, _pb_factors_ca_obs(ctx))
+    ca = ca_guard(ctx, ctx.i0 - 1, ctx.iD)
     if ca:
         return FactorResult(None, ca)
     c0 = D(ctx.bars.iloc[ctx.i0]["close"])
@@ -514,7 +521,7 @@ def f_max_drawdown(ctx: FactorContext) -> FactorResult:
     pb, r = _pb_window(ctx)
     if r:
         return FactorResult(None, r)
-    ca = ca_guard(ctx, _pb_factors_ca_obs(ctx))
+    ca = ca_guard(ctx, ctx.i0 - 1, ctx.iD)
     if ca:
         return FactorResult(None, ca)
     peak = D(ctx.bars.iloc[ctx.i0]["high"])
@@ -531,7 +538,7 @@ def _impulse_retention_inputs(
     pb, r = _pb_window(ctx)
     if r:
         return r
-    ca = ca_guard(ctx, _pb_factors_ca_obs(ctx))
+    ca = ca_guard(ctx, ctx.i0 - 1, ctx.iD)
     if ca:
         return ca
     b0 = ctx.bars.iloc[ctx.i0]
@@ -563,7 +570,7 @@ def f_low_vs_t0_mid(ctx: FactorContext) -> FactorResult:
     pb, r = _pb_window(ctx)
     if r:
         return FactorResult(None, r)
-    ca = ca_guard(ctx, _pb_factors_ca_obs(ctx))
+    ca = ca_guard(ctx, ctx.i0 - 1, ctx.iD)
     if ca:
         return FactorResult(None, ca)
     b0 = ctx.bars.iloc[ctx.i0]
@@ -577,7 +584,7 @@ def f_days_above_t0_mid(ctx: FactorContext) -> FactorResult:
     pb, r = _pb_window(ctx)
     if r:
         return FactorResult(None, r)
-    ca = ca_guard(ctx, _pb_factors_ca_obs(ctx))
+    ca = ca_guard(ctx, ctx.i0 - 1, ctx.iD)
     if ca:
         return FactorResult(None, ca)
     b0 = ctx.bars.iloc[ctx.i0]
@@ -590,7 +597,7 @@ def _pb_volume_ratio(ctx: FactorContext, agg: str) -> FactorResult:
     pb, r = _pb_window(ctx)
     if r:
         return FactorResult(None, r)
-    ca = ca_guard(ctx, _pb_factors_ca_obs(ctx))
+    ca = ca_guard(ctx, ctx.i0 - 1, ctx.iD)
     if ca:
         return FactorResult(None, ca)
     v0 = float(ctx.bars.iloc[ctx.i0]["volume"])
@@ -615,7 +622,7 @@ def f_volume_slope(ctx: FactorContext) -> FactorResult:
         return FactorResult(None, r)
     if len(pb) < 2:
         return FactorResult(None, INSUFFICIENT_PULLBACK_SESSIONS)
-    ca = ca_guard(ctx, _pb_factors_ca_obs(ctx))
+    ca = ca_guard(ctx, ctx.i0 - 1, ctx.iD)
     if ca:
         return FactorResult(None, ca)
     v0 = float(ctx.bars.iloc[ctx.i0]["volume"])
@@ -633,9 +640,13 @@ def _pb_ranges(ctx: FactorContext) -> tuple[pd.Series | None, str | None]:
         return None, r
     if pb["preclose"].isna().any():
         return None, MISSING_PRECLOSE
+    if (pb["preclose"] <= 0).any():
+        return None, ZERO_DENOMINATOR
     b0 = ctx.bars.iloc[ctx.i0]
     if pd.isna(b0["preclose"]):
         return None, MISSING_PRECLOSE
+    if D(b0["preclose"]) <= 0:
+        return None, ZERO_DENOMINATOR
     t0_range = (D(b0["high"]) - D(b0["low"])) / D(b0["preclose"])
     if t0_range <= 0:
         return None, ZERO_DENOMINATOR
@@ -647,7 +658,7 @@ def _pb_ranges_guarded(ctx: FactorContext) -> tuple[pd.Series | None, str | None
     ranges, t0_range = _pb_ranges(ctx)
     if ranges is None:
         return None, t0_range
-    ca = ca_guard(ctx, _pb_factors_ca_obs(ctx))
+    ca = ca_guard(ctx, ctx.i0 - 1, ctx.iD)
     if ca:
         return None, ca
     return ranges, t0_range
@@ -675,7 +686,7 @@ def f_quiet_days_n(ctx: FactorContext) -> FactorResult:
     ranges, t0_range = _pb_ranges(ctx)
     if ranges is None:
         return FactorResult(None, t0_range)
-    ca = ca_guard(ctx, _pb_factors_ca_obs(ctx))
+    ca = ca_guard(ctx, ctx.i0 - 1, ctx.iD)
     if ca:
         return FactorResult(None, ca)
     v0 = float(ctx.bars.iloc[ctx.i0]["volume"])
@@ -701,7 +712,7 @@ def f_days_to_pullback_low(ctx: FactorContext) -> FactorResult:
     pb, r = _pb_window(ctx)
     if r:
         return FactorResult(None, r)
-    ca = ca_guard(ctx, _pb_factors_ca_obs(ctx))
+    ca = ca_guard(ctx, ctx.i0 - 1, ctx.iD)
     if ca:
         return FactorResult(None, ca)
     lows = pb["low"].astype(float)
@@ -714,7 +725,7 @@ def f_pullback_duration(ctx: FactorContext) -> FactorResult:
     r = _require_bars(ctx) or _t0_d_indices(ctx)
     if r:
         return FactorResult(None, r)
-    ca = ca_guard(ctx, _ca_obs_from_span(ctx, ctx.i0 - 1, ctx.iD - 1))
+    ca = ca_guard(ctx, ctx.i0 - 1, ctx.iD - 1)
     if ca:
         return FactorResult(None, ca)
     reference = ctx.bars.iloc[ctx.i0:ctx.iD]  # {T0} ∪ PULLBACK_PRE_D; D excluded
@@ -732,7 +743,7 @@ def _f6_reference(ctx: FactorContext) -> tuple[float | None, str | None]:
     pre_d = pullback_pre_d(ctx.bars, ctx.i0, ctx.iD)
     if len(pre_d) == 0:
         return None, EMPTY_PULLBACK_WINDOW
-    ca = ca_guard(ctx, _ca_obs_from_span(ctx, ctx.i0, ctx.iD))
+    ca = ca_guard(ctx, ctx.i0, ctx.iD)
     if ca:
         return None, ca
     ref = float(pre_d["high"].max())
@@ -886,11 +897,9 @@ def main() -> None:
     parser.add_argument("--episode-ids", nargs="*", default=None)
     parser.add_argument("--out", type=Path, default=None)
     parser.add_argument("--allow-full", action="store_true")
-    parser.add_argument("--skip-input-gate", action="store_true")
     args = parser.parse_args()
 
-    if not args.skip_input_gate:
-        run_input_gate()
+    run_input_gate()
     all_cases = load_cases()
     if args.codes:
         codes = {c.zfill(6) for c in args.codes}
