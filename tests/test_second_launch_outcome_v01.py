@@ -239,8 +239,10 @@ def test_right_censoring():
         {code: bars},
     )
     row = rows[0]
-    assert row["right_censored_5d"] is True
-    assert row["right_censored_10d"] is True
+    assert row["window_incomplete_5d"] is True
+    assert row["window_incomplete_10d"] is True
+    # No event observed within the truncated window -> event-time right censored.
+    assert row["first_event_right_censored_10d"] is True
     assert row["outcome_5d"] == "CENSORED"
 
 
@@ -281,7 +283,7 @@ def test_feature_and_label_snapshots_not_mixed():
     # 1500 >= 1000 (feature signal volume) => SUCCESS; using the label signal
     # volume (9000) would yield FAILED_EXPANSION instead.
     assert row["outcome_5d"] == "SUCCESS"
-    assert row["right_censored_5d"] is False
+    assert row["window_incomplete_5d"] is False
     assert row["feature_snapshot_id"] == gen.FEATURE_SNAPSHOT_ID
     assert row["label_snapshot_id_5d"] == gen.LABEL_SNAPSHOT_ID
 
@@ -324,3 +326,126 @@ def test_gate_fails_closed_on_blocked_case_set(tmp_path):
     assert not (tmp_dir / "second_launch_outcome_v01.csv").exists()
     # The provenance audit is still written (defect registration).
     assert (tmp_dir / "pattern_provenance_mismatch.csv").exists()
+
+
+def test_bounded_mode_is_isolated_from_full_artifacts(tmp_path):
+    """A bounded (--codes) run must not write or overwrite formal artifacts."""
+    real_out = gen.OUT_DIR
+    before = {
+        p.name: p.read_bytes()
+        for p in real_out.iterdir()
+        if p.is_file() and p.suffix in {".csv", ".json"}
+    }
+    manifest = gen.build_package(
+        out_dir=tmp_path,
+        codes_filter=set(GOLDEN_CODES),
+    )
+    assert manifest["mode"] == "BOUNDED"
+    # Bounded output only inside tmp_path/bounded.
+    bounded_files = list((tmp_path / "bounded").iterdir())
+    assert len(bounded_files) == 1
+    assert "second_launch_outcome_v01_codes" in bounded_files[0].name
+    for forbidden in [
+        "second_launch_outcome_v01.csv",
+        "manifest.json",
+        "pattern_provenance_mismatch.csv",
+        "case_provenance_conflicts_v01.csv",
+    ]:
+        assert not (tmp_path / forbidden).exists()
+    # The real formal directory is untouched.
+    after = {
+        p.name: p.read_bytes()
+        for p in real_out.iterdir()
+        if p.is_file() and p.suffix in {".csv", ".json"}
+    }
+    assert after == before
+
+
+def test_feature_snapshot_hash_pin_fail_closed(tmp_path, monkeypatch):
+    """A feature snapshot hash mismatch must fail closed before any output."""
+    monkeypatch.setattr(gen, "EXPECTED_FEATURE_SNAPSHOT_SHA256", "0" * 64)
+    with pytest.raises(RuntimeError, match="feature snapshot hash mismatch"):
+        gen.build_package(out_dir=tmp_path)
+    assert not (tmp_path / "manifest.json").exists()
+
+
+def test_label_snapshot_hash_pin_fail_closed(tmp_path, monkeypatch):
+    """A label snapshot hash mismatch must fail closed before any output."""
+    monkeypatch.setattr(gen, "EXPECTED_LABEL_SNAPSHOT_SHA256", "0" * 64)
+    with pytest.raises(RuntimeError, match="label snapshot hash mismatch"):
+        gen.build_package(out_dir=tmp_path)
+    assert not (tmp_path / "manifest.json").exists()
+
+
+def test_incomplete_window_with_observed_event_not_event_censored():
+    """8-session window + S1 at T+2: incomplete window, but event NOT censored."""
+    code = "600000"
+    cases = make_case(
+        "TEST:20260302:4",
+        code,
+        date(2026, 3, 2),
+        "10",
+        "9.5",
+        outcome="SUCCESS",
+        outcome_reason="S1 first + close>=S1 + volume>=signal-day volume",
+    )
+    feature_bars = make_bars(
+        code,
+        [(date(2026, 3, 2), "10", "10", "10", "10", "100")],
+    )
+    label_bars = make_bars(
+        code,
+        [
+            (date(2026, 3, 3), "9.9", "9.9", "9.8", "9.9", "80"),
+            (date(2026, 3, 4), "10", "10.5", "9.9", "10.1", "150"),
+            (date(2026, 3, 5), "10", "10.2", "9.9", "10.0", "120"),
+            (date(2026, 3, 6), "10", "10.1", "9.9", "10.0", "110"),
+            (date(2026, 3, 9), "10", "10.0", "9.9", "10.0", "100"),
+            (date(2026, 3, 10), "10", "10.0", "9.9", "10.0", "90"),
+            (date(2026, 3, 11), "10", "10.0", "9.9", "10.0", "90"),
+            (date(2026, 3, 12), "10", "10.0", "9.9", "10.0", "90"),
+        ],
+    )
+    rows, _ = gen._build_rows(cases, {code: feature_bars}, {code: label_bars})
+    row = rows[0]
+    assert row["window_incomplete_10d"] is True
+    assert row["first_event_right_censored_10d"] is False
+    assert row["time_to_s1_10d"] == 2.0
+    assert row["outcome_5d"] == "SUCCESS"
+
+
+def test_incomplete_window_without_event_is_event_censored():
+    """8-session window + no event: incomplete window AND event-time censored."""
+    code = "600000"
+    cases = make_case(
+        "TEST:20260302:5",
+        code,
+        date(2026, 3, 2),
+        "10.5",
+        "9.5",
+        outcome="NO_LAUNCH",
+        outcome_reason="no S1 and no invalid touch within 3 sessions",
+    )
+    feature_bars = make_bars(
+        code,
+        [(date(2026, 3, 2), "10", "10", "10", "10", "100")],
+    )
+    label_bars = make_bars(
+        code,
+        [
+            (date(2026, 3, 3), "10", "10.2", "9.8", "10.1", "80"),
+            (date(2026, 3, 4), "10", "10.2", "9.8", "10.1", "80"),
+            (date(2026, 3, 5), "10", "10.2", "9.8", "10.1", "80"),
+            (date(2026, 3, 6), "10", "10.2", "9.8", "10.1", "80"),
+            (date(2026, 3, 9), "10", "10.2", "9.8", "10.1", "80"),
+            (date(2026, 3, 10), "10", "10.2", "9.8", "10.1", "80"),
+            (date(2026, 3, 11), "10", "10.2", "9.8", "10.1", "80"),
+            (date(2026, 3, 12), "10", "10.2", "9.8", "10.1", "80"),
+        ],
+    )
+    rows, _ = gen._build_rows(cases, {code: feature_bars}, {code: label_bars})
+    row = rows[0]
+    assert row["window_incomplete_10d"] is True
+    assert row["first_event_right_censored_10d"] is True
+    assert row["time_to_s1_10d"] is None
+    assert row["outcome_5d"] == "NO_LAUNCH"

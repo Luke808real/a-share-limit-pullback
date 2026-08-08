@@ -59,10 +59,20 @@ FEATURE_SNAPSHOT_ID = "snap-2026-07-31-b5f84004de8a"
 FEATURE_SNAPSHOT_PATH = (
     REPO_ROOT / "data" / "canonical" / "daily_bars" / f"{FEATURE_SNAPSHOT_ID}.parquet"
 )
+# Pinned from data/manifests/snap-2026-07-31-b5f84004de8a.json
+# canonical_file_hashes["canonical/daily_bars/snap-2026-07-31-b5f84004de8a.parquet"].
+EXPECTED_FEATURE_SNAPSHOT_SHA256 = (
+    "e7243dee3bafe46e725e2b6ee884b07ac97a01c0705b41df0562d35019593514"
+)
 
 LABEL_SNAPSHOT_ID = "snap-2026-08-06-e798f88ff67b"
 LABEL_SNAPSHOT_PATH = (
     REPO_ROOT / "data" / "canonical" / "daily_bars" / f"{LABEL_SNAPSHOT_ID}.parquet"
+)
+# Pinned from data/manifests/snap-2026-08-06-e798f88ff67b.json
+# canonical_file_hashes["canonical/daily_bars/snap-2026-08-06-e798f88ff67b.parquet"].
+EXPECTED_LABEL_SNAPSHOT_SHA256 = (
+    "7cc614bf4e1e7f91f34ed1a866827b3b70772a32ff5ff04a5ad67e205e23813e"
 )
 
 EPISODES_PATH = (
@@ -83,6 +93,8 @@ OUT_DIR = REPO_ROOT / "research" / "second_launch" / "outcome_v01"
 OUT_CSV_PATH = OUT_DIR / "second_launch_outcome_v01.csv"
 OUT_MANIFEST_PATH = OUT_DIR / "manifest.json"
 OUT_MISMATCH_PATH = OUT_DIR / "pattern_provenance_mismatch.csv"
+OUT_CONFLICTS_PATH = OUT_DIR / "case_provenance_conflicts_v01.csv"
+OUT_BOUNDED_DIR = OUT_DIR / "bounded"
 
 GENERATOR_PATH = "research/second_launch/outcome_v01/build_second_launch_outcome_v01.py"
 
@@ -103,8 +115,9 @@ OUTPUT_COLUMNS = [
     "time_to_invalid_10d",
     "first_event_type_10d",
     "first_event_date_10d",
-    "right_censored_5d",
-    "right_censored_10d",
+    "window_incomplete_5d",
+    "window_incomplete_10d",
+    "first_event_right_censored_10d",
     "feature_snapshot_id",
     "label_snapshot_id_5d",
     "s1_price",
@@ -376,12 +389,19 @@ def _build_rows(
             window_10d = future_window(lbars, cand, HORIZON_10D)
             pattern_10d = recompute_pattern(lbars, cand, HORIZON_10D, s1, invalid)
         label_5d = classify_outcome(pattern_5d, window_5d, s1, sig_volume, "5 sessions")
-        censored_5d = len(window_5d) < HORIZON_5D
+        window_incomplete_5d = len(window_5d) < HORIZON_5D
 
         # 10D event time (label snapshot; outcome_10d is not a target).
-        censored_10d = len(window_10d) < HORIZON_10D
+        window_incomplete_10d = len(window_10d) < HORIZON_10D
         time_s1, time_inv, first_type, first_date = first_event_times(
             window_10d, s1, invalid
+        )
+        # Event-time right censoring is a DIFFERENT concept from window
+        # incompleteness: only NONE (no observed event) within an incomplete
+        # window is right-censored. An observed S1/INVALID/AMBIGUOUS is a real
+        # event even if the window is truncated.
+        first_event_right_censored_10d = (
+            window_incomplete_10d and first_type == "NONE"
         )
         label_recompute[case["episode_id"]] = (
             pattern_5d.value,
@@ -403,8 +423,9 @@ def _build_rows(
                 "time_to_invalid_10d": time_inv,
                 "first_event_type_10d": first_type,
                 "first_event_date_10d": first_date,
-                "right_censored_5d": censored_5d,
-                "right_censored_10d": censored_10d,
+                "window_incomplete_5d": window_incomplete_5d,
+                "window_incomplete_10d": window_incomplete_10d,
+                "first_event_right_censored_10d": first_event_right_censored_10d,
                 "feature_snapshot_id": FEATURE_SNAPSHOT_ID,
                 "label_snapshot_id_5d": LABEL_SNAPSHOT_ID,
                 "s1_price": case["s1_price"],
@@ -487,6 +508,14 @@ def build_package(
         raise RuntimeError(f"feature snapshot missing: {feature_snapshot_path}")
     if not label_snapshot_path.exists():
         raise RuntimeError(f"label snapshot missing: {label_snapshot_path}")
+    if sha256_file(feature_snapshot_path) != EXPECTED_FEATURE_SNAPSHOT_SHA256:
+        raise RuntimeError(
+            f"feature snapshot hash mismatch (fail closed): {feature_snapshot_path}"
+        )
+    if sha256_file(label_snapshot_path) != EXPECTED_LABEL_SNAPSHOT_SHA256:
+        raise RuntimeError(
+            f"label snapshot hash mismatch (fail closed): {label_snapshot_path}"
+        )
 
     cases = load_case_set(
         case_set_path,
@@ -509,13 +538,15 @@ def build_package(
         if row["_gate_outcome_3d"] != row["outcome_3d"]
     ]
 
-    out_dir.mkdir(parents=True, exist_ok=True)
-    mismatch = pd.DataFrame(
-        _provenance_mismatch_rows(cases, episodes, label_recompute)
-    )
-    # The provenance audit is written regardless of the gate: it registers the
-    # episodes-vs-validated-bars defect even when the package is blocked.
-    mismatch.to_csv(out_dir / "pattern_provenance_mismatch.csv", index=False)
+    if codes_filter is None:
+        # Full mode only: formal audit artifacts.
+        out_dir.mkdir(parents=True, exist_ok=True)
+        mismatch = pd.DataFrame(
+            _provenance_mismatch_rows(cases, episodes, label_recompute)
+        )
+        # Written regardless of the gate: registers the episodes-vs-validated-bars
+        # defect even when the package is blocked.
+        mismatch.to_csv(out_dir / "pattern_provenance_mismatch.csv", index=False)
 
     if codes_filter is None:
         # Full-package mode: regression gate is mandatory before writing 5D.
@@ -529,29 +560,47 @@ def build_package(
         [{k: v for k, v in row.items() if k != "_gate_outcome_3d"} for row in rows],
         columns=OUTPUT_COLUMNS,
     )
-    out_df.to_csv(out_dir / out_csv_name(codes_filter), index=False)
-
-    manifest = {
-        "case_set_id": "SUCCESS_CONTROL_CASESET_V01B",
-        "case_set_sha256": sha256_file(case_set_path),
-        "feature_snapshot_id": FEATURE_SNAPSHOT_ID,
-        "feature_snapshot_hash": sha256_file(feature_snapshot_path),
-        "label_snapshot_id": LABEL_SNAPSHOT_ID,
-        "label_snapshot_hash": sha256_file(label_snapshot_path),
-        "source_commit": _source_commit(),
-        "row_count": len(out_df),
-        "outcome_3d_counts": {k: int(v) for k, v in out_df["outcome_3d"].value_counts().items()},
-        "outcome_5d_counts": {k: int(v) for k, v in out_df["outcome_5d"].value_counts().items()},
-        "censored_5d_n": int(out_df["right_censored_5d"].sum()),
-        "censored_10d_n": int(out_df["right_censored_10d"].sum()),
-        "gate_3d_mismatch_n": len(gate_mismatch),
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-        "generator_path": GENERATOR_PATH,
-    }
-    (out_dir / "manifest.json").write_text(
-        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    if codes_filter is None:
+        # Full mode: formal package outputs.
+        out_df.to_csv(out_dir / "second_launch_outcome_v01.csv", index=False)
+        manifest = {
+            "case_set_id": "SUCCESS_CONTROL_CASESET_V01B",
+            "case_set_sha256": sha256_file(case_set_path),
+            "feature_snapshot_id": FEATURE_SNAPSHOT_ID,
+            "feature_snapshot_hash": sha256_file(feature_snapshot_path),
+            "label_snapshot_id": LABEL_SNAPSHOT_ID,
+            "label_snapshot_hash": sha256_file(label_snapshot_path),
+            "source_commit": _source_commit(),
+            "row_count": len(out_df),
+            "outcome_3d_counts": {k: int(v) for k, v in out_df["outcome_3d"].value_counts().items()},
+            "outcome_5d_counts": {k: int(v) for k, v in out_df["outcome_5d"].value_counts().items()},
+            "window_incomplete_5d_n": int(out_df["window_incomplete_5d"].sum()),
+            "window_incomplete_10d_n": int(out_df["window_incomplete_10d"].sum()),
+            "first_event_right_censored_10d_n": int(
+                out_df["first_event_right_censored_10d"].sum()
+            ),
+            "gate_3d_mismatch_n": len(gate_mismatch),
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "generator_path": GENERATOR_PATH,
+        }
+        (out_dir / "manifest.json").write_text(
+            json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+    else:
+        # Bounded mode: fully isolated from formal artifacts.
+        bounded_dir = out_dir / "bounded"
+        bounded_dir.mkdir(parents=True, exist_ok=True)
+        out_df.to_csv(bounded_dir / out_csv_name(codes_filter), index=False)
+        manifest = {
+            "mode": "BOUNDED",
+            "case_set_id": "SUCCESS_CONTROL_CASESET_V01B",
+            "codes_filter": sorted(codes_filter),
+            "row_count": len(out_df),
+            "gate_3d_mismatch_n": len(gate_mismatch),
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "generator_path": GENERATOR_PATH,
+        }
     return manifest
 
 
