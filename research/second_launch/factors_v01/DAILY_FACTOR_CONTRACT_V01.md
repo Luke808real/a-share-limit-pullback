@@ -211,6 +211,40 @@ E. 25 个 factor 全部完成 CA 依赖分类（ca_class 列；见 CORPORATE_ACT
 F. #5/#7 解锁 → FROZEN_FOR_R2（CA 覆盖 FULL 89.8-89.9% / NONE 0；缺失 fail-closed NULL）
 ```
 
+## 12c. R1B.2 冻结决策汇总
+
+```text
+A. #18/#19 ca_class 修正：CA_SAFE_SAME_SESSION_GEOMETRY → CA_UNSAFE_CROSS_SESSION_PRICE
+   （range_i 依赖 PRECLOSE_i，ratio 依赖 #3 t0_range_pct → 非纯 same-session；
+    所需 comparison edges = {T0} ∪ PULLBACK_ASOF_D + predecessor；CA_EVENT/UNKNOWN → NULL）。
+    #4 保持 CA_SAFE_SAME_SESSION_GEOMETRY（公式不变）
+B. CA 语义 edge 化：CA_TRANSITION(s_prev -> s)，严格 canonical session predecessor；
+   禁止跨 missing session 比较；任一端缺 adj_factor → CA_UNKNOWN
+C. 左边界 predecessor 覆盖：跨 session factor 的 PRICE_OR_VOLUME_COMPARISON_SPAN +
+   前一个 session 必须被 CA coverage 覆盖（#5: T0-20..T0；#7: T0-22..T0-1）
+D. 缺失原因拆分：CORPORATE_ACTION_EVENT / CORPORATE_ACTION_UNKNOWN
+   （row-level missing reason 必用具体两类）
+E. #23 删除 EMPTY_PULLBACK_WINDOW（D=T+1、PRE_D 空 → peak=T0、duration=1 合法）
+F. R2 输入契约：25 factors / PRIMARY 24 / DERIVED_ALIAS 1 / BLOCKED 0；
+   结构化 NULL 允许（insufficient history / CA event / CA unknown / empty PRE_D /
+   denominator / session 要求）—— 25 FROZEN ≠ 每 case 25 个非 NULL value
+```
+
+## 14. R2 输入契约（冻结）
+
+```text
+FACTOR_CONTRACT_N = 25
+PRIMARY_N = 24
+DERIVED_ALIAS_N = 1（#11）
+BLOCKED_N = 0
+
+结构化 NULL 允许（非数据缺陷）：
+  - INSUFFICIENT_PRE_T0_HISTORY / INSUFFICIENT_PULLBACK_SESSIONS
+  - CORPORATE_ACTION_EVENT / CORPORATE_ACTION_UNKNOWN
+  - EMPTY_PULLBACK_WINDOW（#24/#25 无 PRE_D bar）
+  - ZERO_DENOMINATOR / NONPOSITIVE_VOLUME / MISSING_T0_BAR / MISSING_D_BAR
+```
+
 ## 13. #23 pullback_duration（R1B.1 冻结）
 
 ```text
@@ -222,7 +256,8 @@ pullback_duration = D_offset − PRE_D_PEAK_OFFSET
 语义：candidate day D 到来之前，距最近一次有效价格峰值已过多少 stock trading sessions
 T0 可以是 peak；D 绝不进入 peak reference
 示例：T0 最高、D=T+4 → 4；T+2 创新高、D=T+5 → 3；T+3 与旧高相同、D=T+5 → 2（last occurrence）
-无 T0/D bar → NULL（MISSING_T0_BAR / MISSING_D_BAR）
+empty PRE_D 合法：D=T+1 时 peak=T0、duration=1（R1B.2：无 EMPTY_PULLBACK_WINDOW，已删除该 reason）
+无 T0/D bar → NULL（MISSING_T0_BAR / MISSING_D_BAR）；D<=T0 → OTHER（contract violation）
 CA 政策：跨 session HIGH level → CA_UNSAFE_LEVEL_ORDERING（窗口 CA/unknown → NULL）
 ```
 
@@ -232,12 +267,17 @@ CA 政策：跨 session HIGH level → CA_UNSAFE_LEVEL_ORDERING（窗口 CA/unkn
 MISSING_REASON ∈ {
   MISSING_T0_BAR, MISSING_D_BAR, INSUFFICIENT_PRE_T0_HISTORY,
   EMPTY_PULLBACK_WINDOW, INSUFFICIENT_PULLBACK_SESSIONS,
-  ZERO_DENOMINATOR, NONPOSITIVE_VOLUME, CORPORATE_ACTION_UNSAFE,
+  ZERO_DENOMINATOR, NONPOSITIVE_VOLUME,
+  CORPORATE_ACTION_EVENT,      # deterministic adj-factor transition detected
+  CORPORATE_ACTION_UNKNOWN,    # required CA edge unevaluable (adj_factor missing)
   MISSING_PRECLOSE, MISSING_REQUIRED_COLUMN, OTHER
 }
 ```
 
-禁止填 0；`NULL + reason` 是唯一缺失表达。
+`CORPORATE_ACTION_UNSAFE` 仅作为 umbrella/documentation 类别保留；
+extractor 输出的 row-level missing reason 必须使用具体的
+`CORPORATE_ACTION_EVENT` / `CORPORATE_ACTION_UNKNOWN`（不把数据覆盖缺失与真实
+CA 事件混为一谈）。禁止填 0；`NULL + reason` 是唯一缺失表达。
 
 ## 10. Quality stratification（冻结，非 factor）
 

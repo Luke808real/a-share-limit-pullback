@@ -23,15 +23,37 @@ PRECLOSE_DIVERGENCE = AUDIT / SECONDARY_CONFIRMATION（非唯一 truth）
 ## 2. CA event 定义（冻结）
 
 ```text
-CA_EVENT(s) = adj_factor(s) != adj_factor(previous stock session of same code)
+CA_TRANSITION：对连续 canonical stock sessions s_prev -> s：
+  NO_CA       = adj_factor(s_prev) 与 adj_factor(s) 均存在 且相等
+  CA_EVENT    = adj_factor(s_prev) 与 adj_factor(s) 均存在 且不等
+  CA_UNKNOWN  = 任一端 adj_factor 缺失
 
 规则：
   - 比较为精确 decimal 比较（adj_factor 为 decimal128(28,10)，无浮点容差问题；
     若未来源精度变化需显式 tolerance，默认 0）
   - 同一 stock 首次观测到的 adj_factor 行不算 CA event
-  - 窗口内任一所需 session 缺少 adj_factor 行 => CA_UNKNOWN：
-    不得当作 no-CA，跨 session factor 一律 NULL（CORPORATE_ACTION_UNSAFE）
-  - 事件检测按该股自身 session 序（前一有数据的 session）
+  - **严格对齐 canonical stock session predecessor**：
+    禁止用“上一个有 adj_factor 的日期”跨过 missing session 比较
+  - 任一所需 edge 为 CA_UNKNOWN → 跨 session factor 一律 NULL
+    （CORPORATE_ACTION_UNKNOWN；不当作 no-CA）
+```
+
+## 2b. 左边界 predecessor 覆盖（R1B.2 冻结）
+
+每个跨 session factor 定义 `PRICE_OR_VOLUME_COMPARISON_SPAN`；
+CA coverage 至少覆盖 `comparison span + 一个紧邻的前一个 stock session`
+（仅用于判定 span 第一根 session 是否为 CA transition）：
+
+```text
+#5  span T0-19..T0      → coverage T0-20..T0
+#7  span T0-21..T0-1    → coverage T0-22..T0-1
+```
+
+重新实测（8,682 cases，动态重算，未硬编码旧值）：
+
+```text
+#5_CA_EDGE: FULL 7,766 / PARTIAL 916 / NONE 0
+#7_CA_EDGE: FULL 7,769 / PARTIAL 913 / NONE 0
 ```
 
 ## 3. R1B.1 实测事件交叉（research-case 所需日期，非全市场）
@@ -66,7 +88,7 @@ factor = NULL（fail closed），不推断。
 ```text
 CA_SAFE:                         #21 days_since_t0（纯 session 计数）
 CA_SAFE_SAME_SESSION_GEOMETRY:   #4 t0_close_location、#18 median_range_ratio、
-                                 #19 range_slope（同日内比值，不依赖前 session 尺度）
+                                 #19 range_slope
 CA_UNSAFE_CROSS_SESSION_PRICE:   #1 #2 #3 #6 #7 #9 #10 #11 #12 #13 #24 #25
                                  （跨 session 价格比值/收益；#24/#25 额外要求 D 自身
                                   非 CA event，否则机械假突破 → NULL）
@@ -79,11 +101,19 @@ CA_UNSAFE_CROSS_SESSION_VOLUME:  #8 #15 #16 #17 #20
                                   比较窗口内 CA event 或 CA unknown → NULL）
 ```
 
+**R1B.2 修正**：#18/#19 由 CA_SAFE_SAME_SESSION_GEOMETRY 改为
+`CA_UNSAFE_CROSS_SESSION_PRICE` —— range_i = (H_i−L_i)/PRECLOSE_i 依赖 PRECLOSE_i，
+且 ratio 以 #3 t0_range_pct 为基准，并非纯 same-session geometry；
+所需 comparison edges = {T0} ∪ PULLBACK_ASOF_D + predecessor；
+任一 edge CA_EVENT / CA_UNKNOWN → NULL。V01 中唯一 pure same-session geometry = #4。
+
 ## 6. V01 CA policy（冻结）
 
 ```text
-1. 窗口内任何 CA_EVENT 或 CA_UNKNOWN → 跨 session factor = NULL + CORPORATE_ACTION_UNSAFE
-2. same-session geometry（#4/#18/#19）不依赖 previous-session scale → CA_SAFE
+1. 所需 comparison edges 上任何 CA_EVENT 或 CA_UNKNOWN → 跨 session factor =
+   NULL + CORPORATE_ACTION_EVENT / CORPORATE_ACTION_UNKNOWN（row-level 用具体两类；
+   CORPORATE_ACTION_UNSAFE 仅作 umbrella 类别）
+2. same-session geometry（仅 #4）不依赖 previous-session scale → CA_SAFE
 3. 跨 session volume（#8/#15/#16/#17/#20）：share-scale 连续性未证明 → 同样 fail closed
 4. #24/#25：reference 窗口 CA 或 D 自身 CA → NULL
 5. 不构造 adjusted price series；不做数据修复
