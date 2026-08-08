@@ -1,0 +1,7 @@
+sample_family,predictor_a,predictor_b,correlation,condition_number
+CORE_LADDER,pullback_volume_ratio,min_volume_ratio,0.9571892438608394,7.448038006236788
+CORE_LADDER,pullback_volume_ratio,median_range_ratio,0.2920386466524554,7.448038006236788
+CORE_LADDER,pullback_volume_ratio,quiet_days_n,-0.3621122491599925,7.448038006236788
+CORE_LADDER,min_volume_ratio,median_range_ratio,0.27876224520748993,7.448038006236788
+CORE_LADDER,min_volume_ratio,quiet_days_n,-0.3969132306336241,7.448038006236788
+CORE_LADDER,median_range_ratio,quiet_days_n,-0.11394577727593651,7.448038006236788
