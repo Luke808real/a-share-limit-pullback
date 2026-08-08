@@ -27,7 +27,7 @@ from limit_pullback.models.trade_plan import (
     TradePlanConfig,
     TradePlanOutput,
 )
-from limit_pullback.screen.state import load_state, state_path
+from limit_pullback.screen.state import load_state
 from limit_pullback.screen.runner import _bars_prefix_hash, _digest
 from limit_pullback.screen.models import ScreenState
 from limit_pullback.strategy.math import calculate_indicators
@@ -38,13 +38,31 @@ from limit_pullback.strategy.structure import (
     select_support_cluster,
 )
 from limit_pullback.screen.canonical import FIXED_FETCHED_AT
+from limit_pullback.screen.generation import StatePointerError
 from limit_pullback.warehouse.layout import WarehouseLayout
 from limit_pullback.warehouse.metadata import WarehouseMetadata
+from limit_pullback.warehouse.snapshot import (
+    require_formally_usable_snapshot,
+    require_state_snapshot_usable,
+    snapshot_status_map,
+)
 
 
 ZERO = Decimal("0")
 ONE = Decimal("1")
 RATIO_QUANTUM = Decimal("0.0001")
+
+
+class StrategySemanticReviewPendingError(RuntimeError):
+    """Formal decision output is blocked until the B2 semantic review."""
+
+    code = "STRATEGY_SEMANTIC_REVIEW_PENDING"
+
+    def __init__(self) -> None:
+        super().__init__(
+            "STRATEGY_SEMANTIC_REVIEW_PENDING: "
+            "B2_CONFIRMED_LIFECYCLE_UNRESOLVED"
+        )
 
 
 def _git_head() -> str:
@@ -899,6 +917,7 @@ def build_trade_plan_output(
     trade_plan_config: TradePlanConfig | None = None,
     execution_config_hash: str | None = None,
     trade_calendar: Sequence[date] | None = None,
+    allow_decision_output: bool = False,
 ) -> TradePlanOutput:
     """Build the latest cross-section from persisted screen states.
 
@@ -914,6 +933,36 @@ def build_trade_plan_output(
         snapshot = metadata.snapshot_by_id(snapshot_id)
     if snapshot is None:
         raise ValueError(f"unknown snapshot: {snapshot_id}")
+    require_formally_usable_snapshot(snapshot)
+    with WarehouseMetadata(layout.duckdb_path, read_only=True) as metadata:
+        state_pointer = metadata.get_formal_state_pointer()
+        generation = (
+            metadata.state_generation_by_id(state_pointer)
+            if state_pointer is not None
+            else None
+        )
+    if state_pointer is None:
+        raise StatePointerError(
+            code="FORMAL_STATE_POINTER_MISSING",
+            detail="no ACTIVE state generation has been promoted",
+        )
+    if generation is None or generation["status"] != "ACTIVE":
+        raise StatePointerError(
+            code="FORMAL_STATE_POINTER_INVALID",
+            generation_id=state_pointer,
+            detail="pointer does not reference an ACTIVE generation",
+        )
+    if generation["snapshot_id"] != snapshot_id:
+        raise StatePointerError(
+            code="STATE_SNAPSHOT_POINTER_MISMATCH",
+            generation_id=state_pointer,
+            detail=(
+                f"generation snapshot={generation['snapshot_id']} != "
+                f"requested={snapshot_id}"
+            ),
+        )
+    if not allow_decision_output:
+        raise StrategySemanticReviewPendingError()
     if snapshot.as_of < as_of:
         raise ValueError(
             f"SNAPSHOT_AS_OF_BEFORE_REQUESTED: {snapshot.as_of} < {as_of}"
@@ -926,7 +975,13 @@ def build_trade_plan_output(
     watch_count = b1_prep_count = b1_ready_count = 0
     b2_ready_count = b2_confirmed_count = actionable_count = 0
     entry_room_none = invalid_count = price_above_buy_zone = 0
-    state_dir = layout.root / "screen" / "states"
+    state_dir = (
+        layout.root
+        / "screen"
+        / "generations"
+        / generation["generation_id"]
+        / "states"
+    )
     state_paths = tuple(
         sorted(
             path
@@ -935,18 +990,28 @@ def build_trade_plan_output(
         )
     )
     eligible_entries: list[tuple[str, ScreenState, StrategySignal]] = []
+    status_by_snapshot = snapshot_status_map(layout)
     for path in state_paths:
         code = path.stem
         try:
-            state = load_state(state_path(layout.root, code))
+            state = load_state(state_dir / f"{code}.json")
+        except Exception:
+            state = None
+        if state is not None:
+            require_state_snapshot_usable(
+                status_by_snapshot,
+                snapshot_id=state.snapshot_id,
+                as_of=state.last_processed_date,
+            )
+        try:
             signal = (
                 StrategySignal.model_validate_json(state.signal_json)
                 if state is not None
                 else None
             )
         except Exception:
-            state = None
             signal = None
+            state = None
         provenance_ok = (
             state is not None
             and signal is not None

@@ -131,6 +131,44 @@ def _previous_close_index(
     return indexed
 
 
+def preclose_continuity_issues(
+    candidate_rows: list[dict[str, Any]],
+    *,
+    previous_close_index: dict[tuple[str, date], Any],
+    provider_label: str = "provider",
+) -> list[ValidationIssue]:
+    """Shared PRECLOSE_CONTINUITY gate.
+
+    Used by both the published-snapshot validator and the ADR-008 staging
+    service so the continuity rule has exactly one implementation.
+    """
+
+    issues: list[ValidationIssue] = []
+    for row in candidate_rows:
+        code = str(row["code"])
+        previous_close = previous_close_index.get(
+            (code, row["trade_date"])
+        )
+        if previous_close is None:
+            continue
+        difference = abs(
+            Decimal(row["preclose"]) - Decimal(previous_close)
+        )
+        scale = max(
+            abs(Decimal(row["preclose"])),
+            abs(Decimal(previous_close)),
+        )
+        if difference > max(PRICE_TOLERANCE, PRICE_RELATIVE * scale):
+            issues.append(
+                _issue(
+                    "PRECLOSE_CONTINUITY",
+                    f"{code} {row['trade_date']} preclose vs "
+                    f"{provider_label} prior close mismatch",
+                )
+            )
+    return issues
+
+
 def data_validate(
     layout: WarehouseLayout,
     *,
@@ -260,33 +298,21 @@ def data_validate(
                 )
 
         for row in daily_rows:
-            code = str(row["code"])
             provider = str(row["selected_provider"])
             # Tushare daily.pre_close is adjusted for corporate actions, so it
             # is not required to equal the preceding raw close.  The other
             # daily providers retain the raw-close continuity check below.
             if provider == "TUSHARE":
                 continue
-            previous_close = previous_closes_by_provider.get(provider, {}).get(
-                (code, row["trade_date"])
-            )
-            if previous_close is None:
-                continue
-            difference = abs(
-                Decimal(row["preclose"]) - Decimal(previous_close)
-            )
-            scale = max(
-                abs(Decimal(row["preclose"])),
-                abs(Decimal(previous_close)),
-            )
-            if difference > max(PRICE_TOLERANCE, PRICE_RELATIVE * scale):
-                issues.append(
-                    _issue(
-                        "PRECLOSE_CONTINUITY",
-                        f"{code} {row['trade_date']} preclose vs "
-                        f"{provider} prior close mismatch",
-                    )
+            issues.extend(
+                preclose_continuity_issues(
+                    [row],
+                    previous_close_index=previous_closes_by_provider.get(
+                        provider, {}
+                    ),
+                    provider_label=provider,
                 )
+            )
 
         for row in pool_rows:
             if row["limit_price"] <= 0:

@@ -52,6 +52,7 @@ from limit_pullback.strategy.engine import evaluate_strategy
 from limit_pullback.trade_plan import build_trade_plan
 from limit_pullback.warehouse.layout import WarehouseLayout
 from limit_pullback.warehouse.metadata import WarehouseMetadata
+from limit_pullback.warehouse.snapshot import require_formally_usable_snapshot
 from limit_pullback.warehouse.models import SnapshotRecord
 from limit_pullback.warehouse.parquet import sha256_file
 
@@ -1161,14 +1162,30 @@ def relabel_frozen_episodes(
     return corrected, {"changed_episodes": changed}
 
 
-def _load_snapshot(layout: WarehouseLayout, snapshot_id: str) -> SnapshotRecord:
+def _load_snapshot(
+    layout: WarehouseLayout,
+    snapshot_id: str,
+    *,
+    allow_unusable_snapshot_for_forensics: bool = False,
+) -> SnapshotRecord:
+    """Load an explicit snapshot for research/audit use.
+
+    Default fails closed: ordinary research must not silently consume a
+    non-SCREEN_READY snapshot.  Explicit forensic audit may opt in.
+    """
+
     if not layout.duckdb_path.exists():
         raise ValueError("no dataset snapshot published")
     with WarehouseMetadata(layout.duckdb_path, read_only=True) as metadata:
         snapshot = metadata.snapshot_by_id(snapshot_id)
     if snapshot is None:
         raise ValueError(f"unknown snapshot: {snapshot_id}")
-    return snapshot
+    return require_formally_usable_snapshot(
+        snapshot,
+        allow_unusable_snapshot_for_forensics=(
+            allow_unusable_snapshot_for_forensics
+        ),
+    )
 
 
 def _replay_code(

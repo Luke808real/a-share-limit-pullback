@@ -25,6 +25,7 @@ def main() -> None:
     chunk_index = int(sys.argv[7])
     codes = json.loads(Path(sys.argv[8]).read_text(encoding="utf-8"))
     manifest_path = Path(sys.argv[9])
+    pool_mode = sys.argv[10] if len(sys.argv) > 10 else "formal"
     started = time.perf_counter()
     result = run_screen(
         layout=WarehouseLayout(data_root),
@@ -36,6 +37,7 @@ def main() -> None:
         config_path=config_path,
         strategy_commit=strategy_commit,
         manifest_path_override=manifest_path,
+        pool_debug=(pool_mode == "debug"),
     )
     elapsed = time.perf_counter() - started
     rows_spool = manifest_path.with_name(manifest_path.stem + ".rows.jsonl")

@@ -76,7 +76,13 @@ def _pool_rows(code: str, dates: list[date], rows: list[dict]) -> list[dict]:
     return pool
 
 
-def _build_warehouse(tmp_path, *, long_codes=("603318", "002640"), short_code="600199"):
+def _build_warehouse(
+    tmp_path,
+    *,
+    long_codes=("603318", "002640"),
+    short_code="600199",
+    snapshot_status="SCREEN_READY",
+):
     layout = WarehouseLayout(tmp_path / "data")
     dates = _weekdays(date(2026, 1, 5), 135)
     tushare: list[dict] = []
@@ -108,8 +114,16 @@ def _build_warehouse(tmp_path, *, long_codes=("603318", "002640"), short_code="6
         codes=[*long_codes, short_code],
         provider_set=fake,
         today=dates[-1],
+        snapshot_status=snapshot_status,
     )
     assert result.snapshot_id is not None
+    from limit_pullback.warehouse.metadata import WarehouseMetadata
+
+    with WarehouseMetadata(layout.duckdb_path) as metadata:
+        metadata.set_formal_pointer(
+            snapshot_id=result.snapshot_id,
+            validation_report_hash="test",
+        )
     return layout, dates, result.snapshot_id
 
 
@@ -262,6 +276,22 @@ def test_screen_incremental_after_update_only_advances_new_dates(tmp_path):
         provider_set=fake,
         today=new_date,
     )
+    # PR-A: update() publishes CURRENT; formal consumption requires an
+    # explicit promotion to SCREEN_READY (full promotion gate is PR-D).
+    from limit_pullback.warehouse.metadata import WarehouseMetadata
+
+    with WarehouseMetadata(layout.duckdb_path) as metadata:
+        latest = metadata.latest_snapshot()
+        assert latest is not None
+        metadata.set_snapshot_status(
+            snapshot_id=latest.snapshot_id,
+            status="SCREEN_READY",
+            reason="test promotion after update",
+        )
+        metadata.set_formal_pointer(
+            snapshot_id=latest.snapshot_id,
+            validation_report_hash="test",
+        )
     incremental = run_screen(layout=layout, as_of=new_date)
     assert incremental.reused is False
     long_code_days = sum(

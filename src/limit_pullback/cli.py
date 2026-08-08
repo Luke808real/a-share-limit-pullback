@@ -17,6 +17,12 @@ from limit_pullback.instruments import (
 from limit_pullback.warehouse.auth import TushareTokenError, redact
 from limit_pullback.warehouse.layout import WarehouseLayout, resolve_data_root
 from limit_pullback.warehouse.pipeline import PipelineError
+from limit_pullback.warehouse.snapshot import (
+    FormalPointerError,
+    SnapshotUsabilityError,
+)
+from limit_pullback.screen.generation import StatePointerError
+from limit_pullback.trade_plan import StrategySemanticReviewPendingError
 from limit_pullback.warehouse.tushare_provider import CapabilityUnavailable
 
 
@@ -441,6 +447,43 @@ def _print_error(exc: BaseException) -> None:
                 "type": "CapabilityUnavailable",
                 "code": exc.error_code,
                 "message": f"{exc.capability}: {exc.status}",
+            }
+        }
+    elif isinstance(exc, SnapshotUsabilityError):
+        error = {
+            "error": {
+                "type": "SnapshotUsabilityError",
+                "code": exc.code,
+                "message": str(exc),
+                "snapshot_id": exc.snapshot_id,
+                "snapshot_status": exc.snapshot_status,
+            }
+        }
+    elif isinstance(exc, FormalPointerError):
+        error = {
+            "error": {
+                "type": "FormalPointerError",
+                "code": exc.code,
+                "message": str(exc),
+                "snapshot_id": exc.snapshot_id,
+                "snapshot_status": exc.snapshot_status,
+            }
+        }
+    elif isinstance(exc, StatePointerError):
+        error = {
+            "error": {
+                "type": "StatePointerError",
+                "code": exc.code,
+                "message": str(exc),
+                "generation_id": exc.generation_id,
+            }
+        }
+    elif isinstance(exc, StrategySemanticReviewPendingError):
+        error = {
+            "error": {
+                "type": "StrategySemanticReviewPendingError",
+                "code": exc.code,
+                "message": str(exc),
             }
         }
     else:

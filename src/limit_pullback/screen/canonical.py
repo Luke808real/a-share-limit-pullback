@@ -7,6 +7,7 @@ limit-up pool dataset.
 
 from __future__ import annotations
 
+import os
 from datetime import date, datetime, time, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -25,7 +26,12 @@ from limit_pullback.providers.base import DailyBarProvider, LimitUpPoolProvider
 from limit_pullback.warehouse.layout import WarehouseLayout
 from limit_pullback.warehouse.metadata import WarehouseMetadata
 from limit_pullback.warehouse.models import SnapshotRecord
-from limit_pullback.warehouse.snapshot import read_snapshot_daily, read_snapshot_pool
+from limit_pullback.warehouse.snapshot import (
+    read_snapshot_daily,
+    read_snapshot_pool,
+    require_formally_usable_snapshot,
+    resolve_formal_screen_ready_snapshot,
+)
 
 FIXED_FETCHED_AT = datetime(2026, 7, 31, 23, 59, 59, tzinfo=timezone.utc)
 
@@ -161,6 +167,7 @@ def load_canonical_market(
     as_of: date | None = None,
     codes: Sequence[str] | None = None,
     stats: dict[str, Any] | None = None,
+    allow_unusable_snapshot_for_forensics: bool = False,
 ) -> CanonicalMarketData:
     """Load one immutable canonical snapshot; no network access."""
 
@@ -171,17 +178,14 @@ def load_canonical_market(
             snapshot = metadata.snapshot_by_id(snapshot_id)
             if snapshot is None:
                 raise ValueError(f"unknown snapshot: {snapshot_id}")
-        elif as_of is not None:
-            snapshot = metadata.resolve_snapshot(as_of)
-            if snapshot is None:
-                raise ValueError(
-                    f"no snapshot available for as_of {as_of}; "
-                    "pass an explicit --snapshot-id for later-published data"
-                )
         else:
-            snapshot = metadata.latest_snapshot()
-            if snapshot is None:
-                raise ValueError("no dataset snapshot published")
+            snapshot = resolve_formal_screen_ready_snapshot(metadata)
+        require_formally_usable_snapshot(
+            snapshot,
+            allow_unusable_snapshot_for_forensics=(
+                allow_unusable_snapshot_for_forensics
+            ),
+        )
         pool_rows = read_snapshot_pool(layout, snapshot)
 
     fetched_at = FIXED_FETCHED_AT
@@ -247,6 +251,7 @@ def load_canonical_metadata(
     *,
     snapshot_id: str | None = None,
     as_of: date | None = None,
+    allow_unusable_snapshot_for_forensics: bool = False,
 ):
     """Resolve snapshot and small pool metadata without materializing daily bars."""
 
@@ -257,17 +262,14 @@ def load_canonical_metadata(
             snapshot = metadata.snapshot_by_id(snapshot_id)
             if snapshot is None:
                 raise ValueError(f"unknown snapshot: {snapshot_id}")
-        elif as_of is not None:
-            snapshot = metadata.resolve_snapshot(as_of)
-            if snapshot is None:
-                raise ValueError(
-                    f"no snapshot available for as_of {as_of}; "
-                    "pass an explicit --snapshot-id for later-published data"
-                )
         else:
-            snapshot = metadata.latest_snapshot()
-            if snapshot is None:
-                raise ValueError("no dataset snapshot published")
+            snapshot = resolve_formal_screen_ready_snapshot(metadata)
+        require_formally_usable_snapshot(
+            snapshot,
+            allow_unusable_snapshot_for_forensics=(
+                allow_unusable_snapshot_for_forensics
+            ),
+        )
         pool_rows = read_snapshot_pool(layout, snapshot)
     fetched_at = FIXED_FETCHED_AT
     pool_records = tuple(
@@ -352,11 +354,55 @@ def iter_canonical_code_bars(
     as_of: date | None = None,
     fetched_at: datetime = FIXED_FETCHED_AT,
 ) -> Iterator[tuple[str, tuple[DailyBar, ...]]]:
-    """Single sequential Parquet pass yielding one code's bars at a time."""
+    """Yield each code's complete CONFIRMED bar history exactly once.
 
-    import pyarrow as pa
-    import pyarrow.compute as pc
-    import pyarrow.parquet as pq
+    The canonical parquet may store one code in multiple physically separated
+    blocks (history block + appended rows).  This reader never assumes code
+    contiguity: rows are merged through a memory-bounded ordered scan, sorted
+    by ``(code, trade_date)``, identical duplicates are deduplicated, and
+    conflicting duplicates fail closed.
+    """
+
+    current_code: str | None = None
+    current_bars: list[DailyBar] = []
+
+    def flush() -> Iterator[tuple[str, tuple[DailyBar, ...]]]:
+        nonlocal current_code, current_bars
+        if current_code is not None and current_bars:
+            yield current_code, tuple(current_bars)
+        current_code = None
+        current_bars = []
+
+    for row in _canonical_daily_row_stream(
+        layout,
+        snapshot,
+        codes=codes,
+        as_of=as_of,
+    ):
+        code = str(row["code"])
+        if current_code is not None and code != current_code:
+            yield from flush()
+        current_code = code
+        current_bars.append(_daily_bar_from_row(row, fetched_at=fetched_at))
+    yield from flush()
+
+
+def _canonical_daily_row_stream(
+    layout: WarehouseLayout,
+    snapshot: SnapshotRecord,
+    *,
+    codes: Sequence[str] | None = None,
+    as_of: date | None = None,
+) -> Iterator[dict[str, Any]]:
+    """Memory-bounded, globally ordered CONFIRMED daily row stream.
+
+    Uses DuckDB's external sort (bounded by 2GB) so the reader does not rely
+    on physical row contiguity.  Identical ``(code, trade_date)`` duplicates
+    are deduplicated; conflicting duplicates fail closed.
+    """
+
+    import duckdb
+    import re
 
     daily_rel = next(
         (
@@ -368,9 +414,7 @@ def iter_canonical_code_bars(
     )
     if daily_rel is None:
         return
-    path = layout.root / daily_rel
-    pf = pq.ParquetFile(path)
-    columns = [
+    columns = (
         "code",
         "trade_date",
         "open",
@@ -384,39 +428,87 @@ def iter_canonical_code_bars(
         "pct_change",
         "trade_status",
         "is_st",
+        "selected_provider",
         "reconciliation_status",
-    ]
-    requested = tuple(sorted(set(codes))) if codes else None
-    value_set = pa.array(requested) if requested else None
-    current_code: str | None = None
-    current_bars: list[DailyBar] = []
+        "source_row_hash",
+        "dataset_snapshot_id",
+    )
+    sql = (
+        f"SELECT {', '.join(columns)} FROM read_parquet(?) "
+        "WHERE reconciliation_status = 'CONFIRMED'"
+    )
+    params: list[Any] = [str(layout.root / daily_rel)]
+    if codes is not None:
+        normalized = tuple(str(code).zfill(6) for code in codes)
+        for code in normalized:
+            if not re.fullmatch(r"\d{6}", code):
+                raise ValueError(f"invalid canonical code: {code}")
+        sql += f" AND code IN ({','.join('?' for _ in normalized)})"
+        params.extend(normalized)
+    if as_of is not None:
+        sql += " AND trade_date <= CAST(? AS DATE)"
+        params.append(as_of.isoformat())
+    sql += " ORDER BY code, trade_date"
 
-    def flush() -> Iterator[tuple[str, tuple[DailyBar, ...]]]:
-        nonlocal current_code, current_bars
-        if current_code is not None and current_bars:
-            yield current_code, tuple(current_bars)
-        current_code = None
-        current_bars = []
-
-    for batch in pf.iter_batches(
-        columns=columns,
-        batch_size=4096,
-        use_threads=False,
-    ):
-        if value_set is not None:
-            batch = batch.filter(pc.is_in(batch["code"], value_set=value_set))
-        batch = batch.filter(
-            pc.equal(batch["reconciliation_status"], pa.scalar("CONFIRMED"))
+    con = duckdb.connect()
+    con.execute(
+        "SET threads='"
+        + os.environ.get("LIMIT_PULLBACK_CANONICAL_READER_THREADS", "4")
+        + "'"
+    )
+    con.execute("SET enable_progress_bar=false")
+    con.execute(
+        "SET memory_limit='"
+        + os.environ.get(
+            "LIMIT_PULLBACK_CANONICAL_READER_MEMORY_LIMIT",
+            "2GB",
         )
-        if as_of is not None:
-            batch = batch.filter(pc.less_equal(batch["trade_date"], pa.scalar(as_of)))
-        for row in batch.to_pylist():
-            code = str(row["code"])
-            if current_code is not None and code != current_code:
-                yield from flush()
-            current_code = code
-            current_bars.append(_daily_bar_from_row(row, fetched_at=fetched_at))
-    yield from flush()
+        + "'"
+    )
+    cursor = con.execute(sql, params)
+    field_names = [description[0] for description in cursor.description]
+    seen_key: tuple[str, date] | None = None
+    seen_row: dict[str, Any] | None = None
+    while True:
+        batch = cursor.fetchmany(20000)
+        if not batch:
+            break
+        for raw in batch:
+            row = dict(zip(field_names, raw, strict=True))
+            key = (str(row["code"]), row["trade_date"])
+            if key == seen_key:
+                if seen_row is not None and _canonical_row_content(row) != (
+                    _canonical_row_content(seen_row)
+                ):
+                    raise ValueError(
+                        "DUPLICATE_CANONICAL_ROW_CONFLICT:"
+                        f"{key[0]}:{key[1].isoformat()}"
+                    )
+                continue
+            seen_key = key
+            seen_row = row
+            yield row
+
+
+def _canonical_row_content(row: Mapping[str, Any]) -> tuple[Any, ...]:
+    keys = (
+        "open",
+        "high",
+        "low",
+        "close",
+        "preclose",
+        "volume",
+        "amount",
+        "turnover_rate",
+        "pct_change",
+        "trade_status",
+        "is_st",
+        "selected_provider",
+        "reconciliation_status",
+        "source_row_hash",
+        "dataset_snapshot_id",
+    )
+    return tuple(row.get(key) for key in keys)
 
 
 def canonical_universe_codes(
@@ -456,106 +548,51 @@ def _load_daily_bars_stream(
     fetched_at: datetime,
     stats: dict[str, Any] | None,
 ) -> dict[str, tuple[DailyBar, ...]]:
-    import pyarrow as pa
-    import pyarrow.compute as pc
-    import pyarrow.parquet as pq
+    """Load complete per-code bars using the contiguity-safe ordered stream."""
 
-    daily_rel = next(
-        (
-            key
-            for key in snapshot.canonical_file_hashes
-            if key.endswith("/daily_bars/" + snapshot.snapshot_id + ".parquet")
-        ),
-        None,
-    )
-    if daily_rel is None:
-        return {}
-    path = layout.root / daily_rel
-    pf = pq.ParquetFile(path)
-    code_index = pf.schema_arrow.names.index("code")
-    columns = [
-        "code",
-        "trade_date",
-        "open",
-        "high",
-        "low",
-        "close",
-        "preclose",
-        "volume",
-        "amount",
-        "turnover_rate",
-        "pct_change",
-        "trade_status",
-        "is_st",
-        "reconciliation_status",
-    ]
-    row_groups = list(range(pf.metadata.num_row_groups))
-    if codes is not None:
-        selected: list[int] = []
-        for index in row_groups:
-            row_group = pf.metadata.row_group(index)
-            column_stats = row_group.column(code_index).statistics
-            if column_stats is None or column_stats.min is None or column_stats.max is None:
-                selected.append(index)
-                continue
-            lo = str(column_stats.min)
-            hi = str(column_stats.max)
-            if any(lo <= code <= hi for code in codes):
-                selected.append(index)
-        row_groups = selected
-    value_set = pa.array(sorted(codes)) if codes is not None else None
     bars_by_code: dict[str, list[DailyBar]] = {}
     rows_read = 0
     rows_materialized = 0
-    for group in row_groups:
-        for batch in pf.iter_batches(
-            row_groups=[group],
-            columns=columns,
-            batch_size=4096,
-            use_threads=False,
-        ):
-            rows_read += batch.num_rows
-            if value_set is not None:
-                batch = batch.filter(pc.is_in(batch["code"], value_set=value_set))
-            batch = batch.filter(
-                pc.equal(batch["reconciliation_status"], pa.scalar("CONFIRMED"))
+    for row in _canonical_daily_row_stream(
+        layout,
+        snapshot,
+        codes=codes,
+        as_of=as_of,
+    ):
+        rows_read += 1
+        code = str(row["code"])
+        bars_by_code.setdefault(code, []).append(
+            DailyBar(
+                trade_date=row["trade_date"],
+                code=code,
+                open=Decimal(row["open"]),
+                high=Decimal(row["high"]),
+                low=Decimal(row["low"]),
+                close=Decimal(row["close"]),
+                preclose=Decimal(row["preclose"]),
+                volume=Decimal(row["volume"]),
+                amount=Decimal(row["amount"]),
+                turnover_rate=(
+                    Decimal(row["turnover_rate"])
+                    if row.get("turnover_rate") is not None
+                    else None
+                ),
+                pct_change=(
+                    Decimal(row["pct_change"])
+                    if row.get("pct_change") is not None
+                    else None
+                ),
+                trade_status=bool(row.get("trade_status", True)),
+                is_st=(
+                    bool(row["is_st"])
+                    if row.get("is_st") is not None
+                    else None
+                ),
+                source="CANONICAL_SCREEN",
+                fetched_at=fetched_at,
             )
-            if as_of is not None:
-                batch = batch.filter(pc.less_equal(batch["trade_date"], pa.scalar(as_of)))
-            for row in batch.to_pylist():
-                rows_materialized += 1
-                code = str(row["code"])
-                bars_by_code.setdefault(code, []).append(
-                    DailyBar(
-                        trade_date=row["trade_date"],
-                        code=code,
-                        open=Decimal(row["open"]),
-                        high=Decimal(row["high"]),
-                        low=Decimal(row["low"]),
-                        close=Decimal(row["close"]),
-                        preclose=Decimal(row["preclose"]),
-                        volume=Decimal(row["volume"]),
-                        amount=Decimal(row["amount"]),
-                        turnover_rate=(
-                            Decimal(row["turnover_rate"])
-                            if row.get("turnover_rate") is not None
-                            else None
-                        ),
-                        pct_change=(
-                            Decimal(row["pct_change"])
-                            if row.get("pct_change") is not None
-                            else None
-                        ),
-                        trade_status=bool(row.get("trade_status", True)),
-                        is_st=(
-                            bool(row["is_st"])
-                            if row.get("is_st") is not None
-                            else None
-                        ),
-                        source="CANONICAL_SCREEN",
-                        fetched_at=fetched_at,
-                    )
-                )
+        )
+        rows_materialized += 1
     if stats is not None:
         stats["rows_read"] = rows_read
         stats["rows_materialized"] = rows_materialized

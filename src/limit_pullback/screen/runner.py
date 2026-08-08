@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 from collections.abc import Callable, Sequence
+from concurrent.futures import ProcessPoolExecutor
 from datetime import date, datetime, time, timezone
 from pathlib import Path
 from typing import Any
@@ -16,18 +18,432 @@ from limit_pullback.models.replay import ReplayTimelineItem
 from limit_pullback.models.signal import StrategySignal
 from limit_pullback.screen.canonical import (
     CanonicalMarketData,
+    canonical_universe_codes,
     iter_canonical_code_bars,
     load_canonical_metadata,
 )
 from limit_pullback.screen.engine import derive_status, screen_code
 from limit_pullback.screen.models import ScreenRunResult
-from limit_pullback.screen.state import load_state, save_state, state_path
+from limit_pullback.screen.state import load_state, save_state
 from limit_pullback.screen.verify import (
     verify_rebuild_incremental,
     verify_single_stock_replay,
 )
 from limit_pullback.warehouse.layout import WarehouseLayout
+from limit_pullback.warehouse.metadata import WarehouseMetadata
 from limit_pullback.warehouse.parquet import sha256_file, write_json_atomic
+from limit_pullback.warehouse.snapshot import (
+    require_state_snapshot_usable,
+    snapshot_status_map,
+)
+
+
+class ScreenFailpointError(RuntimeError):
+    """Raised at requested screen state-write failpoints (fault injection)."""
+
+
+_SCREEN_FAILPOINT_STATE = {"saves": 0}
+
+
+def _raise_screen_failpoint(failpoint: str | None, path: Path | None) -> None:
+    if failpoint is None:
+        return
+    if failpoint == "after_all_states" and path is None:
+        raise ScreenFailpointError(failpoint)
+    if path is None:
+        return
+    _SCREEN_FAILPOINT_STATE["saves"] += 1
+    saves = _SCREEN_FAILPOINT_STATE["saves"]
+    if failpoint == "after_first_state_batch" and saves == 1:
+        raise ScreenFailpointError(failpoint)
+    if failpoint == "mid_state_write" and saves == 2:
+        raise ScreenFailpointError(failpoint)
+
+
+def _write_compact_output(
+    *,
+    metadata: dict[str, Any],
+    spool_path: Path,
+    compact_output_path: Path,
+    output_path: Path,
+) -> None:
+    """Write a columnar rows payload plus a small JSON manifest (no row embedding)."""
+
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    from datetime import date as _date
+
+    schema = pa.schema(
+        [
+            pa.field("code", pa.string()),
+            pa.field("trade_date", pa.date32()),
+            pa.field("payload", pa.string()),
+        ]
+    )
+    compact_output_path.parent.mkdir(parents=True, exist_ok=True)
+    writer = pq.ParquetWriter(
+        compact_output_path,
+        schema,
+        compression="zstd",
+    )
+    batch_rows: list[dict[str, Any]] = []
+    hash_obj = hashlib.sha256()
+    first = True
+    count = 0
+    with spool_path.open("r", encoding="utf-8") as stream:
+        for line in stream:
+            line = line.strip()
+            if not line:
+                continue
+            row = json.loads(line)
+            payload = json.dumps(row, sort_keys=True, ensure_ascii=False)
+            batch_rows.append(
+                {
+                    "code": str(row["code"]),
+                    "trade_date": _date.fromisoformat(
+                        str(row["trade_date"])[:10]
+                    ),
+                    "payload": payload,
+                }
+            )
+            if first:
+                hash_obj.update(b"[")
+                first = False
+            else:
+                hash_obj.update(b", ")
+            hash_obj.update(payload.encode("utf-8"))
+            count += 1
+            if len(batch_rows) >= 50000:
+                writer.write_table(
+                    pa.Table.from_pylist(batch_rows, schema=schema)
+                )
+                batch_rows = []
+    if batch_rows:
+        writer.write_table(pa.Table.from_pylist(batch_rows, schema=schema))
+    writer.close()
+    hash_obj.update(b"]")
+    meta = dict(metadata)
+    meta.pop("rows", None)
+    meta["compact_output_path"] = compact_output_path.name
+    meta["compact_output_row_n"] = count
+    meta["compact_roundtrip_hash"] = hash_obj.hexdigest()
+    meta["compact_roundtrip_hash_match"] = (
+        hash_obj.hexdigest() == metadata.get("output_hash")
+    )
+    write_json_atomic(meta, output_path)
+
+
+def _spool_output_hash(spool_path: Path) -> str:
+    digest = hashlib.sha256()
+    digest.update(b"[")
+    first = True
+    with spool_path.open("r", encoding="utf-8") as stream:
+        for line in stream:
+            line = line.strip()
+            if not line:
+                continue
+            if first:
+                first = False
+            else:
+                digest.update(b", ")
+            digest.update(line.encode("utf-8"))
+    digest.update(b"]")
+    return digest.hexdigest()
+
+
+_SCREEN_WORKER_STATE: tuple[dict[str, Any], tuple, dict] | None = None
+
+
+def _init_screen_worker(
+    ctx: dict[str, Any],
+    pool_records: tuple,
+    pool_status: dict,
+) -> None:
+    global _SCREEN_WORKER_STATE
+    _SCREEN_WORKER_STATE = (ctx, pool_records, pool_status)
+    os.environ["LIMIT_PULLBACK_CANONICAL_READER_MEMORY_LIMIT"] = "512MB"
+
+
+def _screen_chunk_worker(
+    codes: tuple[str, ...],
+    chunk_spool: str,
+) -> dict[str, Any]:
+    """Run the exact per-code screen loop for one code chunk in a child."""
+
+    ctx, pool_records, pool_status = _SCREEN_WORKER_STATE
+    layout = WarehouseLayout(ctx["layout_root"])
+    with WarehouseMetadata(layout.duckdb_path, read_only=True) as metadata:
+        snapshot = metadata.snapshot_by_id(ctx["snapshot_id"])
+    if snapshot is None:
+        raise ValueError(f"unknown snapshot: {ctx['snapshot_id']}")
+    config = load_strategy_config(ctx["config_path"])
+    as_of = ctx["as_of"]
+    start = ctx["start"]
+    rebuild = ctx["rebuild"]
+    commit = ctx["commit"]
+    config_hash = ctx["config_hash"]
+    generated_at = ctx["generated_at"]
+    processed_at = ctx["processed_at"]
+    states_root = Path(ctx["states_root"])
+    pool_mode = ctx["pool_mode"]
+    status_by_snapshot = None if rebuild else snapshot_status_map(layout)
+    chunk_spool_path = Path(chunk_spool)
+    chunk_spool_path.parent.mkdir(parents=True, exist_ok=True)
+    notes: list[str] = []
+    status_counts: dict[str, int] = {}
+    new_anchors = 0
+    active = 0
+    entry_candidates = 0
+    quality_rejections = 0
+    rows_count = 0
+    with chunk_spool_path.open("w", encoding="utf-8") as spool_file:
+        for code, bars in iter_canonical_code_bars(
+            layout,
+            snapshot,
+            codes=codes,
+            as_of=as_of,
+        ):
+            state = (
+                None
+                if rebuild
+                else load_state(states_root / f"{code}.json")
+            )
+            if state is not None:
+                require_state_snapshot_usable(
+                    status_by_snapshot or {},
+                    snapshot_id=state.snapshot_id,
+                    as_of=state.last_processed_date,
+                )
+            previous_signal: StrategySignal | None = None
+            last_processed: date | None = None
+            if state is not None:
+                stale = (
+                    state.strategy_commit != commit
+                    or state.config_hash != config_hash
+                    or state.reconciliation_policy_version
+                    != snapshot.reconciliation_policy_version
+                    or state.last_processed_date > as_of
+                    or state.bars_prefix_hash
+                    != _bars_prefix_hash(bars, state.last_processed_date)
+                    or state.limit_pool_prefix_hash
+                    != _pool_prefix_hash(
+                        pool_records,
+                        pool_status,
+                        state.last_processed_date,
+                    )
+                )
+                if stale:
+                    state = None
+                    notes.append(f"STATE_INVALIDATED:{code}")
+                else:
+                    previous_signal = StrategySignal.model_validate_json(
+                        state.signal_json
+                    )
+                    if (
+                        previous_signal.trade_date != state.last_processed_date
+                        or previous_signal.trade_date > as_of
+                    ):
+                        state = None
+                        previous_signal = None
+                        notes.append(f"STATE_INVALIDATED:{code}")
+                    else:
+                        last_processed = state.last_processed_date
+            rows, final_signal = screen_code(
+                code=code,
+                bars=bars,
+                pool_records=pool_records,
+                config=config,
+                start_date=start if rebuild else None,
+                as_of=as_of,
+                generated_at=generated_at,
+                previous_signal=previous_signal,
+                last_processed=last_processed,
+                pool_status=pool_status,
+                pool_mode=pool_mode,
+            )
+            if final_signal is not None:
+                save_state(
+                    states_root / f"{code}.json",
+                    code=code,
+                    last_processed_date=min(final_signal.trade_date, as_of),
+                    signal=final_signal,
+                    snapshot_id=ctx["resolved_snapshot_id"],
+                    bars_prefix_hash=_bars_prefix_hash(
+                        bars, min(final_signal.trade_date, as_of)
+                    ),
+                    limit_pool_prefix_hash=_pool_prefix_hash(
+                        pool_records,
+                        pool_status,
+                        min(final_signal.trade_date, as_of),
+                    ),
+                    strategy_commit=commit,
+                    config_hash=config_hash,
+                    reconciliation_policy_version=(
+                        snapshot.reconciliation_policy_version
+                    ),
+                    processed_at=processed_at,
+                )
+            statuses, new_anchor = derive_status(rows)
+            for status in statuses:
+                status_counts[status] = status_counts.get(status, 0) + 1
+            new_anchors += new_anchor
+            active += _active_setup_from_code_rows(rows)
+            entry_candidates += sum(
+                1 for row in rows if row.is_entry_candidate
+            )
+            quality_rejections += sum(
+                1
+                for row in rows
+                if (
+                    row.data_quality.value == "UNUSABLE"
+                    or "INSUFFICIENT_TRADING_HISTORY" in row.quality_flags
+                )
+            )
+            for item in rows:
+                row_dict = {"code": code, **item.model_dump(mode="json")}
+                spool_file.write(
+                    json.dumps(row_dict, sort_keys=True, ensure_ascii=False)
+                    + "\n"
+                )
+                rows_count += 1
+    return {
+        "status_counts": status_counts,
+        "new_anchors": new_anchors,
+        "active": active,
+        "entry_candidates": entry_candidates,
+        "quality_rejections": quality_rejections,
+        "notes": notes,
+        "rows_count": rows_count,
+    }
+
+
+def _run_screen_parallel(
+    *,
+    layout: WarehouseLayout,
+    snapshot,
+    requested: tuple[str, ...],
+    as_of: date,
+    start: date | None,
+    rebuild: bool,
+    config_path: Path,
+    config_hash: str,
+    commit: str,
+    pool_records,
+    pool_status,
+    states_root: Path,
+    spool_path: Path,
+    run_id: str,
+    generated_at: datetime,
+    processed_at: datetime,
+    pool_mode: str,
+    resolved_snapshot_id: str,
+    workers: int = 4,
+) -> tuple[
+    tuple[str, ...],
+    int,
+    str,
+    dict[str, int],
+    int,
+    int,
+    int,
+    int,
+    list[str],
+]:
+    codes = tuple(requested) if requested else canonical_universe_codes(
+        layout,
+        snapshot,
+    )
+    if not codes:
+        raise ValueError("NO_CONFIRMED_DATA: snapshot has no CONFIRMED daily bars")
+    worker_count = max(1, min(workers, len(codes), os.cpu_count() or 1))
+    chunk_size = (len(codes) + worker_count - 1) // worker_count
+    chunks = [
+        codes[index : index + chunk_size]
+        for index in range(0, len(codes), chunk_size)
+    ]
+    spool_dir = spool_path.parent
+    spool_dir.mkdir(parents=True, exist_ok=True)
+    ctx = {
+        "layout_root": str(layout.root),
+        "snapshot_id": snapshot.snapshot_id,
+        "as_of": as_of,
+        "start": start,
+        "rebuild": rebuild,
+        "config_path": str(config_path),
+        "commit": commit,
+        "config_hash": config_hash,
+        "generated_at": generated_at,
+        "processed_at": processed_at,
+        "states_root": str(states_root),
+        "pool_mode": pool_mode,
+        "resolved_snapshot_id": resolved_snapshot_id,
+    }
+    with ProcessPoolExecutor(
+        max_workers=worker_count,
+        initializer=_init_screen_worker,
+        initargs=(ctx, tuple(pool_records), dict(pool_status)),
+    ) as executor:
+        futures = {
+            executor.submit(
+                _screen_chunk_worker,
+                chunk,
+                str(spool_dir / f"{run_id}.{index}.rows.jsonl"),
+            ): index
+            for index, chunk in enumerate(chunks)
+        }
+        results = [
+            (index, future.result())
+            for future, index in futures.items()
+        ]
+    results.sort(key=lambda item: item[0])
+
+    merged: list[tuple[str, str, str]] = []
+    for index, _result in results:
+        chunk_spool = spool_dir / f"{run_id}.{index}.rows.jsonl"
+        with chunk_spool.open("r", encoding="utf-8") as stream:
+            for line in stream:
+                line = line.strip()
+                if not line:
+                    continue
+                row = json.loads(line)
+                merged.append((str(row["code"]), str(row["trade_date"]), line))
+    merged.sort(key=lambda item: (item[0], item[1]))
+    with spool_path.open("w", encoding="utf-8") as stream:
+        for _code, _day, line in merged:
+            stream.write(line + "\n")
+    output_hash = _spool_output_hash(spool_path)
+
+    status_counts: dict[str, int] = {}
+    new_anchors = 0
+    active = 0
+    entry_candidates = 0
+    quality_rejections = 0
+    rows_count = 0
+    notes: list[str] = []
+    for _index, result in results:
+        for status, count in result["status_counts"].items():
+            status_counts[status] = status_counts.get(status, 0) + count
+        new_anchors += result["new_anchors"]
+        active += result["active"]
+        entry_candidates += result["entry_candidates"]
+        quality_rejections += result["quality_rejections"]
+        rows_count += result["rows_count"]
+        notes.extend(result["notes"])
+    notes.sort()
+    for index, _result in results:
+        chunk_spool = spool_dir / f"{run_id}.{index}.rows.jsonl"
+        chunk_spool.unlink(missing_ok=True)
+    return (
+        codes,
+        rows_count,
+        output_hash,
+        status_counts,
+        new_anchors,
+        active,
+        entry_candidates,
+        quality_rejections,
+        notes,
+    )
 
 
 def _now_utc() -> datetime:
@@ -201,9 +617,13 @@ def run_screen(
     clock: Callable[[], datetime] = _now_utc,
     strategy_commit: str | None = None,
     manifest_path_override: Path | None = None,
+    states_root: Path | None = None,
+    compact_output_path: Path | None = None,
+    failpoint: str | None = None,
 ) -> ScreenRunResult:
     """Run the offline screen over one canonical snapshot."""
 
+    _SCREEN_FAILPOINT_STATE["saves"] = 0
     if rebuild and start is None:
         raise ValueError("--rebuild requires --start")
     if start is not None and start > as_of:
@@ -225,6 +645,7 @@ def run_screen(
         )
     pool_mode = "debug" if pool_debug else "formal"
     resolved_snapshot_id = snapshot.snapshot_id
+    status_by_snapshot = None if rebuild else snapshot_status_map(layout)
 
     kind = "rebuild" if rebuild else "incremental"
     run_id = (
@@ -237,7 +658,7 @@ def run_screen(
         or layout.root / "screen" / "runs" / f"{run_id}.json"
     )
     cached_exists = output_path.exists()
-    states_root = layout.root / "screen" / "states"
+    states_root = states_root or (layout.root / "screen" / "states")
     states_root.mkdir(parents=True, exist_ok=True)
     layout.root.joinpath("screen", "runs").mkdir(parents=True, exist_ok=True)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -298,162 +719,243 @@ def run_screen(
     first_row = True
     spool_file = None
     universe: list[str] = []
-    try:
-        spool_file = spool_path.open("w", encoding="utf-8")
-        for code, bars in iter_canonical_code_bars(
-            layout,
-            snapshot,
-            codes=requested or None,
+    parallel = (
+        not verify_replay
+        and failpoint is None
+        and (os.cpu_count() or 1) >= 2
+    )
+    if parallel:
+        (
+            universe_tuple,
+            rows_count,
+            output_hash,
+            status_counts,
+            new_anchors,
+            active,
+            entry_candidates,
+            quality_rejections,
+            parallel_notes,
+        ) = _run_screen_parallel(
+            layout=layout,
+            snapshot=snapshot,
+            requested=requested,
             as_of=as_of,
-        ):
-            universe.append(code)
-            state = None if rebuild else load_state(state_path(layout.root, code))
-            previous_signal: StrategySignal | None = None
-            last_processed: date | None = None
-            if state is not None:
-                stale = (
-                    state.strategy_commit != commit
-                    or state.config_hash != config_hash
-                    or state.reconciliation_policy_version
-                    != snapshot.reconciliation_policy_version
-                    or state.last_processed_date > as_of
-                    or state.bars_prefix_hash
-                    != _bars_prefix_hash(bars, state.last_processed_date)
-                    or state.limit_pool_prefix_hash
-                    != _pool_prefix_hash(
-                        pool_records,
-                        pool_status,
-                        state.last_processed_date,
-                    )
+            start=start,
+            rebuild=rebuild,
+            config_path=config_path,
+            config_hash=config_hash,
+            commit=commit,
+            pool_records=pool_records,
+            pool_status=pool_status,
+            states_root=states_root,
+            spool_path=spool_path,
+            run_id=run_id,
+            generated_at=generated_at,
+            processed_at=processed_at,
+            pool_mode=pool_mode,
+            resolved_snapshot_id=resolved_snapshot_id,
+        )
+        notes.extend(parallel_notes)
+        counts = dict(sorted(status_counts.items()))
+        if not universe_tuple:
+            raise ValueError(
+                "NO_CONFIRMED_DATA: snapshot has no CONFIRMED daily bars"
+            )
+    else:
+        try:
+            spool_file = spool_path.open("w", encoding="utf-8")
+            for code, bars in iter_canonical_code_bars(
+                layout,
+                snapshot,
+                codes=requested or None,
+                as_of=as_of,
+            ):
+                universe.append(code)
+                state = (
+                    None
+                    if rebuild
+                    else load_state(states_root / f"{code}.json")
                 )
-                if stale:
-                    state = None
-                    notes.append(f"STATE_INVALIDATED:{code}")
-                else:
-                    previous_signal = StrategySignal.model_validate_json(
-                        state.signal_json
+                if state is not None:
+                    require_state_snapshot_usable(
+                        status_by_snapshot or {},
+                        snapshot_id=state.snapshot_id,
+                        as_of=state.last_processed_date,
                     )
-                    if (
-                        previous_signal.trade_date != state.last_processed_date
-                        or previous_signal.trade_date > as_of
-                    ):
+                previous_signal: StrategySignal | None = None
+                last_processed: date | None = None
+                if state is not None:
+                    stale = (
+                        state.strategy_commit != commit
+                        or state.config_hash != config_hash
+                        or state.reconciliation_policy_version
+                        != snapshot.reconciliation_policy_version
+                        or state.last_processed_date > as_of
+                        or state.bars_prefix_hash
+                        != _bars_prefix_hash(
+                            bars, state.last_processed_date
+                        )
+                        or state.limit_pool_prefix_hash
+                        != _pool_prefix_hash(
+                            pool_records,
+                            pool_status,
+                            state.last_processed_date,
+                        )
+                    )
+                    if stale:
                         state = None
-                        previous_signal = None
                         notes.append(f"STATE_INVALIDATED:{code}")
                     else:
-                        last_processed = state.last_processed_date
-            rows, final_signal = screen_code(
-                code=code,
-                bars=bars,
-                pool_records=pool_records,
-                config=config,
-                start_date=start if rebuild else None,
-                as_of=as_of,
-                generated_at=generated_at,
-                previous_signal=previous_signal,
-                last_processed=last_processed,
-                pool_status=pool_status,
-                pool_mode=pool_mode,
-            )
-            if final_signal is not None:
-                save_state(
-                    state_path(layout.root, code),
-                    code=code,
-                    last_processed_date=min(final_signal.trade_date, as_of),
-                    signal=final_signal,
-                    snapshot_id=resolved_snapshot_id,
-                    bars_prefix_hash=_bars_prefix_hash(
-                        bars, min(final_signal.trade_date, as_of)
-                    ),
-                    limit_pool_prefix_hash=_pool_prefix_hash(
-                    pool_records,
-                    pool_status,
-                        min(final_signal.trade_date, as_of),
-                    ),
-                    strategy_commit=commit,
-                    config_hash=config_hash,
-                    reconciliation_policy_version=(
-                        snapshot.reconciliation_policy_version
-                    ),
-                    processed_at=processed_at,
-                )
-            if verify_replay:
-                mismatches = verify_rebuild_incremental(
+                        previous_signal = StrategySignal.model_validate_json(
+                            state.signal_json
+                        )
+                        if (
+                            previous_signal.trade_date
+                            != state.last_processed_date
+                            or previous_signal.trade_date > as_of
+                        ):
+                            state = None
+                            previous_signal = None
+                            notes.append(f"STATE_INVALIDATED:{code}")
+                        else:
+                            last_processed = state.last_processed_date
+                rows, final_signal = screen_code(
                     code=code,
                     bars=bars,
                     pool_records=pool_records,
                     config=config,
-                    start=start or min((bar.trade_date for bar in bars), default=as_of),
+                    start_date=start if rebuild else None,
                     as_of=as_of,
                     generated_at=generated_at,
-                    incremental_rows=rows,
+                    previous_signal=previous_signal,
+                    last_processed=last_processed,
                     pool_status=pool_status,
                     pool_mode=pool_mode,
                 )
-                if mismatches:
-                    verified = False
-                    raise ValueError(
-                        f"rebuild/incremental mismatch for {code}: {mismatches[0]}"
+                if final_signal is not None:
+                    save_state(
+                        states_root / f"{code}.json",
+                        code=code,
+                        last_processed_date=min(
+                            final_signal.trade_date, as_of
+                        ),
+                        signal=final_signal,
+                        snapshot_id=resolved_snapshot_id,
+                        bars_prefix_hash=_bars_prefix_hash(
+                            bars, min(final_signal.trade_date, as_of)
+                        ),
+                        limit_pool_prefix_hash=_pool_prefix_hash(
+                            pool_records,
+                            pool_status,
+                            min(final_signal.trade_date, as_of),
+                        ),
+                        strategy_commit=commit,
+                        config_hash=config_hash,
+                        reconciliation_policy_version=(
+                            snapshot.reconciliation_policy_version
+                        ),
+                        processed_at=processed_at,
                     )
-                replay_mismatches = verify_single_stock_replay(
-                    market=CanonicalMarketData(
-                        snapshot=snapshot,
-                        bars_by_code={code: bars},
+                    _raise_screen_failpoint(
+                        failpoint, states_root / f"{code}.json"
+                    )
+                if verify_replay:
+                    mismatches = verify_rebuild_incremental(
+                        code=code,
+                        bars=bars,
                         pool_records=pool_records,
+                        config=config,
+                        start=start
+                        or min(
+                            (bar.trade_date for bar in bars),
+                            default=as_of,
+                        ),
+                        as_of=as_of,
+                        generated_at=generated_at,
+                        incremental_rows=rows,
                         pool_status=pool_status,
-                    ),
-                    code=code,
-                    config=config,
-                    start=start or min((bar.trade_date for bar in bars), default=as_of),
-                    as_of=as_of,
-                    lookback_calendar_days=lookback_calendar_days,
-                    generated_at=generated_at,
-                    screen_rows=rows,
-                    pool_mode=pool_mode,
-                )
-                if replay_mismatches:
-                    verified = False
-                    raise ValueError(
-                        f"screen/replay mismatch for {code}: {replay_mismatches[0]}"
+                        pool_mode=pool_mode,
                     )
+                    if mismatches:
+                        verified = False
+                        raise ValueError(
+                            f"rebuild/incremental mismatch for {code}: "
+                            f"{mismatches[0]}"
+                        )
+                    replay_mismatches = verify_single_stock_replay(
+                        market=CanonicalMarketData(
+                            snapshot=snapshot,
+                            bars_by_code={code: bars},
+                            pool_records=pool_records,
+                            pool_status=pool_status,
+                        ),
+                        code=code,
+                        config=config,
+                        start=start
+                        or min(
+                            (bar.trade_date for bar in bars),
+                            default=as_of,
+                        ),
+                        as_of=as_of,
+                        lookback_calendar_days=lookback_calendar_days,
+                        generated_at=generated_at,
+                        screen_rows=rows,
+                        pool_mode=pool_mode,
+                    )
+                    if replay_mismatches:
+                        verified = False
+                        raise ValueError(
+                            f"screen/replay mismatch for {code}: "
+                            f"{replay_mismatches[0]}"
+                        )
 
-            statuses, new_anchor = derive_status(rows)
-            for status in statuses:
-                status_counts[status] = status_counts.get(status, 0) + 1
-            new_anchors += new_anchor
-            active += _active_setup_from_code_rows(rows)
-            entry_candidates += sum(1 for row in rows if row.is_entry_candidate)
-            quality_rejections += sum(
-                1
-                for row in rows
-                if (
-                    row.data_quality.value == "UNUSABLE"
-                    or "INSUFFICIENT_TRADING_HISTORY" in row.quality_flags
+                statuses, new_anchor = derive_status(rows)
+                for status in statuses:
+                    status_counts[status] = (
+                        status_counts.get(status, 0) + 1
+                    )
+                new_anchors += new_anchor
+                active += _active_setup_from_code_rows(rows)
+                entry_candidates += sum(
+                    1 for row in rows if row.is_entry_candidate
                 )
+                quality_rejections += sum(
+                    1
+                    for row in rows
+                    if (
+                        row.data_quality.value == "UNUSABLE"
+                        or "INSUFFICIENT_TRADING_HISTORY"
+                        in row.quality_flags
+                    )
+                )
+                for item in rows:
+                    row_dict = {"code": code, **item.model_dump(mode="json")}
+                    row_text = json.dumps(
+                        row_dict, sort_keys=True, ensure_ascii=False
+                    )
+                    spool_file.write(row_text + "\n")
+                    if first_row:
+                        hash_obj.update(b"[")
+                        first_row = False
+                    else:
+                        hash_obj.update(b", ")
+                    hash_obj.update(row_text.encode("utf-8"))
+                    rows_count += 1
+        except Exception:
+            spool_path.unlink(missing_ok=True)
+            raise
+        finally:
+            if spool_file is not None:
+                spool_file.close()
+        hash_obj.update(b"]")
+        output_hash = hash_obj.hexdigest()
+        _raise_screen_failpoint(failpoint, None)
+        counts = dict(sorted(status_counts.items()))
+        if not universe:
+            raise ValueError(
+                "NO_CONFIRMED_DATA: snapshot has no CONFIRMED daily bars"
             )
-            for item in rows:
-                row_dict = {"code": code, **item.model_dump(mode="json")}
-                row_text = json.dumps(row_dict, sort_keys=True, ensure_ascii=False)
-                spool_file.write(row_text + "\n")
-                if first_row:
-                    hash_obj.update(b"[")
-                    first_row = False
-                else:
-                    hash_obj.update(b", ")
-                hash_obj.update(row_text.encode("utf-8"))
-                rows_count += 1
-    except Exception:
-        spool_path.unlink(missing_ok=True)
-        raise
-    finally:
-        if spool_file is not None:
-            spool_file.close()
-    hash_obj.update(b"]")
-    output_hash = hash_obj.hexdigest()
-    counts = dict(sorted(status_counts.items()))
-    if not universe:
-        raise ValueError("NO_CONFIRMED_DATA: snapshot has no CONFIRMED daily bars")
-    universe_tuple = tuple(universe)
+        universe_tuple = tuple(universe)
     manifest = {
         "run_id": run_id,
         "kind": kind,
@@ -477,11 +979,19 @@ def run_screen(
         "universe_size": len(universe),
         "codes": universe_tuple,
     }
-    _write_streaming_manifest(
-        metadata_with_rows=manifest,
-        spool_path=spool_path,
-        output_path=output_path,
-    )
+    if compact_output_path is not None:
+        _write_compact_output(
+            metadata=manifest,
+            spool_path=spool_path,
+            compact_output_path=Path(compact_output_path),
+            output_path=output_path,
+        )
+    else:
+        _write_streaming_manifest(
+            metadata_with_rows=manifest,
+            spool_path=spool_path,
+            output_path=output_path,
+        )
     spool_path.unlink(missing_ok=True)
     return ScreenRunResult(
         run_id=run_id,
