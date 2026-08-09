@@ -47,7 +47,12 @@ def _receipt_message(commit: str) -> str:
     )
 
 
-def _annotated_protocol_receipt_repo(tmp_path: Path, *, message: str | None = None) -> Path:
+def _annotated_protocol_receipt_repo(
+    tmp_path: Path,
+    *,
+    message: str | None = None,
+    tag_name: str | None = None,
+) -> Path:
     repo_root = tmp_path / "protocol-receipt-repo"
     repo_root.mkdir(parents=True)
     _git(repo_root, "init")
@@ -65,7 +70,7 @@ def _annotated_protocol_receipt_repo(tmp_path: Path, *, message: str | None = No
         repo_root,
         "tag",
         "-a",
-        r9.PROTOCOL_FREEZE_RECEIPT_TAG,
+        tag_name or r9.PROTOCOL_FREEZE_RECEIPT_TAG,
         "-m",
         message or _receipt_message(commit),
     )
@@ -87,16 +92,22 @@ def test_population_and_owner_frozen_ttl_authority_are_explicit():
     r9.require_population_and_ttl_authority()
 
 
-def test_v03_receipt_is_required_and_v02_is_not_silent_write_authority(tmp_path):
-    assert r9.PROTOCOL_FREEZE_RECEIPT_TAG == "r9-protocol-freeze-v03"
+def test_v04_receipt_is_required_and_v02_is_not_silent_write_authority(tmp_path):
+    assert r9.PROTOCOL_FREEZE_RECEIPT_TAG == "r9-protocol-freeze-v04"
     repo_root = _annotated_protocol_receipt_repo(tmp_path)
-    receipt = r9.require_r9_accumulation_write_authority(repo_root=repo_root)
-    assert receipt.tag == r9.PROTOCOL_FREEZE_RECEIPT_TAG
+    receipt = r9.read_protocol_freeze_receipt(repo_root)
+    assert receipt.tag == "r9-protocol-freeze-v04"
+    authority = r9.require_r9_accumulation_write_authority(repo_root=repo_root)
+    assert authority == receipt
 
 
-def test_v03_receipt_blocks_after_frozen_protocol_patch():
-    with pytest.raises(r9.ProtocolBlocked, match="BLOCKED_PROTOCOL_DRIFT"):
-        r9.require_r9_accumulation_write_authority(repo_root=REPO_ROOT)
+def test_legacy_v03_receipt_is_not_write_authority(tmp_path):
+    repo_root = _annotated_protocol_receipt_repo(
+        tmp_path,
+        tag_name="r9-protocol-freeze-v03",
+    )
+    with pytest.raises(r9.ProtocolBlocked, match="Git verification"):
+        r9.read_protocol_freeze_receipt(repo_root)
 
 
 def test_accumulation_write_authority_accepts_ancestor_receipt_with_unchanged_artifacts(tmp_path):
