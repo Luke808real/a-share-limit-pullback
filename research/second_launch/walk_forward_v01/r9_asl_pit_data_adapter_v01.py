@@ -252,7 +252,7 @@ def _daily_bars(
                     volume=volume,
                 )
             )
-            if close is not None:
+            if close is not None and close > 0:
                 previous_valid_close = close
     return tuple(sorted(output, key=lambda row: (row.symbol, row.trade_date)))
 

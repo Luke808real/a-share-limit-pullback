@@ -8,6 +8,7 @@ import hashlib
 import os
 from pathlib import Path
 import sys
+import tomllib
 
 import pytest
 
@@ -30,6 +31,12 @@ ANCHOR = date(2026, 8, 5)
 HASH_A = hashlib.sha256(b"candidate-state").hexdigest()
 HASH_B = hashlib.sha256(b"limit-pool").hexdigest()
 HASH_C = hashlib.sha256(b"configuration").hexdigest()
+PINNED_ASL_CHECKOUT = Path("/Users/luke808/AI/ashare-lake-r8-candidate")
+KNOWN_ASL_ROOTS = (
+    Path("/tmp/asl_phase1b_lake"),
+    PINNED_ASL_CHECKOUT,
+    Path("/Users/luke808/AI/asl-r8-5m-lake"),
+)
 
 
 class _FakeASLQuery:
@@ -170,6 +177,32 @@ def _build(
         configuration_version_hash=HASH_C,
         query_backend=backend,
         asl_code_sha=asl_code_sha,
+    )
+
+
+def _candidate_asl_roots() -> tuple[Path, ...]:
+    roots: list[Path] = []
+    env_root = os.environ.get("R9_ASL_DATA_ROOT")
+    if env_root:
+        roots.append(Path(env_root).expanduser())
+    config_path = PINNED_ASL_CHECKOUT / "configs" / "ashare-lake.toml"
+    if config_path.exists():
+        with config_path.open("rb") as handle:
+            config = tomllib.load(handle)
+        configured_root = config.get("data", {}).get("root")
+        if configured_root:
+            root = Path(str(configured_root)).expanduser()
+            roots.append(root if root.is_absolute() else config_path.parent / root)
+    roots.extend(KNOWN_ASL_ROOTS)
+    return tuple(dict.fromkeys(root.resolve() for root in roots))
+
+
+def _existing_asl_query_roots() -> tuple[Path, ...]:
+    return tuple(
+        root
+        for root in _candidate_asl_roots()
+        if (root / "curated" / "daily_bars").is_dir()
+        and (root / "derived" / "adj_factors").is_dir()
     )
 
 
@@ -329,26 +362,39 @@ def test_manifest_hashes_are_the_existing_component_and_composite_hashes():
     )
 
 
+@pytest.mark.parametrize(
+    ("middle_close", "expected_d3_preclose"),
+    [
+        ("10.25", Decimal("10.25")),
+        ("0", Decimal("10.00")),
+        ("-1", Decimal("10.00")),
+        (None, Decimal("10.00")),
+    ],
+)
+def test_preclose_advances_only_on_positive_close(
+    middle_close: str | None,
+    expected_d3_preclose: Decimal,
+):
+    rows = _daily_rows()
+    rows[1]["close"] = middle_close
+    rows[2]["close"] = "10.50"
+    package = _build(_backend(daily=rows))
+    bars = {row.trade_date: row for row in package.daily_bars}
+    assert bars[date(2026, 8, 2)].preclose == Decimal("10.00")
+    assert bars[date(2026, 8, 3)].preclose == expected_d3_preclose
+
+
 @pytest.mark.local_data
 def test_bounded_real_asl_query_for_two_symbols_at_2026_08_07():
     """Run only with the pinned checkout and a curated/derived local lake."""
 
-    asl_root = Path(
-        os.environ.get(
-            "R9_PINNED_ASL_ROOT",
-            "/Users/luke808/AI/ashare-lake-r8-candidate",
+    roots = _existing_asl_query_roots()
+    if not roots:
+        pytest.skip(
+            "shared ASL data layer unavailable: no known root exposes "
+            "curated/daily_bars and derived/adj_factors"
         )
-    )
-    data_root = Path(
-        os.environ.get(
-            "R9_ASL_DATA_ROOT",
-            str(asl_root / "data-stray-init-20260809" / "ashare-lake"),
-        )
-    )
-    if not (data_root / "curated" / "daily_bars").exists():
-        pytest.skip("pinned ASL curated daily_bars data is unavailable")
-    if not (data_root / "derived" / "adj_factors").exists():
-        pytest.skip("pinned ASL derived adj_factors data is unavailable")
+    data_root = roots[0]
     try:
         from ashare_lake import query
     except ImportError:
