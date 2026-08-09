@@ -78,10 +78,10 @@ def _inputs(
         candidates=(candidate,),
     )
     factors: dict[str, Decimal | int | float] = {
-        "B4": Decimal("0.25"),
-        "B5": Decimal("0.50"),
-        "B6": Decimal("0.75"),
-        "B7": Decimal("-0.10"),
+        "B4": 1,
+        "B5": 0,
+        "B6": 1,
+        "B7": 0,
         "median_range_ratio": Decimal("0.40"),
         "quiet_days_n": 2,
     }
@@ -208,7 +208,7 @@ def test_first_observation_is_append_only_and_preserved():
 def test_feature_payload_drift_and_source_mismatch_fail_closed():
     first, candidate, bundle, _ = _run()
     _, changed_bundle, changed_source = _inputs(
-        factor_overrides={"B4": Decimal("0.26")},
+        factor_overrides={"B4": 0},
     )
     with pytest.raises(accumulator.SetupAccumulatorBlocked, match="BLOCKED_FEATURE_DRIFT"):
         accumulator.accumulate_setup_ledger(
@@ -243,6 +243,10 @@ def test_schema_hash_and_atomic_publication_are_deterministic(tmp_path):
     )
     parsed = list(csv.DictReader(payload_a.decode("utf-8").splitlines()))[0]
     assert parsed["event_id"] == ""
+    assert all(
+        parsed[field] in {"0", "1"}
+        for field in accumulator.BENCHMARK_SIGNAL_FIELDS
+    )
 
     destination = tmp_path / "r9_setup_ledger_v01.csv"
     digest = accumulator.publish_setup_ledger(destination, result.rows)
@@ -260,3 +264,50 @@ def test_v04_descendant_write_authority_is_real_and_outcome_blind():
     assert "CASE_SET" not in source
     assert "SUCCESS" not in source
     assert "FAILED" not in source
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("B4", Decimal("0.25")),
+        ("B5", Decimal("-1")),
+        ("B6", Decimal("2")),
+        ("B7", Decimal("0.5")),
+        ("B4", float("nan")),
+        ("B5", float("inf")),
+        ("B6", float("-inf")),
+    ],
+)
+def test_non_binary_benchmark_signals_fail_closed(field, value):
+    with pytest.raises(
+        accumulator.SetupAccumulatorBlocked,
+        match="STATUS=BLOCKED_FACTOR_DOMAIN",
+    ):
+        _run(factor_overrides={field: value})
+
+
+@pytest.mark.parametrize("field", accumulator.BENCHMARK_SIGNAL_FIELDS)
+def test_boolean_benchmark_signals_fail_closed(field):
+    with pytest.raises(
+        accumulator.SetupAccumulatorBlocked,
+        match="STATUS=BLOCKED_FACTOR_DOMAIN",
+    ):
+        _run(factor_overrides={field: True})
+
+
+@pytest.mark.parametrize(
+    "value",
+    [0, 1, Decimal("0"), Decimal("1"), 0.0, 1.0],
+)
+def test_binary_benchmark_signal_representations_are_accepted(value):
+    result, _, _, _ = _run(
+        factor_overrides={
+            field: value for field in accumulator.BENCHMARK_SIGNAL_FIELDS
+        }
+    )
+    assert len(result.rows) == 1
+    row = result.rows[0]
+    assert all(
+        row[field] in {"0", "1"}
+        for field in accumulator.BENCHMARK_SIGNAL_FIELDS
+    )

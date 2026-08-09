@@ -34,6 +34,7 @@ FACTOR_FIELDS = (
     "median_range_ratio",
     "quiet_days_n",
 )
+BENCHMARK_SIGNAL_FIELDS = ("B4", "B5", "B6", "B7")
 FeatureIdentity = tuple[str, date, str]
 
 
@@ -99,6 +100,27 @@ def _canonical_decimal(value: Any, *, field: str) -> Decimal:
     return parsed
 
 
+def _canonical_binary_signal(value: Any) -> Decimal:
+    if isinstance(value, bool):
+        raise SetupAccumulatorBlocked(
+            "STATUS=BLOCKED_FACTOR_DOMAIN: "
+            "B4/B5/B6/B7 must be frozen binary signals"
+        )
+    try:
+        parsed = Decimal(str(value))
+    except (InvalidOperation, ValueError) as exc:
+        raise SetupAccumulatorBlocked(
+            "STATUS=BLOCKED_FACTOR_DOMAIN: "
+            "B4/B5/B6/B7 must be frozen binary signals"
+        ) from exc
+    if not parsed.is_finite() or parsed not in {Decimal("0"), Decimal("1")}:
+        raise SetupAccumulatorBlocked(
+            "STATUS=BLOCKED_FACTOR_DOMAIN: "
+            "B4/B5/B6/B7 must be frozen binary signals"
+        )
+    return Decimal(int(parsed))
+
+
 def _decimal_text(value: Decimal) -> str:
     if value == 0:
         return "0"
@@ -122,7 +144,11 @@ def _validated_factor_values(bundle: ProspectiveFactorBundle) -> dict[str, Decim
         )
     _canonical_manifest(bundle.source_manifest_hash)
     values = {
-        field: _canonical_decimal(getattr(bundle, field), field=field)
+        field: (
+            _canonical_binary_signal(getattr(bundle, field))
+            if field in BENCHMARK_SIGNAL_FIELDS
+            else _canonical_decimal(getattr(bundle, field), field=field)
+        )
         for field in FACTOR_FIELDS
     }
     quiet_days = values["quiet_days_n"]
