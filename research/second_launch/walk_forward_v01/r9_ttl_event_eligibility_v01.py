@@ -60,6 +60,7 @@ PROTOCOL_FREEZE_CALENDAR_SESSIONS = (
 PROTOCOL_FREEZE_CALENDAR_MANIFEST_HASH = (
     "9304f0409d7e95b54e2ba90f361d0228624cb313722ad4a97a2fa1b891087d2e"
 )
+RUN_CALENDAR_VERSION_PREFIX = "R9_RUN_CALENDAR_"
 
 
 class Gate2BBlocked(RuntimeError):
@@ -175,6 +176,19 @@ def validate_frozen_calendar(calendar: FrozenAshareTradingCalendar) -> None:
     expected = calendar_manifest_hash(calendar.version, calendar.sessions)
     if calendar.manifest_hash != expected:
         raise Gate2BBlocked("frozen calendar manifest hash mismatch")
+
+
+def validate_run_calendar(calendar: FrozenAshareTradingCalendar) -> None:
+    """Validate an explicit, versioned calendar used by a future R9 run.
+
+    The short protocol-freeze witness establishes ``OOS_START`` only.  A run
+    calendar must therefore carry its own provenance/version and manifest hash;
+    callers cannot silently reuse the boundary witness as the future calendar.
+    """
+
+    validate_frozen_calendar(calendar)
+    if not calendar.version.startswith(RUN_CALENDAR_VERSION_PREFIX):
+        raise Gate2BBlocked("R9 run calendar provenance/version is required")
 
 
 def protocol_freeze_calendar() -> FrozenAshareTradingCalendar:

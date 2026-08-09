@@ -37,7 +37,7 @@ from r9_ttl_event_eligibility_v01 import (
     RIGHT_LABELED_5M_GRID,
     assert_clean_oos_candidate_date,
     canonical_clock as canonical_gate2b_clock,
-    protocol_freeze_calendar,
+    validate_run_calendar,
 )
 
 
@@ -49,8 +49,15 @@ PRE_R9_STATUS = "GO"
 R9_RECOMMENDATION = "AUTHORIZED_TO_FREEZE_AND_ACCUMULATE"
 R9_ACCUMULATION_AUTHORIZED = True
 R9_OOS_ROWS_WRITTEN = 0
-PROTOCOL_FREEZE_RECEIPT_TAG = "r9-protocol-freeze-v01"
+PROTOCOL_FREEZE_RECEIPT_TAG = "r9-protocol-freeze-v02"
 R9_ACCUMULATION_WRITE_AUTHORITY = "POST_COMMIT_RECEIPT_REQUIRED"
+
+FROZEN_PROTOCOL_ARTIFACTS = (
+    "research/second_launch/walk_forward_v01/r9_protocol_v02.py",
+    "research/second_launch/walk_forward_v01/r9_ttl_event_eligibility_v01.py",
+    "research/second_launch/walk_forward_v01/r9_protocol_registry_v02.csv",
+    "research/second_launch/walk_forward_v01/r9_protocol_freeze_calendar_v01.csv",
+)
 
 R1_PROVENANCE_STATUS = "INTERIM_PARTIAL_PROVENANCE"
 R1_FORWARD_AUTHORITY = False
@@ -247,6 +254,65 @@ def _git_output(repo_root: Path, *arguments: str) -> str:
     return completed.stdout.rstrip("\n")
 
 
+def _git_blob_bytes(repo_root: Path, commit: str, relative_path: str) -> bytes:
+    try:
+        completed = subprocess.run(
+            ("git", "-C", str(repo_root), "cat-file", "blob", f"{commit}:{relative_path}"),
+            check=False,
+            capture_output=True,
+        )
+    except OSError as exc:
+        raise ProtocolBlocked("Git is required to verify frozen protocol artifacts") from exc
+    if completed.returncode != 0:
+        raise ProtocolBlocked(
+            f"STATUS=BLOCKED_PROTOCOL_DRIFT: frozen artifact is absent: {relative_path}"
+        )
+    return completed.stdout
+
+
+def _is_commit_ancestor(repo_root: Path, ancestor: str, descendant: str) -> bool:
+    try:
+        completed = subprocess.run(
+            (
+                "git", "-C", str(repo_root), "merge-base", "--is-ancestor",
+                ancestor, descendant,
+            ),
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError as exc:
+        raise ProtocolBlocked("Git is required to verify protocol freeze ancestry") from exc
+    if completed.returncode == 0:
+        return True
+    if completed.returncode == 1:
+        return False
+    raise ProtocolBlocked("protocol freeze ancestry verification failed")
+
+
+def validate_frozen_artifact_integrity(
+    receipt: ProtocolFreezeReceipt,
+    *,
+    repo_root: Path = REPO_ROOT,
+) -> None:
+    """Require current protocol artifacts to match the freeze commit byte-for-byte."""
+
+    for relative_path in FROZEN_PROTOCOL_ARTIFACTS:
+        current_path = repo_root / relative_path
+        if not current_path.is_file():
+            raise ProtocolBlocked(
+                f"STATUS=BLOCKED_PROTOCOL_DRIFT: frozen artifact is absent: {relative_path}"
+            )
+        frozen_hash = hashlib.sha256(
+            _git_blob_bytes(repo_root, receipt.protocol_freeze_commit, relative_path)
+        ).hexdigest()
+        current_hash = sha256_file(current_path)
+        if current_hash != frozen_hash:
+            raise ProtocolBlocked(
+                f"STATUS=BLOCKED_PROTOCOL_DRIFT: frozen artifact changed: {relative_path}"
+            )
+
+
 def read_protocol_freeze_receipt(repo_root: Path = REPO_ROOT) -> ProtocolFreezeReceipt:
     """Read the actual annotated tag object; never accept caller-supplied claims."""
 
@@ -344,8 +410,13 @@ def require_r9_accumulation_write_authority(
     expected_commit = _git_output(repo_root, "rev-parse", "--verify", "HEAD")
     if not _is_full_git_commit(expected_commit):
         raise ProtocolBlocked("expected protocol freeze commit must be a full SHA")
-    if receipt.protocol_freeze_commit != expected_commit:
-        raise ProtocolBlocked("protocol freeze receipt does not target expected HEAD")
+    if not _is_commit_ancestor(
+        repo_root,
+        receipt.protocol_freeze_commit,
+        expected_commit,
+    ):
+        raise ProtocolBlocked("protocol freeze commit is not an ancestor of current HEAD")
+    validate_frozen_artifact_integrity(receipt, repo_root=repo_root)
     return receipt
 
 
@@ -399,24 +470,38 @@ def forward_close_return(
     *,
     event_date: date,
     reference_price: Decimal,
+    run_calendar: FrozenAshareTradingCalendar,
     subsequent_sessions: Sequence[SubsequentSession],
     horizon: int,
 ) -> tuple[str, Decimal | None]:
-    """Use exactly E+N calendar sessions; never skip a missing stock close."""
+    """Use exactly E+N exchange sessions; never shift a missing close."""
     if horizon not in {3, 5}:
         raise ProtocolBlocked("only frozen 3D/5D endpoint horizons are allowed")
     if reference_price <= 0:
         raise ProtocolBlocked("decision reference price must be positive")
+    validate_run_calendar(run_calendar)
+    try:
+        event_index = run_calendar.sessions.index(event_date)
+    except ValueError as exc:
+        raise ProtocolBlocked("event date is absent from R9 run calendar") from exc
+    dates = tuple(session.trade_date for session in subsequent_sessions)
+    if (
+        any(day <= event_date for day in dates)
+        or tuple(sorted(dates)) != dates
+        or len(set(dates)) != len(dates)
+    ):
+        raise ProtocolBlocked("subsequent sessions must be strict ordered A-share sessions after event day")
+    expected_dates = run_calendar.sessions[event_index + 1:event_index + 1 + horizon]
     if len(subsequent_sessions) < horizon:
+        if dates != expected_dates[:len(dates)]:
+            raise ProtocolBlocked("endpoint sessions do not match exact exchange-session horizon")
         return "PENDING", None
     used = tuple(subsequent_sessions[:horizon])
-    dates = tuple(session.trade_date for session in used)
-    if any(day <= event_date for day in dates) or tuple(sorted(dates)) != dates or len(set(dates)) != len(dates):
-        raise ProtocolBlocked("subsequent sessions must be strict ordered A-share sessions after event day")
-    close = used[-1].close
-    if close is None:
+    if tuple(session.trade_date for session in used) != expected_dates:
+        raise ProtocolBlocked("endpoint sessions do not match exact exchange-session horizon")
+    if any(session.close is None for session in used):
         return "DATA_UNAVAILABLE", None
-    return "MATURED", close / reference_price - Decimal("1")
+    return "MATURED", used[-1].close / reference_price - Decimal("1")
 
 
 def validate_bootstrap_contract() -> None:
@@ -485,6 +570,7 @@ def assert_prospective_origin(
     origin: str,
     row_date: date,
     protocol_freeze_date: date = PROTOCOL_FREEZE_DATE,
+    run_calendar: FrozenAshareTradingCalendar | None = None,
     frozen_calendar: FrozenAshareTradingCalendar | None = None,
     oos_start: date | None = None,
 ) -> None:
@@ -494,16 +580,20 @@ def assert_prospective_origin(
         raise ProtocolBlocked("protocol freeze date override is forbidden")
     if row_date <= PROTOCOL_FREEZE_DATE:
         raise ProtocolBlocked("pre-freeze rows are forbidden in clean R9")
-    calendar = protocol_freeze_calendar()
-    if frozen_calendar is not None and frozen_calendar != calendar:
-        raise ProtocolBlocked("frozen calendar override is forbidden")
+    if frozen_calendar is not None:
+        raise ProtocolBlocked("freeze boundary calendar cannot validate future R9 rows")
+    if run_calendar is None:
+        raise ProtocolBlocked("explicit R9 run calendar is required")
     if oos_start is not None and oos_start != R9_OOS_START:
         raise ProtocolBlocked("OOS start override is forbidden")
     try:
+        validate_run_calendar(run_calendar)
+        if row_date not in run_calendar.sessions:
+            raise Gate2BBlocked("date is absent from R9 run calendar")
         assert_clean_oos_candidate_date(
             candidate_date=row_date,
             protocol_freeze_date=PROTOCOL_FREEZE_DATE,
-            calendar=calendar,
+            calendar=run_calendar,
             oos_start=R9_OOS_START,
         )
     except Gate2BBlocked as exc:

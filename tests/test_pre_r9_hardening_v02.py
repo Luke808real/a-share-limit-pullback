@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+from dataclasses import replace
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
@@ -17,6 +18,7 @@ sys.path.insert(0, str(REPO_ROOT / "research" / "second_launch" / "walk_forward_
 
 import r9_protocol_v02 as r9  # noqa: E402
 from limit_pullback.strategy.engine import make_setup_id  # noqa: E402
+from r9_ttl_event_eligibility_v01 import freeze_calendar, protocol_freeze_calendar  # noqa: E402
 
 
 pytestmark = pytest.mark.cloud_ci
@@ -34,7 +36,7 @@ def _git(repo_root: Path, *arguments: str) -> str:
 
 def _receipt_message(commit: str) -> str:
     return (
-        "R9 V01 protocol freeze receipt\n\n"
+        "R9 V02 post-boundary-hardening protocol freeze receipt\n\n"
         f"PROTOCOL_FREEZE_COMMIT={commit}\n"
         f"PROTOCOL_FREEZE_DATE={r9.PROTOCOL_FREEZE_DATE.isoformat()}\n"
         f"OOS_START={r9.R9_OOS_START.isoformat()}\n"
@@ -49,7 +51,11 @@ def _annotated_protocol_receipt_repo(tmp_path: Path, *, message: str | None = No
     _git(repo_root, "config", "user.email", "r9-test@example.invalid")
     _git(repo_root, "config", "user.name", "R9 protocol test")
     (repo_root / "freeze.txt").write_text("freeze\n")
-    _git(repo_root, "add", "freeze.txt")
+    for relative_path in r9.FROZEN_PROTOCOL_ARTIFACTS:
+        path = repo_root / relative_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"frozen:{relative_path}\n")
+    _git(repo_root, "add", ".")
     _git(repo_root, "commit", "-m", "freeze")
     commit = _git(repo_root, "rev-parse", "HEAD")
     _git(
@@ -78,7 +84,7 @@ def test_population_and_owner_frozen_ttl_authority_are_explicit():
     r9.require_population_and_ttl_authority()
 
 
-def test_accumulation_write_authority_requires_an_actual_annotated_head_tag(tmp_path):
+def test_accumulation_write_authority_accepts_ancestor_receipt_with_unchanged_artifacts(tmp_path):
     repo_root = _annotated_protocol_receipt_repo(tmp_path)
     head = _git(repo_root, "rev-parse", "HEAD")
     assert r9.R9_ACCUMULATION_WRITE_AUTHORITY == "POST_COMMIT_RECEIPT_REQUIRED"
@@ -87,8 +93,27 @@ def test_accumulation_write_authority_requires_an_actual_annotated_head_tag(tmp_
     assert receipt.tag_target_commit == head
     assert receipt.tag_object != head
     _git(repo_root, "commit", "--allow-empty", "-m", "later")
-    with pytest.raises(r9.ProtocolBlocked, match="does not target expected HEAD"):
-        r9.require_r9_accumulation_write_authority(repo_root=repo_root)
+    later_receipt = r9.require_r9_accumulation_write_authority(repo_root=repo_root)
+    assert later_receipt.protocol_freeze_commit == head
+
+
+def test_accumulation_write_authority_blocks_protocol_drift_and_non_ancestor_receipt(tmp_path):
+    drift_root = _annotated_protocol_receipt_repo(tmp_path / "drift")
+    drift_path = drift_root / r9.FROZEN_PROTOCOL_ARTIFACTS[0]
+    drift_path.write_text("changed\n")
+    _git(drift_root, "add", ".")
+    _git(drift_root, "commit", "-m", "protocol drift")
+    with pytest.raises(r9.ProtocolBlocked, match="BLOCKED_PROTOCOL_DRIFT"):
+        r9.require_r9_accumulation_write_authority(repo_root=drift_root)
+
+    diverged_root = _annotated_protocol_receipt_repo(tmp_path / "diverged")
+    _git(diverged_root, "checkout", "--orphan", "diverged")
+    _git(diverged_root, "rm", "-rf", ".")
+    (diverged_root / "diverged.txt").write_text("diverged\n")
+    _git(diverged_root, "add", "diverged.txt")
+    _git(diverged_root, "commit", "-m", "diverged")
+    with pytest.raises(r9.ProtocolBlocked, match="not an ancestor"):
+        r9.require_r9_accumulation_write_authority(repo_root=diverged_root)
 
 
 def test_receipt_reader_rejects_lightweight_or_duplicate_message_field_tags(tmp_path):
@@ -101,7 +126,7 @@ def test_receipt_reader_rejects_lightweight_or_duplicate_message_field_tags(tmp_
     duplicate_root = _annotated_protocol_receipt_repo(
         tmp_path / "duplicate",
         message=(
-            "R9 V01 protocol freeze receipt\n\n"
+            "R9 V02 post-boundary-hardening protocol freeze receipt\n\n"
             f"PROTOCOL_FREEZE_COMMIT={'0' * 40}\n"
             f"PROTOCOL_FREEZE_COMMIT={'0' * 40}\n"
             f"PROTOCOL_FREEZE_DATE={r9.PROTOCOL_FREEZE_DATE.isoformat()}\n"
@@ -115,7 +140,7 @@ def test_receipt_reader_rejects_lightweight_or_duplicate_message_field_tags(tmp_
     wrong_value_root = _annotated_protocol_receipt_repo(
         tmp_path / "wrong-value",
         message=(
-            "R9 V01 protocol freeze receipt\n\n"
+            "R9 V02 post-boundary-hardening protocol freeze receipt\n\n"
             f"PROTOCOL_FREEZE_COMMIT={'0' * 40}\n"
             f"PROTOCOL_FREEZE_DATE={r9.PROTOCOL_FREEZE_DATE.isoformat()}\n"
             f"OOS_START={r9.R9_OOS_START.isoformat()}\n"
@@ -179,8 +204,26 @@ def test_m0_m1_are_full_frozen_raw_coefficient_rank_scores_without_refit():
         r9.frozen_daily_score("M2", values)
 
 
-def test_primary_endpoint_is_strictly_after_event_day_and_never_uses_eod_acceptance():
+def _run_calendar():
+    sessions = (
+        date(2026, 8, 10),
+        date(2026, 8, 11),
+        date(2026, 8, 12),
+        date(2026, 8, 13),
+        date(2026, 8, 14),
+        date(2026, 8, 17),
+        date(2026, 8, 18),
+        date(2026, 8, 19),
+        date(2026, 8, 20),
+        date(2026, 8, 21),
+        date(2026, 8, 24),
+    )
+    return freeze_calendar(version="R9_RUN_CALENDAR_TEST_V01", sessions=sessions)
+
+
+def test_primary_endpoints_require_exact_exchange_session_horizons():
     event_day = date(2026, 8, 10)
+    calendar = _run_calendar()
     sessions = (
         r9.SubsequentSession(date(2026, 8, 11), Decimal("101")),
         r9.SubsequentSession(date(2026, 8, 12), Decimal("102")),
@@ -190,33 +233,69 @@ def test_primary_endpoint_is_strictly_after_event_day_and_never_uses_eod_accepta
     )
     status, result = r9.forward_close_return(
         event_date=event_day, reference_price=Decimal("100"),
+        run_calendar=calendar,
         subsequent_sessions=sessions, horizon=3,
     )
     assert (status, result) == ("MATURED", Decimal("0.03"))
     status_5d, result_5d = r9.forward_close_return(
         event_date=event_day, reference_price=Decimal("100"),
+        run_calendar=calendar,
         subsequent_sessions=sessions, horizon=5,
     )
     assert (status_5d, result_5d) == ("MATURED", Decimal("0.05"))
     with pytest.raises(r9.ProtocolBlocked):
         r9.forward_close_return(
             event_date=event_day, reference_price=Decimal("100"),
+            run_calendar=calendar,
             subsequent_sessions=(r9.SubsequentSession(event_day, Decimal("101")), *sessions),
+            horizon=3,
+        )
+    with pytest.raises(r9.ProtocolBlocked, match="exact exchange-session horizon"):
+        r9.forward_close_return(
+            event_date=event_day,
+            reference_price=Decimal("100"),
+            run_calendar=calendar,
+            subsequent_sessions=(
+                r9.SubsequentSession(date(2026, 8, 11), Decimal("101")),
+                r9.SubsequentSession(date(2026, 8, 13), Decimal("103")),
+                r9.SubsequentSession(date(2026, 8, 17), Decimal("105")),
+            ),
             horizon=3,
         )
     assert r9.OPTIONAL_BINARY_DIAGNOSTIC == "FWD3_POSITIVE = FWD3_CLOSE_RETURN > 0"
 
 
-def test_missing_close_does_not_silently_skip_to_a_later_stock_bar():
+def test_missing_exact_horizon_close_is_data_unavailable_for_fwd3_and_fwd5():
+    calendar = _run_calendar()
     sessions = (
         r9.SubsequentSession(date(2026, 8, 11), Decimal("101")),
         r9.SubsequentSession(date(2026, 8, 12), Decimal("102")),
         r9.SubsequentSession(date(2026, 8, 13), None),
         r9.SubsequentSession(date(2026, 8, 14), Decimal("104")),
+        r9.SubsequentSession(date(2026, 8, 17), Decimal("105")),
     )
     assert r9.forward_close_return(
         event_date=date(2026, 8, 10), reference_price=Decimal("100"),
+        run_calendar=calendar,
         subsequent_sessions=sessions, horizon=3,
+    ) == ("DATA_UNAVAILABLE", None)
+    assert r9.forward_close_return(
+        event_date=date(2026, 8, 10), reference_price=Decimal("100"),
+        run_calendar=calendar,
+        subsequent_sessions=sessions, horizon=5,
+    ) == ("DATA_UNAVAILABLE", None)
+
+    missing_fwd5_horizon = (
+        r9.SubsequentSession(date(2026, 8, 11), Decimal("101")),
+        r9.SubsequentSession(date(2026, 8, 12), Decimal("102")),
+        r9.SubsequentSession(date(2026, 8, 13), Decimal("103")),
+        r9.SubsequentSession(date(2026, 8, 14), Decimal("104")),
+        r9.SubsequentSession(date(2026, 8, 17), None),
+    )
+    assert r9.forward_close_return(
+        event_date=date(2026, 8, 10), reference_price=Decimal("100"),
+        run_calendar=calendar,
+        subsequent_sessions=missing_fwd5_horizon, horizon=5,
     ) == ("DATA_UNAVAILABLE", None)
 
 
@@ -286,6 +365,7 @@ def assert_nonempty(path: Path) -> None:
 
 
 def test_pre_freeze_and_historical_rows_are_rejected():
+    run_calendar = _run_calendar()
     with pytest.raises(r9.ProtocolBlocked, match="pre-freeze"):
         r9.assert_prospective_origin(
             origin="R9_PROSPECTIVE",
@@ -297,11 +377,30 @@ def test_pre_freeze_and_historical_rows_are_rejected():
     r9.assert_prospective_origin(
         origin="R9_PROSPECTIVE",
         row_date=r9.R9_OOS_START,
+        run_calendar=run_calendar,
     )
-    with pytest.raises(r9.ProtocolBlocked, match="absent from frozen A-share calendar"):
+    r9.assert_prospective_origin(
+        origin="R9_PROSPECTIVE",
+        row_date=date(2026, 8, 24),
+        run_calendar=run_calendar,
+    )
+    with pytest.raises(r9.ProtocolBlocked, match="absent from R9 run calendar"):
         r9.assert_prospective_origin(
             origin="R9_PROSPECTIVE",
-            row_date=date(2026, 8, 22),
+            row_date=date(2026, 8, 25),
+            run_calendar=run_calendar,
+        )
+    with pytest.raises(r9.ProtocolBlocked, match="manifest hash mismatch"):
+        r9.assert_prospective_origin(
+            origin="R9_PROSPECTIVE",
+            row_date=date(2026, 8, 24),
+            run_calendar=replace(run_calendar, manifest_hash="0" * 64),
+        )
+    with pytest.raises(r9.ProtocolBlocked, match="provenance/version"):
+        r9.assert_prospective_origin(
+            origin="R9_PROSPECTIVE",
+            row_date=r9.R9_OOS_START,
+            run_calendar=protocol_freeze_calendar(),
         )
     with pytest.raises(r9.ProtocolBlocked, match="freeze date override"):
         r9.assert_prospective_origin(
@@ -314,8 +413,9 @@ def test_pre_freeze_and_historical_rows_are_rejected():
             origin="R9_PROSPECTIVE",
             row_date=r9.R9_OOS_START,
             oos_start=date(2026, 8, 8),
+            run_calendar=run_calendar,
         )
-    with pytest.raises(r9.ProtocolBlocked, match="calendar override"):
+    with pytest.raises(r9.ProtocolBlocked, match="freeze boundary calendar"):
         r9.assert_prospective_origin(
             origin="R9_PROSPECTIVE",
             row_date=r9.R9_OOS_START,
