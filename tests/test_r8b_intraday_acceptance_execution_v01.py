@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import sys
 from pathlib import Path
 
@@ -81,9 +82,43 @@ def test_direction_semantics():
     assert r8b.direction_of(float("nan")) == "UNKNOWN"
 
 
+def test_activation_clock_canonicalizes_full_timestamp():
+    assert r8b.activation_clock("2026-06-11 09:45:00") == "09:45"
+    assert r8b.activation_clock("09:45") == "09:45"
+    assert r8b.activation_clock("") == ""
+
+
 def test_or_zero_cell_policy():
     r = r8b.or_2x2(0, 5, 3, 4)
     assert np.isfinite(r["or"])
+
+
+def test_committed_touch_at_checkpoint_counts_and_r8_outputs_unchanged():
+    """R8 QA is read-only reconciliation of the frozen, committed CSVs."""
+    features_path = REPO_ROOT / "research" / "second_launch" / "intraday_v01" / (
+        "r8b_intraday_checkpoint_features_v01.csv"
+    )
+    acceptance_path = REPO_ROOT / "research" / "second_launch" / "intraday_v01" / (
+        "r8b_intraday_acceptance_results_v01.csv"
+    )
+    activation_path = REPO_ROOT / "research" / "second_launch" / "intraday_v01" / (
+        "r8b_activation_results_v01.csv"
+    )
+    expected_hashes = {
+        features_path: "022ce2f78e06fc6b225aee1787163b5073fd5388d538251e3bcf52e4e1cccd26",
+        acceptance_path: "6255e52cfd0219ff1225eab5c7512e29b5b87b764cd7238cc72e23bf93c5e231",
+        activation_path: "25652aa770551930441920a013750ff1183a97362d24c6cf2545133bf287773f",
+    }
+    for path, expected in expected_hashes.items():
+        assert hashlib.sha256(path.read_bytes()).hexdigest() == expected
+    features = pd.read_csv(features_path, dtype={"activation_time": str})
+    actual = {}
+    for checkpoint in r8b.CHECKPOINTS:
+        subset = features[(features["checkpoint"] == checkpoint)
+                          & features["activated"].astype(bool)]
+        clocks = subset["activation_time"].map(r8b.activation_clock)
+        actual[checkpoint] = int((clocks == checkpoint).sum())
+    assert actual == {"09:45": 6, "10:00": 6, "10:30": 2, "11:30": 0}
 
 
 # ---- chronology fixes ----

@@ -78,6 +78,14 @@ def first_touch_index(bars: pd.DataFrame, s1: float) -> int | None:
     return int(touched[0]) if len(touched) else None
 
 
+def activation_clock(value: Any) -> str:
+    """Canonical HH:MM clock from an activation timestamp, or empty if absent."""
+    parsed = pd.to_datetime(value, errors="coerce")
+    if pd.isna(parsed):
+        return ""
+    return parsed.strftime("%H:%M")
+
+
 def feature_row(
     episode: pd.Series, bars: pd.DataFrame, checkpoint: str,
     prev_close: float, d1_cum_vol: float,
@@ -335,12 +343,14 @@ def main() -> None:
             row = g[g["checkpoint"] == cp].iloc[0]
             if row["activated"]:
                 t = row["activation_time"]
-                touch_at_cp[cp] += 1 if t == cp else 0
+                touch_at_cp[cp] += 1 if activation_clock(t) == cp else 0
                 if prev_time is not None and t != prev_time:
                     violations += 1
                 prev_time = t
     print("FIRST_TOUCH_PREFIX_VIOLATION_N_AFTER_FIX:", violations)
     print("TOUCH_AT_CHECKPOINT_N:", touch_at_cp)
+    for cp in CHECKPOINTS:
+        print(f"TOUCH_AT_CHECKPOINT_N_{cp.replace(':', '_')}:", touch_at_cp[cp])
     for cp in CHECKPOINTS:
         sub = features[features["checkpoint"] == cp]
         finite = {
