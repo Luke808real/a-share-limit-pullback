@@ -25,7 +25,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e ".[ci]"
       - name: Compile research and source modules
-        run: python -m compileall -q src research/second_launch/factors_v01
+        run: python -m compileall -q src research/second_launch/factors_v01 research/second_launch/walk_forward_v01
       - name: Research contract tests (cloud_ci, no local data)
         run: |
           python -m pytest \
@@ -39,4 +39,5 @@ jobs:
             tests/test_r8a_asl5m_readiness_v01.py \
             tests/test_r8b_asl5m_dataset_readiness_v01.py \
             tests/test_r8b_intraday_acceptance_execution_v01.py \
+            tests/test_pre_r9_hardening_v02.py \
             -m "cloud_ci and not local_data"
