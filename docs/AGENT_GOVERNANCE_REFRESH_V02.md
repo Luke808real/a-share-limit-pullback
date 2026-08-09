@@ -105,7 +105,7 @@ skills：research-cycle 改名与去硬编码、新增 prospective-validation、
 - Phase 2C.2C / PR #7 / 2026-07-31 硬编码 authority（agent-context）
 - 2025-06-30 / 2025-07-01 全局 split（research-cycle）
 - 66d5943 作为永恒 default dataset（research-cycle）
-- /Users/luke808 绝对路径（AGENTS.md / pr-closeout）
+- 用户特定绝对路径（AGENTS.md / pr-closeout 中移除）
 - "KB 赢了 chat" 过强规则（替换为 Authority Matrix 分层）
 ```
 

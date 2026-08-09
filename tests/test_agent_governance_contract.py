@@ -45,6 +45,7 @@ def test_research_skill_not_clean_oos():
     assert "CHRONOLOGICAL_VALIDATION" not in t
     assert "2025-06-30" not in t and "2025-07-01" not in t
     assert "66d5943" not in t
+    assert "OBSERVE_ONLY" not in t and "REJECT" not in t  # legacy taxonomy
     assert "clean OOS" not in t.lower() or "not clean OOS" in t.lower()
 
 

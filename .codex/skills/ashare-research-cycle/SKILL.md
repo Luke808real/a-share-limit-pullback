@@ -30,7 +30,8 @@ with orthogonal `IMPLEMENTATION_STATUS` and `PRODUCTION_STATUS`.
 5. **EDGE_GATE**: only pre-existing production thresholds plus already-studied
    `entry_quality >= 80` / `setup_quality >= 80`. `EDGE_SUPPORTED` requires:
    discovery mean > 0, validation mean > 0, median not dependent on a single year,
-   n >= 30 per period. Otherwise `OBSERVE_ONLY` / `REJECT`.
+   n >= 30 per period. Otherwise the conclusion stays at `OBSERVATION` level
+   and no edge claim is made (do not upgrade).
 6. **Position sizing** only after `EDGE_SUPPORTED`. If no subgroup passes, output
    `NO_PROVEN_ENTRY_EDGE` and stop sizing promotion.
 7. **REPORT**: write `research/*.md` + metrics.json; record input provenance/hash,
