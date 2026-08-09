@@ -1,9 +1,9 @@
 """Frozen R9 V02 contract only; it never creates prospective observations.
 
 This module records the preconditions and pure guards required before any R9
-accumulation implementation may exist.  In particular, the historical R1
-candidate population and an administrative TTL are unresolved at this commit,
-so any attempt to create a prospective setup is fail-closed.
+accumulation implementation may exist. Gate 2A now has a separate population
+generator contract, but the administrative TTL is unresolved, so accumulation
+remains fail-closed.
 """
 
 from __future__ import annotations
@@ -24,15 +24,16 @@ from limit_pullback.strategy.engine import make_setup_id
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 PROTOCOL_VERSION = "R9_PROSPECTIVE_V02"
-PROTOCOL_STATUS = "BLOCKED_R9_POPULATION_SEMANTIC_GAP"
+PROTOCOL_STATUS = "BLOCKED_R9_TTL_UNRESOLVED"
 
 R1_PROVENANCE_STATUS = "INTERIM_PARTIAL_PROVENANCE"
 R1_FORWARD_AUTHORITY = False
 LEGACY_LABEL_ROLE = "SECONDARY_DIAGNOSTIC_ONLY_NOT_R9_PRIMARY_ENDPOINT"
 
 # R1 V01/V01A applied future_sessions_available >= 3 before keeping the first
-# candidate per setup.  No outcome-blind replacement is authoritative here.
-R9_POPULATION_STATUS = "BLOCKED_R9_POPULATION_SEMANTIC_GAP"
+# candidate per setup.  The separate Gate 2A generator is a new prospective
+# contract; it does not claim historical final-cohort equivalence.
+R9_POPULATION_STATUS = "PASS_NEW_PROSPECTIVE_V01"
 R9_SETUP_ID_RULE = (
     "make_setup_id(symbol, anchor_date, anchor_price, price_tick); "
     "strategy_version is provenance, not part of the historical-compatible key"
@@ -221,7 +222,7 @@ def intraday_observation_status(
 
 
 def require_population_and_ttl_authority() -> None:
-    if R9_POPULATION_STATUS != "PASS":
+    if R9_POPULATION_STATUS not in {"PASS", "PASS_NEW_PROSPECTIVE_V01"}:
         raise ProtocolBlocked(R9_POPULATION_STATUS)
     if R9_OBSERVATION_TTL_STATUS != "PASS" or R9_OBSERVATION_TTL is None:
         raise ProtocolBlocked(R9_OBSERVATION_TTL_STATUS)
@@ -436,8 +437,8 @@ def protocol_registry_rows() -> list[dict[str, str]]:
         {"section": "authority", "key": "R1_PROVENANCE_STATUS", "value": R1_PROVENANCE_STATUS, "status": "PASS"},
         {"section": "authority", "key": "R1_FORWARD_AUTHORITY", "value": "FALSE", "status": "PASS"},
         {"section": "authority", "key": "LEGACY_LABEL_ROLE", "value": LEGACY_LABEL_ROLE, "status": "PASS"},
-        {"section": "population", "key": "R9_SETUP_ID", "value": R9_SETUP_ID_RULE, "status": "BLOCKED"},
-        {"section": "population", "key": "R9_POPULATION_STATUS", "value": R9_POPULATION_STATUS, "status": "BLOCKED"},
+        {"section": "population", "key": "R9_SETUP_ID", "value": R9_SETUP_ID_RULE, "status": "PASS"},
+        {"section": "population", "key": "R9_POPULATION_STATUS", "value": R9_POPULATION_STATUS, "status": "PASS"},
         {"section": "population", "key": "R9_OBSERVATION_TTL", "value": "UNRESOLVED", "status": "BLOCKED"},
         {"section": "event", "key": "FIRST_S1_TOUCH_EVENT", "value": FIRST_S1_TOUCH_EVENT, "status": "PASS"},
         {"section": "event", "key": "REPEAT_CONFIRMATION_CREATES_NEW_EVENT", "value": "FALSE", "status": "PASS"},
@@ -454,6 +455,8 @@ def protocol_registry_rows() -> list[dict[str, str]]:
         {"section": "provenance", "key": "R9_ASL_DATA_ROOT", "value": R9_ASL_DATA_ROOT, "status": "PASS"},
         {"section": "publication", "key": "ATOMIC_PUBLICATION_STEPS", "value": " -> ".join(ATOMIC_PUBLICATION_STEPS), "status": "PASS"},
         {"section": "gate", "key": "GATE_1_R1_AUTHORITY_BOUNDARY", "value": "PASS", "status": "PASS"},
+        {"section": "gate", "key": "GATE_2A_PROSPECTIVE_POPULATION", "value": "PASS", "status": "PASS"},
+        {"section": "gate", "key": "GATE_2B_OBSERVATION_TTL", "value": "PENDING_OWNER_DECISION", "status": "BLOCKED"},
         {"section": "gate", "key": "GATE_2_POPULATION_EVENT_TTL", "value": "BLOCKED", "status": "BLOCKED"},
         {"section": "gate", "key": "GATE_3_INDEPENDENT_ENDPOINT", "value": "PASS", "status": "PASS"},
         {"section": "gate", "key": "GATE_4_MULTIPLICITY_UNCERTAINTY", "value": "PASS", "status": "PASS"},

@@ -40,4 +40,5 @@ jobs:
             tests/test_r8b_asl5m_dataset_readiness_v01.py \
             tests/test_r8b_intraday_acceptance_execution_v01.py \
             tests/test_pre_r9_hardening_v02.py \
+            tests/test_r9_gate2a_prospective_population_v01.py \
             -m "cloud_ci and not local_data"

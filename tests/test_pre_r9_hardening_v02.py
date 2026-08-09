@@ -30,10 +30,10 @@ def test_r1_forward_authority_and_legacy_label_boundary_are_frozen():
 
 
 def test_population_and_ttl_fail_closed_without_invented_generator_or_horizon():
-    assert r9.R9_POPULATION_STATUS == "BLOCKED_R9_POPULATION_SEMANTIC_GAP"
+    assert r9.R9_POPULATION_STATUS == "PASS_NEW_PROSPECTIVE_V01"
     assert r9.R9_OBSERVATION_TTL_STATUS == "BLOCKED_TTL_UNRESOLVED"
     assert r9.R9_OBSERVATION_TTL is None
-    with pytest.raises(r9.ProtocolBlocked, match="BLOCKED_R9_POPULATION_SEMANTIC_GAP"):
+    with pytest.raises(r9.ProtocolBlocked, match="BLOCKED_TTL_UNRESOLVED"):
         r9.require_population_and_ttl_authority()
 
 
@@ -240,8 +240,10 @@ def test_registry_and_empty_schema_templates_match_frozen_contract():
 def test_gate_status_is_no_go_and_no_real_oos_row_is_present():
     rows = {row["key"]: row["value"] for row in r9.protocol_registry_rows()}
     assert rows["GATE_1_R1_AUTHORITY_BOUNDARY"] == "PASS"
+    assert rows["GATE_2A_PROSPECTIVE_POPULATION"] == "PASS"
+    assert rows["GATE_2B_OBSERVATION_TTL"] == "PENDING_OWNER_DECISION"
     assert rows["GATE_2_POPULATION_EVENT_TTL"] == "BLOCKED"
     assert rows["GATE_3_INDEPENDENT_ENDPOINT"] == "PASS"
     assert rows["GATE_4_MULTIPLICITY_UNCERTAINTY"] == "PASS"
     assert rows["GATE_5_ASL_PROVENANCE_ATOMICITY"] == "PASS"
-    assert r9.PROTOCOL_STATUS == "BLOCKED_R9_POPULATION_SEMANTIC_GAP"
+    assert r9.PROTOCOL_STATUS == "BLOCKED_R9_TTL_UNRESOLVED"
