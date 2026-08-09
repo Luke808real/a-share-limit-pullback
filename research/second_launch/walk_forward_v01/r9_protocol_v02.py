@@ -119,8 +119,10 @@ R7_MODEL_REGISTRY_PATH = (
 )
 M0_PREDICTORS = ("B4", "B5", "B6", "B7")
 M1_PREDICTORS = M0_PREDICTORS + ("median_range_ratio",)
+M2_PREDICTORS = M1_PREDICTORS + ("quiet_days_n",)
 PRIMARY_DAILY_COMPARISON = "M1_vs_M0"
 M2_ROLE = "SECONDARY_LOCKED_NO_REFIT"
+M2_SCORE_SEMANTICS = "SECONDARY_ONLY_RAW_COEFFICIENT_RANK_SCORE"
 M0_M1_SCORE_SEMANTICS = (
     "outcome_3d CORE_LADDER raw-coefficient rank-linear score; published "
     "coefficient CSV intentionally omits intercept, which does not affect "
@@ -439,7 +441,14 @@ def _frozen_coefficient_rows(model_id: str) -> tuple[tuple[str, Decimal], ...]:
         raise ProtocolBlocked("R7 coefficient SHA mismatch")
     if sha256_file(R7_MODEL_REGISTRY_PATH) != R7_MODEL_REGISTRY_SHA:
         raise ProtocolBlocked("R7 model registry SHA mismatch")
-    expected = M0_PREDICTORS if model_id == "M0" else M1_PREDICTORS
+    if model_id == "M0":
+        expected = M0_PREDICTORS
+    elif model_id == "M1":
+        expected = M1_PREDICTORS
+    elif model_id == "M2":
+        expected = M2_PREDICTORS
+    else:
+        raise ProtocolBlocked("only M0/M1/M2 are permitted for frozen daily scores")
     with R7_COEFFICIENTS_PATH.open(newline="") as handle:
         rows = [
             row for row in csv.DictReader(handle)
@@ -454,9 +463,9 @@ def _frozen_coefficient_rows(model_id: str) -> tuple[tuple[str, Decimal], ...]:
 
 
 def frozen_daily_score(model_id: str, values: Mapping[str, Decimal | int | float]) -> Decimal:
-    """Calculate frozen raw-coefficient rank score; no model fit/calibration occurs."""
-    if model_id not in {"M0", "M1"}:
-        raise ProtocolBlocked("only M0/M1 are permitted for the primary comparison")
+    """Calculate a frozen raw-coefficient score; no fit or calibration occurs."""
+    if model_id not in {"M0", "M1", "M2"}:
+        raise ProtocolBlocked("only M0/M1/M2 are permitted for frozen daily scores")
     score = Decimal("0")
     for predictor, coefficient in _frozen_coefficient_rows(model_id):
         if predictor not in values:
@@ -691,6 +700,8 @@ def protocol_registry_rows() -> list[dict[str, str]]:
         {"section": "intraday", "key": "R9_PRIMARY_CHECKPOINT", "value": R9_PRIMARY_CHECKPOINT, "status": "PASS"},
         {"section": "intraday", "key": "PRIMARY_INTRADAY_FEATURE", "value": PRIMARY_INTRADAY_FEATURE, "status": "PASS"},
         {"section": "daily", "key": "PRIMARY_DAILY_COMPARISON", "value": PRIMARY_DAILY_COMPARISON, "status": "PASS"},
+        {"section": "daily", "key": "M2_ROLE", "value": M2_ROLE, "status": "PASS"},
+        {"section": "daily", "key": "M2_SCORE_SEMANTICS", "value": M2_SCORE_SEMANTICS, "status": "PASS"},
         {"section": "daily", "key": "R7_COEFFICIENTS_SHA", "value": R7_COEFFICIENTS_SHA, "status": "PASS"},
         {"section": "endpoint", "key": "PRIMARY_ENDPOINT", "value": PRIMARY_ENDPOINT, "status": "PASS"},
         {"section": "endpoint", "key": "SENSITIVITY_ENDPOINT", "value": SENSITIVITY_ENDPOINT, "status": "PASS"},

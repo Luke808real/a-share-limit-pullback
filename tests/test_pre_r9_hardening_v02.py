@@ -87,9 +87,15 @@ def test_population_and_owner_frozen_ttl_authority_are_explicit():
     r9.require_population_and_ttl_authority()
 
 
-def test_v03_receipt_is_required_and_v02_is_not_silent_write_authority():
+def test_v03_receipt_is_required_and_v02_is_not_silent_write_authority(tmp_path):
     assert r9.PROTOCOL_FREEZE_RECEIPT_TAG == "r9-protocol-freeze-v03"
-    with pytest.raises(r9.ProtocolBlocked, match="Git verification"):
+    repo_root = _annotated_protocol_receipt_repo(tmp_path)
+    receipt = r9.require_r9_accumulation_write_authority(repo_root=repo_root)
+    assert receipt.tag == r9.PROTOCOL_FREEZE_RECEIPT_TAG
+
+
+def test_v03_receipt_blocks_after_frozen_protocol_patch():
+    with pytest.raises(r9.ProtocolBlocked, match="BLOCKED_PROTOCOL_DRIFT"):
         r9.require_r9_accumulation_write_authority(repo_root=REPO_ROOT)
 
 
@@ -199,6 +205,8 @@ def test_primary_checkpoint_features_and_no_threshold_or_composite_are_frozen():
 
 def test_m0_m1_are_full_frozen_raw_coefficient_rank_scores_without_refit():
     assert r9.PRIMARY_DAILY_COMPARISON == "M1_vs_M0"
+    assert r9.M2_ROLE == "SECONDARY_LOCKED_NO_REFIT"
+    assert r9.M2_SCORE_SEMANTICS == "SECONDARY_ONLY_RAW_COEFFICIENT_RANK_SCORE"
     assert r9._frozen_coefficient_rows("M0") == (
         ("B4", Decimal("0.1769807503017533")),
         ("B5", Decimal("0.42476592422692655")),
@@ -209,8 +217,42 @@ def test_m0_m1_are_full_frozen_raw_coefficient_rank_scores_without_refit():
     assert r9._frozen_coefficient_rows("M1")[0][1] != r9._frozen_coefficient_rows("M0")[0][1]
     values = {"B4": 1, "B5": 1, "B6": 1, "B7": 0, "median_range_ratio": Decimal("0.5")}
     assert r9.frozen_daily_score("M1", values) != r9.frozen_daily_score("M0", values)
-    with pytest.raises(r9.ProtocolBlocked):
-        r9.frozen_daily_score("M2", values)
+
+
+def test_m2_secondary_score_uses_the_frozen_core_ladder_contract():
+    expected_rows = (
+        ("B4", Decimal("0.20875915695997968")),
+        ("B5", Decimal("0.4224865924865443")),
+        ("B6", Decimal("0.4745304013287491")),
+        ("B7", Decimal("0.0283739508244175")),
+        ("median_range_ratio", Decimal("-0.33802245823399896")),
+        ("quiet_days_n", Decimal("0.06590498779236134")),
+    )
+    assert r9.M2_PREDICTORS == tuple(name for name, _ in expected_rows)
+    assert r9._frozen_coefficient_rows("M2") == expected_rows
+    values = {
+        "B4": Decimal("1.25"),
+        "B5": Decimal("0.75"),
+        "B6": Decimal("0.50"),
+        "B7": Decimal("-0.25"),
+        "median_range_ratio": Decimal("0.40"),
+        "quiet_days_n": Decimal("2"),
+    }
+    expected_score = sum(
+        (coefficient * values[predictor] for predictor, coefficient in expected_rows),
+        Decimal("0"),
+    )
+    assert r9.frozen_daily_score("M2", values) == expected_score
+    with pytest.raises(r9.ProtocolBlocked, match="quiet_days_n"):
+        r9.frozen_daily_score("M2", {key: value for key, value in values.items() if key != "quiet_days_n"})
+    with pytest.raises(r9.ProtocolBlocked, match="M0/M1/M2"):
+        r9.frozen_daily_score("M3", values)
+
+
+def test_m2_coefficient_integrity_is_fail_closed(monkeypatch):
+    monkeypatch.setattr(r9, "R7_COEFFICIENTS_SHA", "0" * 64)
+    with pytest.raises(r9.ProtocolBlocked, match="R7 coefficient SHA mismatch"):
+        r9._frozen_coefficient_rows("M2")
 
 
 def _run_calendar():
