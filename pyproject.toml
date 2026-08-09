@@ -26,12 +26,16 @@ warehouse = [
 test = [
   "pytest>=8.3,<9",
 ]
-# Minimal deps for cloud CI research-contract tests (no provider/warehouse).
+# Minimal deps for deterministic cloud research-contract tests; no providers,
+# network access, or local market database. Bounded import-time warehouse
+# libraries are declared below.
 ci = [
   "pytest>=8.3,<9",
   "numpy>=1.26,<3",
   "pandas>=2.2,<4",
   "statsmodels>=0.14,<1",
+  "pyarrow>=17,<21",
+  "duckdb>=1.1,<2",
 ]
 
 [tool.hatch.build.targets.wheel]
