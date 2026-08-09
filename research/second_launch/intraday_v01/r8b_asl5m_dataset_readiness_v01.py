@@ -12,6 +12,7 @@ from pathlib import Path
 import sys
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 
@@ -61,7 +62,35 @@ def load_frozen_5m() -> pd.DataFrame:
     dup = df.duplicated(subset=["symbol", "trade_date", "bar_time"]).sum()
     if dup != 0:
         raise RuntimeError(f"duplicate bars {dup} (fail closed)")
+    # canonicalize physical row order (consumer-side; dataset lock unchanged)
+    df = df.sort_values(
+        ["symbol", "trade_date", "bar_time"]
+    ).reset_index(drop=True)
+    _assert_chronological(df)
     return df
+
+
+def _assert_chronological(df: pd.DataFrame) -> None:
+    """Per symbol-day: bar_time strictly increasing + unique (fail closed)."""
+    t = pd.to_datetime(df["bar_time"])
+    key = df["symbol"].astype(str) + "|" + df["trade_date"].astype(str)
+    prev_t = t.shift(1)
+    same_group = key == key.shift(1)
+    bad = (same_group & (t <= prev_t)).sum()
+    if bad != 0:
+        raise RuntimeError(f"{int(bad)} non-strictly-increasing bar rows")
+
+
+def out_of_order_symbol_days(df: pd.DataFrame) -> int:
+    """Count symbol-days whose PHYSICAL row order is not chronological."""
+    key = df["symbol"].astype(str) + "|" + df["trade_date"].astype(str)
+    oob = 0
+    for _, g in df.groupby(key):
+        t = pd.to_datetime(g["bar_time"]).dt.time
+        tm = np.array([x.hour * 60 + x.minute for x in t])
+        if not (tm[1:] >= tm[:-1]).all():
+            oob += 1
+    return oob
 
 
 def recompute_lock_sha(parts: list[Path]) -> str:

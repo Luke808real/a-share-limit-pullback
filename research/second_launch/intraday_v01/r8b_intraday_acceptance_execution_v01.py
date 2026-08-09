@@ -83,6 +83,7 @@ def feature_row(
     prev_close: float, d1_cum_vol: float,
 ) -> dict[str, Any]:
     """One episode x checkpoint feature row (PIT right-labeled)."""
+    bars = bars.sort_values("bar_time").reset_index(drop=True)
     cb = checkpoint_bars(bars, checkpoint)
     s1 = float(episode["s1_price"])
     touch = first_touch_index(cb, s1)
@@ -127,6 +128,7 @@ def feature_row(
         "activated": activated,
         "activation_time": touch_time,
         "acceptance_eligible": activated,
+        "post_activation_bar_n": int(len(window)),
         "breakout_hold_ratio": f7_1,
         "vwap_acceptance_ratio": f7_2,
         "retest_depth": f7_3,
@@ -183,23 +185,32 @@ def acceptance_stats(
 ) -> dict[str, Any]:
     sub = features[(features["checkpoint"] == checkpoint)
                    & features["acceptance_eligible"]]
-    succ = sub[sub["outcome"] == "SUCCESS"]
-    fail = sub[sub["outcome"] == "FAILED_BREAKOUT"]
+    succ_act = int((sub["outcome"] == "SUCCESS").sum())
+    fail_act = int((sub["outcome"] == "FAILED_BREAKOUT").sum())
     vals = pd.to_numeric(sub[feature], errors="coerce")
-    labels = (sub["outcome"] == "SUCCESS").astype(int).to_numpy()
     finite = vals.notna().to_numpy()
+    labels = (sub["outcome"] == "SUCCESS").astype(int).to_numpy()
+    sub_f = sub[finite]
+    succ_f = sub_f[sub_f["outcome"] == "SUCCESS"]
+    fail_f = sub_f[sub_f["outcome"] == "FAILED_BREAKOUT"]
     vs = vals.to_numpy()[finite]
     lbs = labels[finite]
     auc = r3a.binary_auc(vs, lbs) if len(np.unique(vs)) >= 2 else float("nan")
     return {
         "checkpoint": checkpoint,
         "feature": feature,
-        "SUCCESS_N": len(succ),
-        "FAILED_N": len(fail),
-        "SUCCESS_mean": float(pd.to_numeric(succ[feature], errors="coerce").mean()),
-        "FAILED_mean": float(pd.to_numeric(fail[feature], errors="coerce").mean()),
-        "SUCCESS_median": float(pd.to_numeric(succ[feature], errors="coerce").median()),
-        "FAILED_median": float(pd.to_numeric(fail[feature], errors="coerce").median()),
+        "SUCCESS_ACTIVATED_N": succ_act,
+        "FAILED_ACTIVATED_N": fail_act,
+        "SUCCESS_FEATURE_N": int((sub_f["outcome"] == "SUCCESS").sum()),
+        "FAILED_FEATURE_N": int((sub_f["outcome"] == "FAILED_BREAKOUT").sum()),
+        "SUCCESS_mean": float(pd.to_numeric(
+            succ_f[feature], errors="coerce").mean()),
+        "FAILED_mean": float(pd.to_numeric(
+            fail_f[feature], errors="coerce").mean()),
+        "SUCCESS_median": float(pd.to_numeric(
+            succ_f[feature], errors="coerce").median()),
+        "FAILED_median": float(pd.to_numeric(
+            fail_f[feature], errors="coerce").median()),
         "native_auc": auc,
         "direction": direction_of(auc),
         "rank_biserial": rank_biserial(auc) if np.isfinite(auc) else float("nan"),
@@ -267,8 +278,12 @@ def load_prev_close(
 
 
 def main() -> None:
+    raw_parts = rd.curated_partitions()
+    raw = pd.concat([pd.read_parquet(p) for p in raw_parts], ignore_index=True)
+    oob_before = rd.out_of_order_symbol_days(raw)
     bars = rd.load_frozen_5m()
     assert rd.recompute_lock_sha(rd.curated_partitions()) == rd.DATASET_LOCK_SHA
+    print("OUT_OF_ORDER_SYMBOL_DAY_N_BEFORE_CANONICALIZATION:", oob_before)
     prov = pd.read_csv(rd.OUT_ASL5M_PROVENANCE, dtype={"symbol": str})
     prov["date"] = pd.to_datetime(prov["outcome_event_date"]).dt.date
 
@@ -311,6 +326,30 @@ def main() -> None:
     features = features.sort_values(
         ["episode_id", "checkpoint"]).reset_index(drop=True)
     features.to_csv(OUT_FEATURES, index=False)
+    # ---- chronology QA ----
+    violations = 0
+    touch_at_cp = {cp: 0 for cp in CHECKPOINTS}
+    for eid, g in features.groupby("episode_id"):
+        prev_time = None
+        for cp in CHECKPOINTS:
+            row = g[g["checkpoint"] == cp].iloc[0]
+            if row["activated"]:
+                t = row["activation_time"]
+                touch_at_cp[cp] += 1 if t == cp else 0
+                if prev_time is not None and t != prev_time:
+                    violations += 1
+                prev_time = t
+    print("FIRST_TOUCH_PREFIX_VIOLATION_N_AFTER_FIX:", violations)
+    print("TOUCH_AT_CHECKPOINT_N:", touch_at_cp)
+    for cp in CHECKPOINTS:
+        sub = features[features["checkpoint"] == cp]
+        finite = {
+            f: int(pd.to_numeric(sub[f], errors="coerce").notna().sum())
+            for f in PRIMARY_FEATURES
+        }
+        print(f"FEATURE_FINITE_N {cp}:", finite)
+    if violations != 0:
+        raise RuntimeError("first-touch prefix stability violated (fail closed)")
     # stats
     acc = []
     for cp in CHECKPOINTS:
@@ -321,8 +360,9 @@ def main() -> None:
     pd.DataFrame(act).to_csv(OUT_ACTIVATION, index=False)
     print("FEATURE_ROWS:", len(features))
     print(pd.DataFrame(acc)[
-        ["checkpoint", "feature", "SUCCESS_N", "FAILED_N", "native_auc",
-         "direction", "rank_biserial"]].round(4).to_string(index=False))
+        ["checkpoint", "feature", "SUCCESS_ACTIVATED_N", "FAILED_ACTIVATED_N",
+         "SUCCESS_FEATURE_N", "FAILED_FEATURE_N", "native_auc", "direction",
+         "rank_biserial"]].round(4).to_string(index=False))
     print(pd.DataFrame(act)[
         ["checkpoint", "SUCCESS_activated_rate", "FAILED_activated_rate",
          "rate_difference", "or_value", "binary_auc"]].round(4).to_string(index=False))
