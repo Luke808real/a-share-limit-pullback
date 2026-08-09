@@ -1,9 +1,8 @@
 """Frozen R9 V02 contract only; it never creates prospective observations.
 
 This module records the preconditions and pure guards required before any R9
-accumulation implementation may exist. Gate 2A now has a separate population
-generator contract, but the administrative TTL is unresolved, so accumulation
-remains fail-closed.
+accumulation implementation may exist. Gate 2A and Gate 2B are frozen, but
+this module does not itself create an OOS row or run R9 accumulation.
 """
 
 from __future__ import annotations
@@ -11,6 +10,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import os
+import subprocess
 from dataclasses import dataclass
 from datetime import date, datetime, time
 from decimal import Decimal, InvalidOperation
@@ -19,12 +19,38 @@ from typing import Any, Callable, Mapping, Sequence
 from uuid import uuid4
 
 from limit_pullback.strategy.engine import make_setup_id
+from r9_ttl_event_eligibility_v01 import (
+    OOS_START,
+    PROTOCOL_FREEZE_CALENDAR_ARTIFACT,
+    PROTOCOL_FREEZE_CALENDAR_MANIFEST_HASH,
+    PROTOCOL_FREEZE_CALENDAR_VERSION,
+    PROTOCOL_FREEZE_DATE,
+    R9_ADMINISTRATIVE_TTL_VERSION,
+    R9_OBSERVATION_TTL as OWNER_FROZEN_TTL_SESSIONS,
+    STRUCTURAL_INVALIDATION_STATUS,
+    TTL_ANCHOR,
+    TTL_SELECTION_BASIS,
+    TTL_UNIT,
+    TTL_WINDOW,
+    FrozenAshareTradingCalendar,
+    Gate2BBlocked,
+    RIGHT_LABELED_5M_GRID,
+    assert_clean_oos_candidate_date,
+    canonical_clock as canonical_gate2b_clock,
+    protocol_freeze_calendar,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 PROTOCOL_VERSION = "R9_PROSPECTIVE_V02"
-PROTOCOL_STATUS = "BLOCKED_R9_TTL_UNRESOLVED"
+PROTOCOL_STATUS = "GO_PRE_R9_AUTHORIZED_NO_OOS_ROWS"
+PRE_R9_STATUS = "GO"
+R9_RECOMMENDATION = "AUTHORIZED_TO_FREEZE_AND_ACCUMULATE"
+R9_ACCUMULATION_AUTHORIZED = True
+R9_OOS_ROWS_WRITTEN = 0
+PROTOCOL_FREEZE_RECEIPT_TAG = "r9-protocol-freeze-v01"
+R9_ACCUMULATION_WRITE_AUTHORITY = "POST_COMMIT_RECEIPT_REQUIRED"
 
 R1_PROVENANCE_STATUS = "INTERIM_PARTIAL_PROVENANCE"
 R1_FORWARD_AUTHORITY = False
@@ -38,8 +64,15 @@ R9_SETUP_ID_RULE = (
     "make_setup_id(symbol, anchor_date, anchor_price, price_tick); "
     "strategy_version is provenance, not part of the historical-compatible key"
 )
-R9_OBSERVATION_TTL_STATUS = "BLOCKED_TTL_UNRESOLVED"
-R9_OBSERVATION_TTL: int | None = None
+R9_OBSERVATION_TTL_STATUS = "PASS_OWNER_FROZEN_V01"
+R9_OBSERVATION_TTL: int = OWNER_FROZEN_TTL_SESSIONS
+R9_TTL_ANCHOR = TTL_ANCHOR
+R9_TTL_SELECTION_BASIS = TTL_SELECTION_BASIS
+R9_TTL_UNIT = TTL_UNIT
+R9_TTL_WINDOW = TTL_WINDOW
+R9_STRUCTURAL_INVALIDATION_STATUS = STRUCTURAL_INVALIDATION_STATUS
+R9_PROSPECTIVE_EVENT_ELIGIBILITY_STATUS = "PASS_OWNER_FROZEN_V01"
+R9_OOS_START = OOS_START
 
 FIRST_S1_TOUCH_EVENT = "FIRST_S1_TOUCH_EVENT"
 REPEAT_CONFIRMATION_CREATES_NEW_EVENT = False
@@ -114,13 +147,18 @@ HISTORICAL_ORIGINS = frozenset({"R1_8682_DEVELOPMENT", "R8_146_DEVELOPMENT"})
 
 SETUP_LEDGER_COLUMNS = (
     "setup_id", "symbol", "t0_date", "candidate_date", "setup_created_as_of",
-    "ttl_end_date", "daily_feature_hash", "B4", "B5", "B6", "B7",
+    "ttl_end_date", "administrative_ttl_version", "ttl_anchor",
+    "ttl_calendar_manifest_hash", "setup_status", "r9_active_population",
+    "daily_population_eligible", "intraday_primary_eligible",
+    "intraday_ineligible_reason", "event_search_start", "event_search_end",
+    "daily_feature_hash", "B4", "B5", "B6", "B7",
     "median_range_ratio", "quiet_days_n", "M0_score", "M1_score", "M2_score",
     "activation_status", "event_id", "source_manifest_hash",
 )
 INTRADAY_LEDGER_COLUMNS = (
     "event_id", "setup_id", "event_date", "checkpoint", "activation_time",
-    "post_activation_bar_n", "breakout_hold_ratio", "retest_depth",
+    "post_activation_bar_n", "intraday_primary_feature_status",
+    "breakout_hold_ratio", "retest_depth",
     "false_break_duration", "vwap_acceptance_ratio", "reference_price_10_30",
     "minute_manifest_hash", "feature_hash",
 )
@@ -147,28 +185,117 @@ class FeatureDriftBlocked(ProtocolBlocked):
     """An immutable feature key was recomputed with a different hash."""
 
 
+@dataclass(frozen=True)
+class ProtocolFreezeReceipt:
+    """The external annotated-tag receipt for this immutable freeze commit."""
+
+    tag: str
+    tag_object: str
+    protocol_freeze_commit: str
+    tag_target_commit: str
+    message: str
+
+
+def _is_full_git_commit(value: str) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 40
+        and all(character in "0123456789abcdef" for character in value)
+    )
+
+
+def validate_protocol_freeze_receipt(receipt: ProtocolFreezeReceipt) -> None:
+    """Require an annotated-tag receipt that pins the exact freeze commit."""
+
+    if receipt.tag != PROTOCOL_FREEZE_RECEIPT_TAG:
+        raise ProtocolBlocked("unexpected protocol freeze receipt tag")
+    if not _is_full_git_commit(receipt.tag_object):
+        raise ProtocolBlocked("protocol freeze receipt requires a full tag-object SHA")
+    if not _is_full_git_commit(receipt.protocol_freeze_commit):
+        raise ProtocolBlocked("protocol freeze receipt requires a full commit SHA")
+    if receipt.tag_target_commit != receipt.protocol_freeze_commit:
+        raise ProtocolBlocked("protocol freeze receipt tag target mismatch")
+    expected_fields = {
+        "PROTOCOL_FREEZE_COMMIT": receipt.protocol_freeze_commit,
+        "PROTOCOL_FREEZE_DATE": PROTOCOL_FREEZE_DATE.isoformat(),
+        "OOS_START": R9_OOS_START.isoformat(),
+        "PROTOCOL_FREEZE_CALENDAR_HASH": PROTOCOL_FREEZE_CALENDAR_MANIFEST_HASH,
+    }
+    found_fields: dict[str, str] = {}
+    for line in receipt.message.splitlines():
+        key, separator, value = line.partition("=")
+        if separator and key in expected_fields:
+            if key in found_fields:
+                raise ProtocolBlocked("protocol freeze receipt has duplicate message field")
+            found_fields[key] = value
+    if found_fields != expected_fields:
+        raise ProtocolBlocked("protocol freeze receipt message mismatch")
+
+
+def _git_output(repo_root: Path, *arguments: str) -> str:
+    try:
+        completed = subprocess.run(
+            ("git", "-C", str(repo_root), *arguments),
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError as exc:
+        raise ProtocolBlocked("Git is required to verify the protocol freeze receipt") from exc
+    if completed.returncode != 0:
+        raise ProtocolBlocked("protocol freeze receipt Git verification failed")
+    return completed.stdout.rstrip("\n")
+
+
+def read_protocol_freeze_receipt(repo_root: Path = REPO_ROOT) -> ProtocolFreezeReceipt:
+    """Read the actual annotated tag object; never accept caller-supplied claims."""
+
+    reference = f"refs/tags/{PROTOCOL_FREEZE_RECEIPT_TAG}"
+    tag_object = _git_output(repo_root, "rev-parse", "--verify", reference)
+    if not _is_full_git_commit(tag_object):
+        raise ProtocolBlocked("protocol freeze receipt tag object is not a full SHA")
+    if _git_output(repo_root, "cat-file", "-t", tag_object) != "tag":
+        raise ProtocolBlocked("protocol freeze receipt must be an annotated tag")
+    contents = _git_output(repo_root, "cat-file", "-p", tag_object)
+    header, separator, message = contents.partition("\n\n")
+    if not separator:
+        raise ProtocolBlocked("protocol freeze receipt tag has no message")
+    header_values: dict[str, str] = {}
+    for line in header.splitlines():
+        key, value_separator, value = line.partition(" ")
+        if key in {"object", "type", "tag"}:
+            if not value_separator or key in header_values:
+                raise ProtocolBlocked("protocol freeze receipt tag header mismatch")
+            header_values[key] = value
+    if header_values.get("type") != "commit" or header_values.get("tag") != PROTOCOL_FREEZE_RECEIPT_TAG:
+        raise ProtocolBlocked("protocol freeze receipt tag header mismatch")
+    tag_target_commit = _git_output(repo_root, "rev-parse", "--verify", f"{reference}^{{commit}}")
+    if (
+        not _is_full_git_commit(tag_target_commit)
+        or header_values.get("object") != tag_target_commit
+    ):
+        raise ProtocolBlocked("protocol freeze receipt tag target mismatch")
+    receipt = ProtocolFreezeReceipt(
+        tag=PROTOCOL_FREEZE_RECEIPT_TAG,
+        tag_object=tag_object,
+        protocol_freeze_commit=tag_target_commit,
+        tag_target_commit=tag_target_commit,
+        message=message,
+    )
+    validate_protocol_freeze_receipt(receipt)
+    return receipt
+
+
 def sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def canonical_clock(value: str | datetime | time) -> str:
-    """Return exact HH:MM for a first-touch clock; reject ambiguous input."""
-    if isinstance(value, datetime):
-        return value.strftime("%H:%M")
-    if isinstance(value, time):
-        return value.strftime("%H:%M")
-    text = str(value).strip()
-    for parser in (datetime.fromisoformat,):
-        try:
-            return parser(text).strftime("%H:%M")
-        except ValueError:
-            pass
-    for fmt in ("%H:%M", "%H:%M:%S"):
-        try:
-            return datetime.strptime(text, fmt).strftime("%H:%M")
-        except ValueError:
-            pass
-    raise ProtocolBlocked(f"invalid first-touch clock: {value!r}")
+    """Use Gate 2B's timezone-aware right-labeled five-minute clock guard."""
+    try:
+        return canonical_gate2b_clock(value)
+    except Gate2BBlocked as exc:
+        raise ProtocolBlocked(str(exc)) from exc
 
 
 def r9_setup_id(
@@ -179,34 +306,6 @@ def r9_setup_id(
 ) -> str:
     """Use the existing authoritative setup key; do not add a new version suffix."""
     return make_setup_id(str(symbol).zfill(6), anchor_date, anchor_price, price_tick)
-
-
-def r9_event_id(setup_id: str, event_date: date, first_touch_time: str | datetime | time) -> str:
-    clock = canonical_clock(first_touch_time)
-    return f"{setup_id}:S1:{event_date:%Y%m%d}:{clock.replace(':', '')}"
-
-
-@dataclass(frozen=True)
-class FirstS1TouchEvent:
-    setup_id: str
-    event_date: date
-    first_touch_time: str
-
-    @property
-    def event_id(self) -> str:
-        return r9_event_id(self.setup_id, self.event_date, self.first_touch_time)
-
-
-def register_first_s1_touch(
-    existing: Mapping[str, FirstS1TouchEvent], candidate: FirstS1TouchEvent,
-) -> FirstS1TouchEvent:
-    """Return an identical prior event, otherwise reject a second event per setup."""
-    prior = existing.get(candidate.setup_id)
-    if prior is None:
-        return candidate
-    if prior == candidate:
-        return prior
-    raise ProtocolBlocked("REPEAT_CONFIRMATION_CREATES_NEW_EVENT=FALSE")
 
 
 def intraday_observation_status(
@@ -224,8 +323,30 @@ def intraday_observation_status(
 def require_population_and_ttl_authority() -> None:
     if R9_POPULATION_STATUS not in {"PASS", "PASS_NEW_PROSPECTIVE_V01"}:
         raise ProtocolBlocked(R9_POPULATION_STATUS)
-    if R9_OBSERVATION_TTL_STATUS != "PASS" or R9_OBSERVATION_TTL is None:
+    if (
+        R9_OBSERVATION_TTL_STATUS != "PASS_OWNER_FROZEN_V01"
+        or R9_OBSERVATION_TTL != OWNER_FROZEN_TTL_SESSIONS
+    ):
         raise ProtocolBlocked(R9_OBSERVATION_TTL_STATUS)
+
+
+def require_r9_accumulation_write_authority(
+    *,
+    repo_root: Path = REPO_ROOT,
+) -> ProtocolFreezeReceipt:
+    """Block every future append until the actual annotated tag is verified."""
+    require_population_and_ttl_authority()
+    if not R9_ACCUMULATION_AUTHORIZED:
+        raise ProtocolBlocked("R9 accumulation is not authorized")
+    if R9_ACCUMULATION_WRITE_AUTHORITY != "POST_COMMIT_RECEIPT_REQUIRED":
+        raise ProtocolBlocked("R9 accumulation write-authority contract drift")
+    receipt = read_protocol_freeze_receipt(repo_root)
+    expected_commit = _git_output(repo_root, "rev-parse", "--verify", "HEAD")
+    if not _is_full_git_commit(expected_commit):
+        raise ProtocolBlocked("expected protocol freeze commit must be a full SHA")
+    if receipt.protocol_freeze_commit != expected_commit:
+        raise ProtocolBlocked("protocol freeze receipt does not target expected HEAD")
+    return receipt
 
 
 def assert_non_activation_is_retained(activation_status: str) -> None:
@@ -316,6 +437,7 @@ def atomic_publish_bytes(
     payload: bytes,
     *,
     validate_temporary: Callable[[Path], None],
+    protocol_repo_root: Path = REPO_ROOT,
 ) -> str:
     """Publish a new immutable artifact only after all supplied QA succeeds.
 
@@ -323,6 +445,9 @@ def atomic_publish_bytes(
     complete versioned ledger first, validate the temporary artifact, then call
     this function. Existing ledger files are never overwritten.
     """
+    require_r9_accumulation_write_authority(
+        repo_root=protocol_repo_root,
+    )
     if destination.exists():
         raise ProtocolBlocked("append-only publication refuses existing destination")
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -359,12 +484,30 @@ def assert_prospective_origin(
     *,
     origin: str,
     row_date: date,
-    protocol_freeze_date: date,
+    protocol_freeze_date: date = PROTOCOL_FREEZE_DATE,
+    frozen_calendar: FrozenAshareTradingCalendar | None = None,
+    oos_start: date | None = None,
 ) -> None:
     if origin in HISTORICAL_ORIGINS or origin != R9_ROW_ORIGIN:
         raise ProtocolBlocked("historical development rows are forbidden in R9 ledger")
-    if row_date <= protocol_freeze_date:
+    if protocol_freeze_date != PROTOCOL_FREEZE_DATE:
+        raise ProtocolBlocked("protocol freeze date override is forbidden")
+    if row_date <= PROTOCOL_FREEZE_DATE:
         raise ProtocolBlocked("pre-freeze rows are forbidden in clean R9")
+    calendar = protocol_freeze_calendar()
+    if frozen_calendar is not None and frozen_calendar != calendar:
+        raise ProtocolBlocked("frozen calendar override is forbidden")
+    if oos_start is not None and oos_start != R9_OOS_START:
+        raise ProtocolBlocked("OOS start override is forbidden")
+    try:
+        assert_clean_oos_candidate_date(
+            candidate_date=row_date,
+            protocol_freeze_date=PROTOCOL_FREEZE_DATE,
+            calendar=calendar,
+            oos_start=R9_OOS_START,
+        )
+    except Gate2BBlocked as exc:
+        raise ProtocolBlocked(str(exc)) from exc
 
 
 def validate_exact_tick_reconciliation(values: Mapping[str, Any]) -> None:
@@ -395,12 +538,7 @@ def validate_minute_manifest(manifest: Mapping[str, Any]) -> None:
 
 
 def r9_full_session_grid() -> tuple[str, ...]:
-    morning = tuple([*(f"09:{minute:02d}" for minute in range(35, 60, 5)),
-                     *(f"10:{minute:02d}" for minute in range(0, 60, 5)),
-                     *(f"11:{minute:02d}" for minute in range(0, 35, 5))])
-    afternoon = tuple([*(f"13:{minute:02d}" for minute in range(5, 60, 5)),
-                       *(f"14:{minute:02d}" for minute in range(0, 60, 5)), "15:00"])
-    return morning + afternoon
+    return RIGHT_LABELED_5M_GRID
 
 
 def validate_minute_ingestion(
@@ -439,9 +577,15 @@ def protocol_registry_rows() -> list[dict[str, str]]:
         {"section": "authority", "key": "LEGACY_LABEL_ROLE", "value": LEGACY_LABEL_ROLE, "status": "PASS"},
         {"section": "population", "key": "R9_SETUP_ID", "value": R9_SETUP_ID_RULE, "status": "PASS"},
         {"section": "population", "key": "R9_POPULATION_STATUS", "value": R9_POPULATION_STATUS, "status": "PASS"},
-        {"section": "population", "key": "R9_OBSERVATION_TTL", "value": "UNRESOLVED", "status": "BLOCKED"},
+        {"section": "ttl", "key": "R9_ADMINISTRATIVE_TTL_VERSION", "value": R9_ADMINISTRATIVE_TTL_VERSION, "status": "PASS"},
+        {"section": "ttl", "key": "TTL_SELECTION_BASIS", "value": R9_TTL_SELECTION_BASIS, "status": "PASS"},
+        {"section": "ttl", "key": "R9_OBSERVATION_TTL", "value": f"{R9_OBSERVATION_TTL}_{R9_TTL_UNIT}", "status": "PASS"},
+        {"section": "ttl", "key": "TTL_ANCHOR", "value": R9_TTL_ANCHOR, "status": "PASS"},
+        {"section": "ttl", "key": "TTL_WINDOW", "value": R9_TTL_WINDOW, "status": "PASS"},
+        {"section": "ttl", "key": "STRUCTURAL_INVALIDATION_STATUS", "value": R9_STRUCTURAL_INVALIDATION_STATUS, "status": "PASS"},
         {"section": "event", "key": "FIRST_S1_TOUCH_EVENT", "value": FIRST_S1_TOUCH_EVENT, "status": "PASS"},
         {"section": "event", "key": "REPEAT_CONFIRMATION_CREATES_NEW_EVENT", "value": "FALSE", "status": "PASS"},
+        {"section": "event", "key": "PROSPECTIVE_EVENT_ELIGIBILITY", "value": R9_PROSPECTIVE_EVENT_ELIGIBILITY_STATUS, "status": "PASS"},
         {"section": "intraday", "key": "R9_PRIMARY_CHECKPOINT", "value": R9_PRIMARY_CHECKPOINT, "status": "PASS"},
         {"section": "intraday", "key": "PRIMARY_INTRADAY_FEATURE", "value": PRIMARY_INTRADAY_FEATURE, "status": "PASS"},
         {"section": "daily", "key": "PRIMARY_DAILY_COMPARISON", "value": PRIMARY_DAILY_COMPARISON, "status": "PASS"},
@@ -453,12 +597,22 @@ def protocol_registry_rows() -> list[dict[str, str]]:
         {"section": "stopping", "key": "INITIAL_WINDOW_A_SHARE_SESSIONS", "value": str(INITIAL_OBSERVATION_WINDOW_A_SHARE_SESSIONS), "status": "PASS"},
         {"section": "provenance", "key": "ASL_CODE_SHA", "value": ASL_CODE_SHA, "status": "PASS"},
         {"section": "provenance", "key": "R9_ASL_DATA_ROOT", "value": R9_ASL_DATA_ROOT, "status": "PASS"},
+        {"section": "provenance", "key": "PROTOCOL_FREEZE_DATE", "value": PROTOCOL_FREEZE_DATE.isoformat(), "status": "PASS"},
+        {"section": "provenance", "key": "PROTOCOL_FREEZE_CALENDAR_VERSION", "value": PROTOCOL_FREEZE_CALENDAR_VERSION, "status": "PASS"},
+        {"section": "provenance", "key": "PROTOCOL_FREEZE_CALENDAR_ARTIFACT", "value": PROTOCOL_FREEZE_CALENDAR_ARTIFACT, "status": "PASS"},
+        {"section": "provenance", "key": "PROTOCOL_FREEZE_CALENDAR_HASH", "value": PROTOCOL_FREEZE_CALENDAR_MANIFEST_HASH, "status": "PASS"},
+        {"section": "provenance", "key": "OOS_START", "value": R9_OOS_START.isoformat(), "status": "PASS"},
+        {"section": "provenance", "key": "PROTOCOL_FREEZE_RECEIPT_TAG", "value": PROTOCOL_FREEZE_RECEIPT_TAG, "status": "PASS"},
+        {"section": "authorization", "key": "R9_ACCUMULATION_WRITE_AUTHORITY", "value": R9_ACCUMULATION_WRITE_AUTHORITY, "status": "PASS"},
         {"section": "publication", "key": "ATOMIC_PUBLICATION_STEPS", "value": " -> ".join(ATOMIC_PUBLICATION_STEPS), "status": "PASS"},
         {"section": "gate", "key": "GATE_1_R1_AUTHORITY_BOUNDARY", "value": "PASS", "status": "PASS"},
         {"section": "gate", "key": "GATE_2A_PROSPECTIVE_POPULATION", "value": "PASS", "status": "PASS"},
-        {"section": "gate", "key": "GATE_2B_OBSERVATION_TTL", "value": "PENDING_OWNER_DECISION", "status": "BLOCKED"},
-        {"section": "gate", "key": "GATE_2_POPULATION_EVENT_TTL", "value": "BLOCKED", "status": "BLOCKED"},
+        {"section": "gate", "key": "GATE_2B_OBSERVATION_TTL", "value": "PASS_OWNER_FROZEN_V01", "status": "PASS"},
+        {"section": "gate", "key": "GATE_2_POPULATION_EVENT_TTL", "value": "PASS", "status": "PASS"},
         {"section": "gate", "key": "GATE_3_INDEPENDENT_ENDPOINT", "value": "PASS", "status": "PASS"},
         {"section": "gate", "key": "GATE_4_MULTIPLICITY_UNCERTAINTY", "value": "PASS", "status": "PASS"},
         {"section": "gate", "key": "GATE_5_ASL_PROVENANCE_ATOMICITY", "value": "PASS", "status": "PASS"},
+        {"section": "authorization", "key": "PRE_R9_STATUS", "value": PRE_R9_STATUS, "status": "PASS"},
+        {"section": "authorization", "key": "R9_RECOMMENDATION", "value": R9_RECOMMENDATION, "status": "PASS"},
+        {"section": "authorization", "key": "R9_OOS_ROWS_WRITTEN", "value": str(R9_OOS_ROWS_WRITTEN), "status": "PASS"},
     ]

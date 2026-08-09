@@ -6,6 +6,7 @@ import csv
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
+import subprocess
 import sys
 
 import pytest
@@ -21,6 +22,47 @@ from limit_pullback.strategy.engine import make_setup_id  # noqa: E402
 pytestmark = pytest.mark.cloud_ci
 
 
+def _git(repo_root: Path, *arguments: str) -> str:
+    completed = subprocess.run(
+        ("git", "-C", str(repo_root), *arguments),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return completed.stdout.rstrip("\n")
+
+
+def _receipt_message(commit: str) -> str:
+    return (
+        "R9 V01 protocol freeze receipt\n\n"
+        f"PROTOCOL_FREEZE_COMMIT={commit}\n"
+        f"PROTOCOL_FREEZE_DATE={r9.PROTOCOL_FREEZE_DATE.isoformat()}\n"
+        f"OOS_START={r9.R9_OOS_START.isoformat()}\n"
+        f"PROTOCOL_FREEZE_CALENDAR_HASH={r9.PROTOCOL_FREEZE_CALENDAR_MANIFEST_HASH}"
+    )
+
+
+def _annotated_protocol_receipt_repo(tmp_path: Path, *, message: str | None = None) -> Path:
+    repo_root = tmp_path / "protocol-receipt-repo"
+    repo_root.mkdir(parents=True)
+    _git(repo_root, "init")
+    _git(repo_root, "config", "user.email", "r9-test@example.invalid")
+    _git(repo_root, "config", "user.name", "R9 protocol test")
+    (repo_root / "freeze.txt").write_text("freeze\n")
+    _git(repo_root, "add", "freeze.txt")
+    _git(repo_root, "commit", "-m", "freeze")
+    commit = _git(repo_root, "rev-parse", "HEAD")
+    _git(
+        repo_root,
+        "tag",
+        "-a",
+        r9.PROTOCOL_FREEZE_RECEIPT_TAG,
+        "-m",
+        message or _receipt_message(commit),
+    )
+    return repo_root
+
+
 def test_r1_forward_authority_and_legacy_label_boundary_are_frozen():
     assert r9.R1_PROVENANCE_STATUS == "INTERIM_PARTIAL_PROVENANCE"
     assert r9.R1_FORWARD_AUTHORITY is False
@@ -29,12 +71,59 @@ def test_r1_forward_authority_and_legacy_label_boundary_are_frozen():
     assert r9.PRIMARY_ENDPOINT != "FAILED_BREAKOUT"
 
 
-def test_population_and_ttl_fail_closed_without_invented_generator_or_horizon():
+def test_population_and_owner_frozen_ttl_authority_are_explicit():
     assert r9.R9_POPULATION_STATUS == "PASS_NEW_PROSPECTIVE_V01"
-    assert r9.R9_OBSERVATION_TTL_STATUS == "BLOCKED_TTL_UNRESOLVED"
-    assert r9.R9_OBSERVATION_TTL is None
-    with pytest.raises(r9.ProtocolBlocked, match="BLOCKED_TTL_UNRESOLVED"):
-        r9.require_population_and_ttl_authority()
+    assert r9.R9_OBSERVATION_TTL_STATUS == "PASS_OWNER_FROZEN_V01"
+    assert r9.R9_OBSERVATION_TTL == 7
+    r9.require_population_and_ttl_authority()
+
+
+def test_accumulation_write_authority_requires_an_actual_annotated_head_tag(tmp_path):
+    repo_root = _annotated_protocol_receipt_repo(tmp_path)
+    head = _git(repo_root, "rev-parse", "HEAD")
+    assert r9.R9_ACCUMULATION_WRITE_AUTHORITY == "POST_COMMIT_RECEIPT_REQUIRED"
+    receipt = r9.require_r9_accumulation_write_authority(repo_root=repo_root)
+    assert receipt.protocol_freeze_commit == head
+    assert receipt.tag_target_commit == head
+    assert receipt.tag_object != head
+    _git(repo_root, "commit", "--allow-empty", "-m", "later")
+    with pytest.raises(r9.ProtocolBlocked, match="does not target expected HEAD"):
+        r9.require_r9_accumulation_write_authority(repo_root=repo_root)
+
+
+def test_receipt_reader_rejects_lightweight_or_duplicate_message_field_tags(tmp_path):
+    repo_root = _annotated_protocol_receipt_repo(tmp_path)
+    _git(repo_root, "tag", "-d", r9.PROTOCOL_FREEZE_RECEIPT_TAG)
+    _git(repo_root, "tag", r9.PROTOCOL_FREEZE_RECEIPT_TAG)
+    with pytest.raises(r9.ProtocolBlocked, match="annotated tag"):
+        r9.read_protocol_freeze_receipt(repo_root)
+
+    duplicate_root = _annotated_protocol_receipt_repo(
+        tmp_path / "duplicate",
+        message=(
+            "R9 V01 protocol freeze receipt\n\n"
+            f"PROTOCOL_FREEZE_COMMIT={'0' * 40}\n"
+            f"PROTOCOL_FREEZE_COMMIT={'0' * 40}\n"
+            f"PROTOCOL_FREEZE_DATE={r9.PROTOCOL_FREEZE_DATE.isoformat()}\n"
+            f"OOS_START={r9.R9_OOS_START.isoformat()}\n"
+            f"PROTOCOL_FREEZE_CALENDAR_HASH={r9.PROTOCOL_FREEZE_CALENDAR_MANIFEST_HASH}"
+        ),
+    )
+    with pytest.raises(r9.ProtocolBlocked, match="duplicate message field"):
+        r9.read_protocol_freeze_receipt(duplicate_root)
+
+    wrong_value_root = _annotated_protocol_receipt_repo(
+        tmp_path / "wrong-value",
+        message=(
+            "R9 V01 protocol freeze receipt\n\n"
+            f"PROTOCOL_FREEZE_COMMIT={'0' * 40}\n"
+            f"PROTOCOL_FREEZE_DATE={r9.PROTOCOL_FREEZE_DATE.isoformat()}\n"
+            f"OOS_START={r9.R9_OOS_START.isoformat()}\n"
+            f"PROTOCOL_FREEZE_CALENDAR_HASH={r9.PROTOCOL_FREEZE_CALENDAR_MANIFEST_HASH}"
+        ),
+    )
+    with pytest.raises(r9.ProtocolBlocked, match="message mismatch"):
+        r9.read_protocol_freeze_receipt(wrong_value_root)
 
 
 def test_setup_identity_is_deterministic_and_matches_authoritative_engine_key():
@@ -45,20 +134,11 @@ def test_setup_identity_is_deterministic_and_matches_authoritative_engine_key():
     assert r9.r9_setup_id("600000", anchor_day, Decimal("11.01")) != expected
 
 
-def test_one_setup_can_only_have_one_immutable_first_s1_touch_event():
-    first = r9.FirstS1TouchEvent("600000:20260810:1100", date(2026, 8, 11), "09:45")
-    assert first.event_id.endswith(":S1:20260811:0945")
-    assert r9.register_first_s1_touch({first.setup_id: first}, first) == first
-    later = r9.FirstS1TouchEvent(first.setup_id, date(2026, 8, 12), "10:00")
-    with pytest.raises(r9.ProtocolBlocked, match="REPEAT_CONFIRMATION_CREATES_NEW_EVENT=FALSE"):
-        r9.register_first_s1_touch({first.setup_id: first}, later)
-
-
-def test_repeat_b2_confirmation_cannot_create_a_second_r9_event():
-    prior = r9.FirstS1TouchEvent("000001:20260810:1000", date(2026, 8, 11), "10:00")
-    reentry = r9.FirstS1TouchEvent("000001:20260810:1000", date(2026, 8, 13), "10:30")
-    with pytest.raises(r9.ProtocolBlocked):
-        r9.register_first_s1_touch({prior.setup_id: prior}, reentry)
+def test_legacy_event_registration_bypass_is_not_exposed():
+    assert not hasattr(r9, "FirstS1TouchEvent")
+    assert not hasattr(r9, "register_first_s1_touch")
+    with pytest.raises(r9.ProtocolBlocked, match="right-labeled"):
+        r9.canonical_clock("09:31")
 
 
 def test_non_activation_is_retained_and_late_touch_is_not_backfilled_at_1030():
@@ -164,16 +244,41 @@ def test_atomic_publication_contract_is_ordered_and_fail_closed(tmp_path):
         r9.validate_atomic_publication_contract(tuple(reversed(r9.ATOMIC_PUBLICATION_STEPS)))
     destination = tmp_path / "immutable-ledger.csv"
 
+    with pytest.raises(r9.ProtocolBlocked, match="Git verification"):
+        r9.atomic_publish_bytes(
+            destination,
+            b"blocked-before-write",
+            validate_temporary=lambda path: assert_nonempty(path),
+            protocol_repo_root=tmp_path,
+        )
+    assert not destination.exists()
+    protocol_repo_root = _annotated_protocol_receipt_repo(tmp_path)
+
     def rejected(_: Path) -> None:
         raise r9.ProtocolBlocked("synthetic QA failure")
 
     with pytest.raises(r9.ProtocolBlocked, match="synthetic QA failure"):
-        r9.atomic_publish_bytes(destination, b"bad", validate_temporary=rejected)
+        r9.atomic_publish_bytes(
+            destination,
+            b"bad",
+            validate_temporary=rejected,
+            protocol_repo_root=protocol_repo_root,
+        )
     assert not destination.exists()
-    digest = r9.atomic_publish_bytes(destination, b"header\n", validate_temporary=lambda path: assert_nonempty(path))
+    digest = r9.atomic_publish_bytes(
+        destination,
+        b"header\n",
+        validate_temporary=lambda path: assert_nonempty(path),
+        protocol_repo_root=protocol_repo_root,
+    )
     assert digest == r9.sha256_file(destination)
     with pytest.raises(r9.ProtocolBlocked, match="append-only"):
-        r9.atomic_publish_bytes(destination, b"replacement\n", validate_temporary=lambda path: assert_nonempty(path))
+        r9.atomic_publish_bytes(
+            destination,
+            b"replacement\n",
+            validate_temporary=lambda path: assert_nonempty(path),
+            protocol_repo_root=protocol_repo_root,
+        )
 
 
 def assert_nonempty(path: Path) -> None:
@@ -181,12 +286,45 @@ def assert_nonempty(path: Path) -> None:
 
 
 def test_pre_freeze_and_historical_rows_are_rejected():
-    freeze_day = date(2026, 8, 20)
     with pytest.raises(r9.ProtocolBlocked, match="pre-freeze"):
-        r9.assert_prospective_origin(origin="R9_PROSPECTIVE", row_date=freeze_day, protocol_freeze_date=freeze_day)
+        r9.assert_prospective_origin(
+            origin="R9_PROSPECTIVE",
+            row_date=r9.PROTOCOL_FREEZE_DATE,
+        )
     for origin in ("R1_8682_DEVELOPMENT", "R8_146_DEVELOPMENT"):
         with pytest.raises(r9.ProtocolBlocked, match="historical development"):
-            r9.assert_prospective_origin(origin=origin, row_date=date(2026, 8, 21), protocol_freeze_date=freeze_day)
+            r9.assert_prospective_origin(origin=origin, row_date=r9.R9_OOS_START)
+    r9.assert_prospective_origin(
+        origin="R9_PROSPECTIVE",
+        row_date=r9.R9_OOS_START,
+    )
+    with pytest.raises(r9.ProtocolBlocked, match="absent from frozen A-share calendar"):
+        r9.assert_prospective_origin(
+            origin="R9_PROSPECTIVE",
+            row_date=date(2026, 8, 22),
+        )
+    with pytest.raises(r9.ProtocolBlocked, match="freeze date override"):
+        r9.assert_prospective_origin(
+            origin="R9_PROSPECTIVE",
+            row_date=r9.R9_OOS_START,
+            protocol_freeze_date=date(2026, 8, 8),
+        )
+    with pytest.raises(r9.ProtocolBlocked, match="OOS start override"):
+        r9.assert_prospective_origin(
+            origin="R9_PROSPECTIVE",
+            row_date=r9.R9_OOS_START,
+            oos_start=date(2026, 8, 8),
+        )
+    with pytest.raises(r9.ProtocolBlocked, match="calendar override"):
+        r9.assert_prospective_origin(
+            origin="R9_PROSPECTIVE",
+            row_date=r9.R9_OOS_START,
+            frozen_calendar=r9.FrozenAshareTradingCalendar(
+                version="forged",
+                sessions=(r9.R9_OOS_START,),
+                manifest_hash="0" * 64,
+            ),
+        )
 
 
 def test_exact_tick_reconciliation_and_minute_provenance_are_required():
@@ -237,13 +375,17 @@ def test_registry_and_empty_schema_templates_match_frozen_contract():
         assert len(lines) == 1
 
 
-def test_gate_status_is_no_go_and_no_real_oos_row_is_present():
+def test_gate_status_is_go_pre_r9_and_no_real_oos_row_is_present():
     rows = {row["key"]: row["value"] for row in r9.protocol_registry_rows()}
     assert rows["GATE_1_R1_AUTHORITY_BOUNDARY"] == "PASS"
     assert rows["GATE_2A_PROSPECTIVE_POPULATION"] == "PASS"
-    assert rows["GATE_2B_OBSERVATION_TTL"] == "PENDING_OWNER_DECISION"
-    assert rows["GATE_2_POPULATION_EVENT_TTL"] == "BLOCKED"
+    assert rows["GATE_2B_OBSERVATION_TTL"] == "PASS_OWNER_FROZEN_V01"
+    assert rows["GATE_2_POPULATION_EVENT_TTL"] == "PASS"
     assert rows["GATE_3_INDEPENDENT_ENDPOINT"] == "PASS"
     assert rows["GATE_4_MULTIPLICITY_UNCERTAINTY"] == "PASS"
     assert rows["GATE_5_ASL_PROVENANCE_ATOMICITY"] == "PASS"
-    assert r9.PROTOCOL_STATUS == "BLOCKED_R9_TTL_UNRESOLVED"
+    assert rows["PRE_R9_STATUS"] == "GO"
+    assert rows["R9_RECOMMENDATION"] == "AUTHORIZED_TO_FREEZE_AND_ACCUMULATE"
+    assert r9.PROTOCOL_STATUS == "GO_PRE_R9_AUTHORIZED_NO_OOS_ROWS"
+    assert r9.R9_ACCUMULATION_AUTHORIZED is True
+    assert r9.R9_OOS_ROWS_WRITTEN == 0
