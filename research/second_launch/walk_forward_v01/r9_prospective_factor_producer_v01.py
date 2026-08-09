@@ -581,8 +581,7 @@ def _produce_one(
         >= B5_DEPTH - R5_BOUNDARY_EPS
     ))
     b6 = Decimal(int(
-        bool(b5)
-        and float(d_volume) / float(t0_volume)
+        float(d_volume) / float(t0_volume)
         <= B6_RATIO + R5_BOUNDARY_EPS
     ))
 

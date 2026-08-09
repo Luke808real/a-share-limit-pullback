@@ -227,6 +227,26 @@ def test_b6_exact_boundary_is_signal():
     assert _bundle(_package(daily_bars=bars)).B6 == Decimal("1")
 
 
+@pytest.mark.parametrize(
+    ("case", "close_d", "volume_d"),
+    [
+        ("B5_1_B6_1", Decimal("11.40"), Decimal("112")),
+        ("B5_1_B6_0", Decimal("11.40"), Decimal("126")),
+        ("B5_0_B6_1", Decimal("10.00"), Decimal("112")),
+        ("B5_0_B6_0", Decimal("10.00"), Decimal("140")),
+    ],
+)
+def test_b5_b6_orthogonal_frozen_r5_parity(case, close_d, volume_d):
+    del case
+    bars = _base_bars("600000")
+    bars = _replace_bar(bars, AS_OF, close=close_d, volume=volume_d)
+    bundle = _bundle(_package(daily_bars=bars))
+    expected_b5 = r5b.b5_signal(11.0, float(close_d))
+    expected_b6 = r5b.b6_signal(140.0, float(volume_d))
+    assert bundle.B5 == Decimal(int(expected_b5))
+    assert bundle.B6 == Decimal(int(expected_b6))
+
+
 def test_r5_ca_event_blocks_the_whole_daily_run():
     bars = _base_bars("600000")
     bars = _replace_bar(bars, AS_OF, preclose=Decimal("10.706"))
