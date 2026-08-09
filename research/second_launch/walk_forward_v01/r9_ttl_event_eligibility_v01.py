@@ -7,14 +7,19 @@ already determined structural invalidation date, if one exists.
 
 from __future__ import annotations
 
+import csv
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, time
 import hashlib
+import json
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from limit_pullback.models.enums import SetupStage
 
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 R9_ADMINISTRATIVE_TTL_VERSION = "R9_V01_ADMINISTRATIVE_TTL"
 TTL_SELECTION_BASIS = "OWNER_PROSPECTIVE_DESIGN"
@@ -61,6 +66,32 @@ PROTOCOL_FREEZE_CALENDAR_MANIFEST_HASH = (
     "9304f0409d7e95b54e2ba90f361d0228624cb313722ad4a97a2fa1b891087d2e"
 )
 RUN_CALENDAR_VERSION_PREFIX = "R9_RUN_CALENDAR_"
+R9_RUN_CALENDAR_AUTHORITY_VERSION = "R9_RUN_CALENDAR_AUTHORITY_V01"
+R9_RUN_CALENDAR_AUTHORITY_ARTIFACT = "r9_run_calendar_authority_v01.json"
+R9_RUN_CALENDAR_ARTIFACT = "r9_run_calendar_v01.csv"
+R9_RUN_CALENDAR_VERSION = "R9_RUN_CALENDAR_V01"
+R9_RUN_CALENDAR_MANIFEST_HASH = (
+    "e8cc0a7de26c7e30310aa403ab963f1eb738bd2d24887ca5474f9fb3c6bd0b2c"
+)
+R9_RUN_CALENDAR_ARTIFACT_SHA256 = (
+    "fe89fd322b0d4693e77604cb03c9cf8deeed0401c8c864d42d6c61cdc64d9c15"
+)
+R9_RUN_CALENDAR_SOURCE_REPO = "rootSunc/ashare-lake"
+R9_RUN_CALENDAR_SOURCE_COMMIT = "04bd94936587b35cae55c833627260866d025184"
+R9_RUN_CALENDAR_SOURCE_PATH = (
+    "src/ashare_lake/adapters/calendar/seeds/trading_calendar.csv"
+)
+R9_RUN_CALENDAR_SOURCE_GIT_BLOB_SHA = "56d70136828c653ac7610b932f3356859fa86bd5"
+R9_RUN_CALENDAR_SOURCE_SHA256 = (
+    "3e76e774820f6f4d1ddbda59c57e9d979922ca8eda2ca5dcc242a8afc4e7931b"
+)
+R9_RUN_CALENDAR_AUTHORITY_YEAR = "2026"
+R9_RUN_CALENDAR_SOURCE_WINDOW_START = "2026-01-01"
+R9_RUN_CALENDAR_SOURCE_WINDOW_END = "2026-12-31"
+R9_RUN_CALENDAR_COVERAGE_START = "2026-01-05"
+R9_RUN_CALENDAR_COVERAGE_END = "2026-12-31"
+R9_RUN_CALENDAR_SESSION_N_60_DATE = "2026-11-09"
+R9_RUN_CALENDAR_REQUIRED_TAIL_END_DATE = "2026-11-25"
 
 
 class Gate2BBlocked(RuntimeError):
@@ -178,17 +209,116 @@ def validate_frozen_calendar(calendar: FrozenAshareTradingCalendar) -> None:
         raise Gate2BBlocked("frozen calendar manifest hash mismatch")
 
 
-def validate_run_calendar(calendar: FrozenAshareTradingCalendar) -> None:
-    """Validate an explicit, versioned calendar used by a future R9 run.
+def _blocked_run_calendar_authority(reason: str) -> Gate2BBlocked:
+    return Gate2BBlocked(f"STATUS=BLOCKED_RUN_CALENDAR_AUTHORITY: {reason}")
 
-    The short protocol-freeze witness establishes ``OOS_START`` only.  A run
-    calendar must therefore carry its own provenance/version and manifest hash;
-    callers cannot silently reuse the boundary witness as the future calendar.
-    """
 
+def _load_run_calendar_authority() -> dict[str, str]:
+    authority_path = REPO_ROOT / "research" / "second_launch" / "walk_forward_v01" / R9_RUN_CALENDAR_AUTHORITY_ARTIFACT
+    try:
+        parsed = json.loads(authority_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise _blocked_run_calendar_authority("authority receipt is unreadable") from exc
+    if not isinstance(parsed, dict):
+        raise _blocked_run_calendar_authority("authority receipt must be an object")
+    expected = {
+        "authority_version": R9_RUN_CALENDAR_AUTHORITY_VERSION,
+        "source_repo": R9_RUN_CALENDAR_SOURCE_REPO,
+        "source_commit": R9_RUN_CALENDAR_SOURCE_COMMIT,
+        "source_path": R9_RUN_CALENDAR_SOURCE_PATH,
+        "source_git_blob_sha": R9_RUN_CALENDAR_SOURCE_GIT_BLOB_SHA,
+        "source_file_sha256": R9_RUN_CALENDAR_SOURCE_SHA256,
+        "authority_year": R9_RUN_CALENDAR_AUTHORITY_YEAR,
+        "source_window_start": R9_RUN_CALENDAR_SOURCE_WINDOW_START,
+        "source_window_end": R9_RUN_CALENDAR_SOURCE_WINDOW_END,
+        "calendar_artifact": R9_RUN_CALENDAR_ARTIFACT,
+        "calendar_version": R9_RUN_CALENDAR_VERSION,
+        "calendar_manifest_hash": R9_RUN_CALENDAR_MANIFEST_HASH,
+        "calendar_artifact_sha256": R9_RUN_CALENDAR_ARTIFACT_SHA256,
+        "coverage_start": R9_RUN_CALENDAR_COVERAGE_START,
+        "coverage_end": R9_RUN_CALENDAR_COVERAGE_END,
+        "oos_start": OOS_START.isoformat(),
+        "session_n_60_date": R9_RUN_CALENDAR_SESSION_N_60_DATE,
+        "required_tail_end_date": R9_RUN_CALENDAR_REQUIRED_TAIL_END_DATE,
+    }
+    if any(parsed.get(key) != value for key, value in expected.items()):
+        raise _blocked_run_calendar_authority("authority receipt pin mismatch")
+    return {str(key): str(value) for key, value in parsed.items()}
+
+
+def _load_authorized_session_dates(receipt: Mapping[str, str]) -> tuple[date, ...]:
+    artifact_path = REPO_ROOT / "research" / "second_launch" / "walk_forward_v01" / R9_RUN_CALENDAR_ARTIFACT
+    try:
+        artifact_bytes = artifact_path.read_bytes()
+        if hashlib.sha256(artifact_bytes).hexdigest() != receipt["calendar_artifact_sha256"]:
+            raise _blocked_run_calendar_authority("calendar artifact SHA256 mismatch")
+        if not artifact_bytes.endswith(b"\n"):
+            raise _blocked_run_calendar_authority("calendar artifact must end with a newline")
+        rows = list(csv.reader(artifact_bytes.decode("utf-8").splitlines()))
+    except (OSError, UnicodeDecodeError, csv.Error) as exc:
+        raise _blocked_run_calendar_authority("calendar artifact is unreadable") from exc
+    if not rows or rows[0] != ["trade_date"]:
+        raise _blocked_run_calendar_authority("calendar artifact header mismatch")
+    sessions: list[date] = []
+    try:
+        for row in rows[1:]:
+            if len(row) != 1:
+                raise _blocked_run_calendar_authority("calendar artifact row schema mismatch")
+            sessions.append(date.fromisoformat(row[0]))
+    except ValueError as exc:
+        raise _blocked_run_calendar_authority("calendar artifact contains an invalid date") from exc
+    if not sessions or tuple(sorted(sessions)) != tuple(sessions) or len(set(sessions)) != len(sessions):
+        raise _blocked_run_calendar_authority("calendar artifact is not strictly ordered and unique")
+    if any(str(session.year) != receipt["authority_year"] for session in sessions):
+        raise _blocked_run_calendar_authority("calendar artifact contains an unauthorized year")
+    if sessions[0].isoformat() != receipt["coverage_start"] or sessions[-1].isoformat() != receipt["coverage_end"]:
+        raise _blocked_run_calendar_authority("calendar artifact coverage mismatch")
+    if len(sessions) < 60 + R9_OBSERVATION_TTL + 5:
+        raise _blocked_run_calendar_authority("calendar artifact does not cover the frozen R9 tail")
+    try:
+        oos_index = sessions.index(date.fromisoformat(receipt["oos_start"]))
+    except (ValueError, TypeError) as exc:
+        raise _blocked_run_calendar_authority("OOS_START is absent from the calendar artifact") from exc
+    if sessions[oos_index + 59].isoformat() != receipt["session_n_60_date"]:
+        raise _blocked_run_calendar_authority("60-session coverage pin mismatch")
+    if sessions[oos_index + 59 + R9_OBSERVATION_TTL + 5].isoformat() != receipt["required_tail_end_date"]:
+        raise _blocked_run_calendar_authority("required tail coverage pin mismatch")
+    manifest = calendar_manifest_hash(receipt["calendar_version"], sessions)
+    if manifest != receipt["calendar_manifest_hash"]:
+        raise _blocked_run_calendar_authority("calendar manifest hash mismatch")
+    return tuple(sessions)
+
+
+def authorized_run_calendar() -> FrozenAshareTradingCalendar:
+    """Load the committed R9 calendar bound to the frozen ASL authority receipt."""
+
+    receipt = _load_run_calendar_authority()
+    sessions = _load_authorized_session_dates(receipt)
+    calendar = FrozenAshareTradingCalendar(
+        version=receipt["calendar_version"],
+        sessions=sessions,
+        manifest_hash=receipt["calendar_manifest_hash"],
+    )
     validate_frozen_calendar(calendar)
+    return calendar
+
+
+def validate_run_calendar(calendar: FrozenAshareTradingCalendar) -> None:
+    """Require structural integrity and an exact match to the ASL-bound receipt."""
+
+    try:
+        validate_frozen_calendar(calendar)
+    except Gate2BBlocked as exc:
+        raise _blocked_run_calendar_authority(str(exc)) from exc
     if not calendar.version.startswith(RUN_CALENDAR_VERSION_PREFIX):
-        raise Gate2BBlocked("R9 run calendar provenance/version is required")
+        raise _blocked_run_calendar_authority("run calendar provenance/version is required")
+    authority = authorized_run_calendar()
+    if (
+        calendar.version != authority.version
+        or calendar.manifest_hash != authority.manifest_hash
+        or calendar.sessions != authority.sessions
+    ):
+        raise _blocked_run_calendar_authority("calendar does not match the frozen ASL authority")
 
 
 def protocol_freeze_calendar() -> FrozenAshareTradingCalendar:
@@ -226,6 +356,7 @@ def administrative_ttl_end_date(
 ) -> date:
     """Return calendar[index(T0)+7]; never use calendar-day arithmetic."""
 
+    validate_run_calendar(calendar)
     anchor_index = _session_index(anchor_date, calendar)
     end_index = anchor_index + R9_OBSERVATION_TTL
     if end_index >= len(calendar.sessions):
@@ -279,6 +410,7 @@ def first_observation_eligibility(
 ) -> FirstObservationEligibility:
     """Freeze event eligibility without changing the P1 daily identity."""
 
+    validate_run_calendar(calendar)
     stage = _stage(first_observation_stage)
     if stage not in ACTIONABLE_FIRST_OBSERVATION_STAGES:
         raise Gate2BBlocked("first observation is not a Gate 2A population stage")
@@ -385,6 +517,7 @@ def eligible_first_s1_touch(
 ) -> FirstS1TouchEvent:
     """Validate an event is prospective, in-window, and not structurally ended."""
 
+    validate_run_calendar(calendar)
     _assert_calendar_matches(eligibility.calendar_manifest_hash, calendar)
     if not right_labeled_grid_verified:
         raise Gate2BBlocked("right-labeled minute grid is not verified")
@@ -501,6 +634,7 @@ def finalize_ttl_lifecycle(
 ) -> TTLFinalization:
     """Apply existing structural-end date before owner TTL finalization."""
 
+    validate_run_calendar(calendar)
     _assert_calendar_matches(eligibility.calendar_manifest_hash, calendar)
     _session_index(as_of, calendar)
     if eligibility.candidate_date > as_of:

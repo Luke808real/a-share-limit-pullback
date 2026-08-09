@@ -25,6 +25,13 @@ from r9_ttl_event_eligibility_v01 import (
     PROTOCOL_FREEZE_CALENDAR_MANIFEST_HASH,
     PROTOCOL_FREEZE_CALENDAR_VERSION,
     PROTOCOL_FREEZE_DATE,
+    R9_RUN_CALENDAR_ARTIFACT,
+    R9_RUN_CALENDAR_AUTHORITY_ARTIFACT,
+    R9_RUN_CALENDAR_AUTHORITY_VERSION,
+    R9_RUN_CALENDAR_MANIFEST_HASH,
+    R9_RUN_CALENDAR_SOURCE_COMMIT,
+    R9_RUN_CALENDAR_SOURCE_GIT_BLOB_SHA,
+    R9_RUN_CALENDAR_VERSION,
     R9_ADMINISTRATIVE_TTL_VERSION,
     R9_OBSERVATION_TTL as OWNER_FROZEN_TTL_SESSIONS,
     STRUCTURAL_INVALIDATION_STATUS,
@@ -49,7 +56,7 @@ PRE_R9_STATUS = "GO"
 R9_RECOMMENDATION = "AUTHORIZED_TO_FREEZE_AND_ACCUMULATE"
 R9_ACCUMULATION_AUTHORIZED = True
 R9_OOS_ROWS_WRITTEN = 0
-PROTOCOL_FREEZE_RECEIPT_TAG = "r9-protocol-freeze-v02"
+PROTOCOL_FREEZE_RECEIPT_TAG = "r9-protocol-freeze-v03"
 R9_ACCUMULATION_WRITE_AUTHORITY = "POST_COMMIT_RECEIPT_REQUIRED"
 
 FROZEN_PROTOCOL_ARTIFACTS = (
@@ -57,6 +64,8 @@ FROZEN_PROTOCOL_ARTIFACTS = (
     "research/second_launch/walk_forward_v01/r9_ttl_event_eligibility_v01.py",
     "research/second_launch/walk_forward_v01/r9_protocol_registry_v02.csv",
     "research/second_launch/walk_forward_v01/r9_protocol_freeze_calendar_v01.csv",
+    "research/second_launch/walk_forward_v01/r9_run_calendar_v01.csv",
+    "research/second_launch/walk_forward_v01/r9_run_calendar_authority_v01.json",
 )
 
 R1_PROVENANCE_STATUS = "INTERIM_PARTIAL_PROVENANCE"
@@ -479,7 +488,10 @@ def forward_close_return(
         raise ProtocolBlocked("only frozen 3D/5D endpoint horizons are allowed")
     if reference_price <= 0:
         raise ProtocolBlocked("decision reference price must be positive")
-    validate_run_calendar(run_calendar)
+    try:
+        validate_run_calendar(run_calendar)
+    except Gate2BBlocked as exc:
+        raise ProtocolBlocked(str(exc)) from exc
     try:
         event_index = run_calendar.sessions.index(event_date)
     except ValueError as exc:
@@ -692,6 +704,13 @@ def protocol_registry_rows() -> list[dict[str, str]]:
         {"section": "provenance", "key": "PROTOCOL_FREEZE_CALENDAR_ARTIFACT", "value": PROTOCOL_FREEZE_CALENDAR_ARTIFACT, "status": "PASS"},
         {"section": "provenance", "key": "PROTOCOL_FREEZE_CALENDAR_HASH", "value": PROTOCOL_FREEZE_CALENDAR_MANIFEST_HASH, "status": "PASS"},
         {"section": "provenance", "key": "OOS_START", "value": R9_OOS_START.isoformat(), "status": "PASS"},
+        {"section": "provenance", "key": "R9_RUN_CALENDAR_AUTHORITY_VERSION", "value": R9_RUN_CALENDAR_AUTHORITY_VERSION, "status": "PASS"},
+        {"section": "provenance", "key": "R9_RUN_CALENDAR_AUTHORITY_ARTIFACT", "value": R9_RUN_CALENDAR_AUTHORITY_ARTIFACT, "status": "PASS"},
+        {"section": "provenance", "key": "R9_RUN_CALENDAR_VERSION", "value": R9_RUN_CALENDAR_VERSION, "status": "PASS"},
+        {"section": "provenance", "key": "R9_RUN_CALENDAR_ARTIFACT", "value": R9_RUN_CALENDAR_ARTIFACT, "status": "PASS"},
+        {"section": "provenance", "key": "R9_RUN_CALENDAR_MANIFEST_HASH", "value": R9_RUN_CALENDAR_MANIFEST_HASH, "status": "PASS"},
+        {"section": "provenance", "key": "R9_RUN_CALENDAR_ASL_COMMIT", "value": R9_RUN_CALENDAR_SOURCE_COMMIT, "status": "PASS"},
+        {"section": "provenance", "key": "R9_RUN_CALENDAR_ASL_BLOB_SHA", "value": R9_RUN_CALENDAR_SOURCE_GIT_BLOB_SHA, "status": "PASS"},
         {"section": "provenance", "key": "PROTOCOL_FREEZE_RECEIPT_TAG", "value": PROTOCOL_FREEZE_RECEIPT_TAG, "status": "PASS"},
         {"section": "authorization", "key": "R9_ACCUMULATION_WRITE_AUTHORITY", "value": R9_ACCUMULATION_WRITE_AUTHORITY, "status": "PASS"},
         {"section": "publication", "key": "ATOMIC_PUBLICATION_STEPS", "value": " -> ".join(ATOMIC_PUBLICATION_STEPS), "status": "PASS"},

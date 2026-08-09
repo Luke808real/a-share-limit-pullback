@@ -18,7 +18,10 @@ sys.path.insert(0, str(REPO_ROOT / "research" / "second_launch" / "walk_forward_
 
 import r9_protocol_v02 as r9  # noqa: E402
 from limit_pullback.strategy.engine import make_setup_id  # noqa: E402
-from r9_ttl_event_eligibility_v01 import freeze_calendar, protocol_freeze_calendar  # noqa: E402
+from r9_ttl_event_eligibility_v01 import (  # noqa: E402
+    authorized_run_calendar,
+    protocol_freeze_calendar,
+)
 
 
 pytestmark = pytest.mark.cloud_ci
@@ -36,7 +39,7 @@ def _git(repo_root: Path, *arguments: str) -> str:
 
 def _receipt_message(commit: str) -> str:
     return (
-        "R9 V02 post-boundary-hardening protocol freeze receipt\n\n"
+        "R9 V03 post-ASL-authority protocol freeze receipt\n\n"
         f"PROTOCOL_FREEZE_COMMIT={commit}\n"
         f"PROTOCOL_FREEZE_DATE={r9.PROTOCOL_FREEZE_DATE.isoformat()}\n"
         f"OOS_START={r9.R9_OOS_START.isoformat()}\n"
@@ -84,6 +87,12 @@ def test_population_and_owner_frozen_ttl_authority_are_explicit():
     r9.require_population_and_ttl_authority()
 
 
+def test_v03_receipt_is_required_and_v02_is_not_silent_write_authority():
+    assert r9.PROTOCOL_FREEZE_RECEIPT_TAG == "r9-protocol-freeze-v03"
+    with pytest.raises(r9.ProtocolBlocked, match="Git verification"):
+        r9.require_r9_accumulation_write_authority(repo_root=REPO_ROOT)
+
+
 def test_accumulation_write_authority_accepts_ancestor_receipt_with_unchanged_artifacts(tmp_path):
     repo_root = _annotated_protocol_receipt_repo(tmp_path)
     head = _git(repo_root, "rev-parse", "HEAD")
@@ -126,7 +135,7 @@ def test_receipt_reader_rejects_lightweight_or_duplicate_message_field_tags(tmp_
     duplicate_root = _annotated_protocol_receipt_repo(
         tmp_path / "duplicate",
         message=(
-            "R9 V02 post-boundary-hardening protocol freeze receipt\n\n"
+            "R9 V03 post-ASL-authority protocol freeze receipt\n\n"
             f"PROTOCOL_FREEZE_COMMIT={'0' * 40}\n"
             f"PROTOCOL_FREEZE_COMMIT={'0' * 40}\n"
             f"PROTOCOL_FREEZE_DATE={r9.PROTOCOL_FREEZE_DATE.isoformat()}\n"
@@ -140,7 +149,7 @@ def test_receipt_reader_rejects_lightweight_or_duplicate_message_field_tags(tmp_
     wrong_value_root = _annotated_protocol_receipt_repo(
         tmp_path / "wrong-value",
         message=(
-            "R9 V02 post-boundary-hardening protocol freeze receipt\n\n"
+            "R9 V03 post-ASL-authority protocol freeze receipt\n\n"
             f"PROTOCOL_FREEZE_COMMIT={'0' * 40}\n"
             f"PROTOCOL_FREEZE_DATE={r9.PROTOCOL_FREEZE_DATE.isoformat()}\n"
             f"OOS_START={r9.R9_OOS_START.isoformat()}\n"
@@ -205,20 +214,7 @@ def test_m0_m1_are_full_frozen_raw_coefficient_rank_scores_without_refit():
 
 
 def _run_calendar():
-    sessions = (
-        date(2026, 8, 10),
-        date(2026, 8, 11),
-        date(2026, 8, 12),
-        date(2026, 8, 13),
-        date(2026, 8, 14),
-        date(2026, 8, 17),
-        date(2026, 8, 18),
-        date(2026, 8, 19),
-        date(2026, 8, 20),
-        date(2026, 8, 21),
-        date(2026, 8, 24),
-    )
-    return freeze_calendar(version="R9_RUN_CALENDAR_TEST_V01", sessions=sessions)
+    return authorized_run_calendar()
 
 
 def test_primary_endpoints_require_exact_exchange_session_horizons():
@@ -387,7 +383,7 @@ def test_pre_freeze_and_historical_rows_are_rejected():
     with pytest.raises(r9.ProtocolBlocked, match="absent from R9 run calendar"):
         r9.assert_prospective_origin(
             origin="R9_PROSPECTIVE",
-            row_date=date(2026, 8, 25),
+            row_date=date(2026, 9, 25),
             run_calendar=run_calendar,
         )
     with pytest.raises(r9.ProtocolBlocked, match="manifest hash mismatch"):

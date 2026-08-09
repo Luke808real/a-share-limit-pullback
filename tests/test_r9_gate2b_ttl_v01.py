@@ -36,9 +36,14 @@ T8 = date(2026, 8, 13)
 def _calendar(*, through_t8: bool = True) -> ttl.FrozenAshareTradingCalendar:
     sessions = (T0, T1, T2, T3, T4, T5, T6, T7, T8)
     return ttl.freeze_calendar(
-        version="TEST_FROZEN_A_SHARE_CALENDAR_V01",
+        version="R9_RUN_CALENDAR_TEST_V01",
         sessions=sessions if through_t8 else sessions[:-1],
     )
+
+
+@pytest.fixture(autouse=True)
+def _use_test_calendar_as_authority(monkeypatch):
+    monkeypatch.setattr(ttl, "authorized_run_calendar", lambda: _calendar())
 
 
 def _eligibility(
@@ -100,7 +105,7 @@ def test_candidate_after_ttl_is_retained_for_audit_but_never_active():
     assert final.setup_status == "FIRST_OBSERVED_AFTER_ADMINISTRATIVE_EXPIRY"
 
 
-def test_calendar_is_hash_pinned_ordered_unique_and_sufficient():
+def test_calendar_is_hash_pinned_ordered_unique_and_sufficient(monkeypatch):
     with pytest.raises(ttl.Gate2BBlocked, match="strictly ordered"):
         ttl.freeze_calendar(version="bad", sessions=(T0, T2, T1))
     with pytest.raises(ttl.Gate2BBlocked, match="duplicate"):
@@ -109,9 +114,10 @@ def test_calendar_is_hash_pinned_ordered_unique_and_sufficient():
     with pytest.raises(ttl.Gate2BBlocked, match="manifest hash mismatch"):
         ttl.validate_frozen_calendar(broken_hash)
     insufficient = ttl.freeze_calendar(
-        version="INSUFFICIENT_CALENDAR",
+        version="R9_RUN_CALENDAR_INSUFFICIENT_V01",
         sessions=(T0, T1, T2, T3, T4, T5, T6),
     )
+    monkeypatch.setattr(ttl, "authorized_run_calendar", lambda: insufficient)
     with pytest.raises(ttl.Gate2BBlocked, match="insufficient"):
         ttl.administrative_ttl_end_date(T0, insufficient)
 

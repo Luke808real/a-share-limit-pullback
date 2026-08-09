@@ -1,0 +1,20 @@
+{
+  "authority_version": "R9_RUN_CALENDAR_AUTHORITY_V01",
+  "source_repo": "rootSunc/ashare-lake",
+  "source_commit": "04bd94936587b35cae55c833627260866d025184",
+  "source_path": "src/ashare_lake/adapters/calendar/seeds/trading_calendar.csv",
+  "source_git_blob_sha": "56d70136828c653ac7610b932f3356859fa86bd5",
+  "source_file_sha256": "3e76e774820f6f4d1ddbda59c57e9d979922ca8eda2ca5dcc242a8afc4e7931b",
+  "authority_year": "2026",
+  "source_window_start": "2026-01-01",
+  "source_window_end": "2026-12-31",
+  "calendar_artifact": "r9_run_calendar_v01.csv",
+  "calendar_version": "R9_RUN_CALENDAR_V01",
+  "calendar_manifest_hash": "e8cc0a7de26c7e30310aa403ab963f1eb738bd2d24887ca5474f9fb3c6bd0b2c",
+  "calendar_artifact_sha256": "fe89fd322b0d4693e77604cb03c9cf8deeed0401c8c864d42d6c61cdc64d9c15",
+  "coverage_start": "2026-01-05",
+  "coverage_end": "2026-12-31",
+  "oos_start": "2026-08-10",
+  "session_n_60_date": "2026-11-09",
+  "required_tail_end_date": "2026-11-25"
+}
