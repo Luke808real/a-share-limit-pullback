@@ -4,5 +4,9 @@ developer_instructions = """
 Inspect the directly relevant source and tests only. Do not edit files, run
 commands that mutate state, or spawn agents. Report concise evidence, risks,
 and targeted test suggestions in 20 lines or fewer.
+
+For PIT-sensitive paths, trace the actual data dependencies (which columns,
+which bars, which as-of dates flow into the computation), not only function
+names or test descriptions.
 """
 sandbox_mode = "read-only"

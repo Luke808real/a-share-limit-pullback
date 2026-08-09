@@ -1,16 +1,18 @@
 ---
 name: ashare-research-cycle
-description: "Full research lifecycle for A-share strategy questions: hypothesis, descriptive analysis, metric audit, chronological validation, edge gate, conclusion, and report. Use for robustness/edge/execution/position-sizing studies on frozen episodes (corrected episodes hash 66d5943ffd4c83d8348d7b559ef9aa8ab9c041525471108a2f724fbedd84b093), outcome/execution-reality artifacts, or any 'does this signal have edge' question. Enforces no same-sample tuning, no forward contamination, and no position sizing before a proven edge."
+description: "A-share Development Research Cycle: full historical descriptive research lifecycle (hypothesis, descriptive analysis, metric audit, development stability, edge gate, conclusion, report) for frozen episodes, benchmark/stability/multivariate research, and intraday development research. Resolve the exact frozen dataset from the current research registry/report; enforces no same-sample tuning, no forward contamination, and no position sizing before a proven edge."
 ---
 
-# A-share Research Cycle
+# A-share Development Research Cycle
 
 ## Lifecycle
 
-`HYPOTHESIS -> DESCRIPTIVE -> METRIC_AUDIT -> CHRONOLOGICAL_VALIDATION -> EDGE_GATE -> CONCLUSION -> REPORT`
+`HYPOTHESIS -> DESCRIPTIVE -> METRIC_AUDIT -> DEVELOPMENT_STABILITY -> EDGE_GATE -> CONCLUSION -> REPORT`
 
-Conclusion status: `REJECT / OBSERVE_ONLY / SUPPORTED`.
-**SUPPORTED != PROMOTED**; production promotion requires PR + human approval.
+Conclusion status taxonomy:
+`OBSERVATION / HYPOTHESIS / SUPPORTED_HYPOTHESIS / VALIDATED / STRATEGY_CANDIDATE / PROMOTED`
+with orthogonal `IMPLEMENTATION_STATUS` and `PRODUCTION_STATUS`.
+**SUPPORTED != VALIDATED != PROMOTED**; production promotion requires PR + human approval.
 
 ## Workflow
 
@@ -20,8 +22,11 @@ Conclusion status: `REJECT / OBSERVE_ONLY / SUPPORTED`.
 3. **METRIC_AUDIT**: reconcile every number against the frozen canonical model
    (cohort, execution rules, same-day ordering, cost, exit rule) and report ONE aligned number.
    Label any proxy explicitly (e.g., fixed-principal sequential proxy is not a portfolio backtest).
-4. **CHRONOLOGICAL_VALIDATION**: DISCOVERY <= 2025-06-30 vs VALIDATION >= 2025-07-01;
-   also report 2024 / 2025 / 2026.
+4. **DEVELOPMENT_STABILITY**: a historical time split is NOT clean OOS when
+   the dataset already influenced discovery. Report year / period breakdowns
+   as `DEVELOPMENT_STABILITY` only. If a specific frozen experiment defines
+   its own split (e.g., discovery/validation cutoffs), read it from that
+   experiment's registry/report — never from a global hardcode.
 5. **EDGE_GATE**: only pre-existing production thresholds plus already-studied
    `entry_quality >= 80` / `setup_quality >= 80`. `EDGE_SUPPORTED` requires:
    discovery mean > 0, validation mean > 0, median not dependent on a single year,
@@ -35,7 +40,9 @@ Conclusion status: `REJECT / OBSERVE_ONLY / SUPPORTED`.
 
 - `research/execution_risk_v01.py`, `research/execution_risk_v01.md`
 - `data/tmp/execution-risk-v01/metrics.json`
-- Corrected episodes: SHA `66d5943ffd4c83d8348d7b559ef9aa8ab9c041525471108a2f724fbedd84b093`
+- Frozen dataset: resolve the exact corrected-episodes / outcome / feature
+  artifact (with its SHA) from the current research registry/report; do not
+  hardcode a single hash as the eternal default.
 
 ## Bans
 

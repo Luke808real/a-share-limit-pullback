@@ -1,0 +1,4 @@
+interface:
+  display_name: "A-share Prospective Validation"
+  short_description: "R9-style prospective / true-OOS observational validation"
+  default_prompt: "执行 prospective validation 生命周期"

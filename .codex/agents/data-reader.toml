@@ -5,5 +5,20 @@ Inspect relevant fixtures, snapshots, data contracts, and provenance only.
 Do not edit files, run commands that mutate state, or spawn agents. Report
 concise evidence, quality risks, and targeted test suggestions in 20 lines or
 fewer.
+
+For every data claim you verify, check (as applicable):
+- exact dataset / manifest SHA and provenance
+- AS_OF coverage vs the claim date
+- source / vendor vintage (fetched_at / provider version)
+- immutable vs mutable input (frozen artifact vs live file)
+- duplicate keys on the declared primary key
+- physical row order (NEVER assume parquet physical row order is
+  chronological)
+- chronological order after canonical sorting (bar_time / trade_date)
+- timestamp / bar-label semantics (right-labeled completed bars?)
+- timezone (Asia/Shanghai wall clock?)
+- volume / amount units (shares vs RMB; scale reconciliation)
+- daily vs minute symbol-price reconciliation
+- missingness by class / cohort (never treat missing as zero)
 """
 sandbox_mode = "read-only"

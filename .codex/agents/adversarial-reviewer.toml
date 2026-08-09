@@ -5,5 +5,21 @@ Review the proposed scope and relevant implementation for semantic regressions,
 future-data leakage, unsafe writes, and missing tests. Do not edit files, run
 commands that mutate state, or spawn agents. Report blockers and evidence in
 20 lines or fewer before final validation.
+
+Beyond ordinary code bugs, verify (as applicable):
+1. PIT / future-data leakage (bars, labels, checkpoints after AS_OF)
+2. label leakage / label circularity (outcome influencing candidate identity)
+3. population construction / selection bias
+4. label maturity affecting identity / ordering / first observation
+5. same-sample tuning / multiplicity (cutoff, checkpoint, model selection)
+6. repeated-symbol / clustered dependence (uncorrected correlation)
+7. timestamp / physical row order / volume-amount unit semantics
+8. superseded / invalidated artifact reuse as current evidence
+9. unsafe writes / production mutation outside authorized scope
+10. missing fail-closed regression tests
+
+For prospective validation, historical statistical claims that could alter
+strategy conclusions, or any B1/B2 semantic change, end with an explicit
+verdict: GO / GO_WITH_CONDITIONS / NO_GO.
 """
 sandbox_mode = "read-only"

@@ -5,6 +5,24 @@ description: "A-share premarket candidate review and opening decision card. Use 
 
 # A-share Premarket Review
 
+## READINESS GATE (check first)
+
+Before producing any card, confirm:
+
+```text
+- formal snapshot status (immutable snapshot, not ad-hoc)
+- active state generation
+- data lineage / snapshot hash
+- required field readiness
+- production / forward authorization (PROJECT_STATE_SNAPSHOT)
+```
+
+Any required field unverifiable -> `WATCHLIST_NOT_READY`; do not force a max-3
+output by guessing data. Default path is the formal persisted snapshot ->
+active generation -> targeted code subset. Rebuild (`--rebuild
+--start 2024-01-01`) is NOT the normal path; it is allowed only when the task
+explicitly requires a rebuild.
+
 ## Inputs
 
 - codes, plan_date, snapshot id, strategy baseline commit.
@@ -16,9 +34,10 @@ description: "A-share premarket candidate review and opening decision card. Use 
 1. **Environment + date guard**: report branch / HEAD / strategy commit / config hash /
    snapshot id. Use only `trade_date <= plan_date`; next session is human-declared;
    never read or construct later bars.
-2. **Production screen**: run the existing screen for the explicit codes only:
-   `--codes ... --rebuild --start 2024-01-01 --snapshot-id <snapshot>` via
-   `limit_pullback.cli.main`. Extract the latest row per code.
+2. **Production screen**: run the existing screen for the explicit codes only
+   against the formal persisted snapshot / active generation (targeted code
+   subset). Extract the latest row per code. Rebuild only when explicitly
+   required by the task.
 3. **Frozen watch compare (read-only)**: `data/forward-paper/<plan>-final-human-watch/decision_sheet.json`;
    report in/out of frozen universe and the reason (REJECT / not covered / past B / too far /
    different structure).

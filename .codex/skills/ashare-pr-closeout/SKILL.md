@@ -9,8 +9,11 @@ description: "PR closeout workflow for the a-share-limit-pullback repo: validati
 
 1. **Verify**: branch, local HEAD == origin == PR head, base main, worktree clean,
    PR `OPEN / Draft / MERGEABLE`, and no new conflicting main commits since review.
-2. **Validation audit** (once): `pytest -q`, `python -m compileall -q src tests`,
-   `git diff --check`; compare with expected test counts.
+2. **Validation audit**: targeted tests during development; at closeout run
+   the CI-equivalent suite once (`pytest -q`, `python -m compileall -q src
+   tests`, `git diff --check`); compare with expected test counts.
+   Real-data / full-market / network-heavy validation runs ONLY when the
+   closeout gate explicitly requires them — never "for completeness".
 3. **Blocker audit**: fix only the human-review blockers listed; do not expand scope.
 4. **PR body**: keep final facts, mark historical sections; keep Draft until approval.
 5. **Mark Ready** only after human approval and green checks.
@@ -20,7 +23,8 @@ description: "PR closeout workflow for the a-share-limit-pullback repo: validati
 7. **Post-merge**: `MERGED=true`, main contains the head commit, worktree clean,
    origin synced; quick `git diff HEAD^1..HEAD --stat`; no strategy/config drift.
 8. **KB update**: minimal record in `05_Codex/CURRENT_PHASE.md` and
-   `05_Codex/IMPLEMENTATION_LOG.md` (KB repo: `~/AI/a-share-strategy-brain`), commit + push.
+   `05_Codex/IMPLEMENTATION_LOG.md` (KB repo: `A_SHARE_STRATEGY_BRAIN_ROOT` or
+   sibling `../a-share-strategy-brain`), commit + push.
 9. Keep research PRs Draft / unmerged (identify them from the user or
    `gh pr list --state open`; do not hardcode numbers).
 
