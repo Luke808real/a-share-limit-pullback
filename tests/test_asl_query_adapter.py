@@ -27,6 +27,7 @@ pytestmark = pytest.mark.skipif(
 
 from limit_pullback.warehouse.asl_adapter import (  # noqa: E402
     AslAdapterError,
+    _classify_status_provenance,
     load_asl_daily_slice,
 )
 from limit_pullback.warehouse.asl_query_adapter import (  # noqa: E402
@@ -336,6 +337,156 @@ def test_trusted_suspension_authorizes_missing_session(tmp_path):
     # 6/11 is the first row (no predecessor) -> MISSING_PRECLOSE; only 6/12
     # is VALID, and the 6/15 session is authorized as suspended.
     assert {r.trade_date for r in valid} == {date(2026, 6, 12)}
+
+
+# --- baostock NORMAL negative evidence (PIT trust) --------------------------
+
+
+def _append_status(lake: Path, rows: list[dict]) -> None:
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    status_path = (
+        lake / "curated" / "trading_status" / "trade_date=2026-06" / "part-merged.parquet"
+    )
+    table = pq.ParquetFile(status_path).read()
+    existing = table.to_pylist()
+    existing.extend(rows)
+    pq.write_table(pa.Table.from_pylist(existing), status_path)
+
+
+def _by_code_date(lake: Path, codes) -> dict[tuple[str, date], object]:
+    return {
+        (row.code, row.trade_date): row
+        for slice_ in list(query_daily_facts(lake, as_of=AS_OF, start=START, codes=codes))
+        for row in slice_.rows
+    }
+
+
+def test_baostock_normal_is_trusted_negative_evidence(tmp_path):
+    """A: explicit historical baostock NORMAL -> is_st=false, BAOSTOCK_NORMAL."""
+    lake = tmp_path / "lake"
+    _build_lake(lake)
+    _append_status(
+        lake,
+        [
+            {
+                "symbol": "000001.SZ",
+                "trade_date": date(2026, 6, 12),
+                "is_trading": True,
+                "status": "normal",
+                "source": "baostock",
+                "data_version": "v1",
+                "fetched_at": _FETCHED,
+            }
+        ],
+    )
+    rows = _by_code_date(lake, ["000001"])
+    row = rows[("000001", date(2026, 6, 12))]
+    assert row.trade_status is True
+    assert row.is_st is False
+    assert row.asl_status_trust == "BAOSTOCK_NORMAL"
+
+
+def test_baostock_st_is_trusted_positive_evidence(tmp_path):
+    """B: explicit historical baostock ST -> is_st=true, BAOSTOCK_ST."""
+    lake = tmp_path / "lake"
+    _build_lake(lake)
+    rows = _by_code_date(lake, ["000010"])
+    row = rows[("000010", date(2026, 6, 12))]
+    assert row.trade_status is True
+    assert row.is_st is True
+    assert row.asl_status_trust == "BAOSTOCK_ST"
+
+
+def test_absent_status_positive_bar_keeps_is_st_none(tmp_path):
+    """C: positive bar with NO status row -> is_st=None, trust=None (no inference)."""
+    lake = tmp_path / "lake"
+    _build_lake(lake)
+    rows = _by_code_date(lake, ["000001"])
+    row = rows[("000001", date(2026, 6, 15))]
+    assert row.trade_status is True
+    assert row.is_st is None
+    assert row.asl_status_trust is None
+
+
+def test_derived_suspension_behavior_unchanged(tmp_path):
+    """D: derived_bar_gap suspension semantics unchanged."""
+    lake = tmp_path / "lake"
+    _build_lake(lake)
+    rows = _by_code_date(lake, ["000524"])
+    row = rows[("000524", date(2026, 6, 12))]
+    assert row.trade_status is False
+    assert row.is_st is None
+    assert row.asl_status_trust == "DERIVED_GAP_SUSPENDED"
+
+
+def test_stale_current_state_row_is_ignored(tmp_path):
+    """E: stale NON-PIT daily snapshot row -> ignored exactly as before."""
+    lake = tmp_path / "lake"
+    _build_lake(lake)
+    _append_status(
+        lake,
+        [
+            {
+                "symbol": "300750.SZ",
+                "trade_date": date(2026, 6, 12),
+                "is_trading": True,
+                "status": "normal",
+                "source": "tdx_protocol",
+                "data_version": "v1",
+                "fetched_at": datetime(2026, 8, 7, 2, 0, tzinfo=timezone.utc),
+            }
+        ],
+    )
+    rows = _by_code_date(lake, ["300750"])
+    row = rows[("300750", date(2026, 6, 12))]
+    assert row.trade_status is True
+    assert row.is_st is None
+    assert row.asl_status_trust is None  # NON_PIT_EASTMONEY ignored
+
+
+def test_invalid_baostock_combinations_fail_closed():
+    """Baostock rows outside the trusted vocabulary must never become normal."""
+    base = dict(
+        code="000001",
+        day=date(2026, 6, 12),
+        source="baostock",
+        fetched_at=_FETCHED,
+    )
+    with pytest.raises(AslAdapterError):
+        _classify_status_provenance(status="normal", is_trading=False, **base)
+    with pytest.raises(AslAdapterError):
+        _classify_status_provenance(status="suspended", is_trading=True, **base)
+    with pytest.raises(AslAdapterError):
+        _classify_status_provenance(status="weird", is_trading=True, **base)
+
+
+def test_trusted_baostock_counter_includes_normal():
+    """Coverage counter semantics: trusted_baostock_n counts ST + NORMAL rows."""
+    import tempfile
+
+    from limit_pullback.warehouse.asl_query_adapter import query_daily_facts
+
+    lake = Path(tempfile.mkdtemp()) / "lake"
+    _build_lake(lake)
+    _append_status(
+        lake,
+        [
+            {
+                "symbol": "000001.SZ",
+                "trade_date": date(2026, 6, 12),
+                "is_trading": True,
+                "status": "normal",
+                "source": "baostock",
+                "data_version": "v1",
+                "fetched_at": _FETCHED,
+            }
+        ],
+    )
+    slices = list(query_daily_facts(lake, as_of=AS_OF, start=START, codes=["000001", "000010"]))
+    total = sum(s.status_coverage.trusted_baostock_n for s in slices)
+    assert total == 3  # 000010 ST (6/12 + 6/15) + 000001 NORMAL (6/12)
 
 
 # --- I: AS_OF scope semantics ----------------------------------------------

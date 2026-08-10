@@ -78,6 +78,7 @@ from limit_pullback.warehouse.asl_adapter import (
     PCT_QUANTUM,
     PRICE_QUANTUM,
     TESTED_COMPAT_REVISION,
+    TRUSTED_STATUS_KINDS,
     AslDailyBarRow,
     AslDailySlice,
     AslStatusCoverage,
@@ -453,8 +454,7 @@ def query_daily_facts(
                     trusted = (
                         status_row
                         if status_row is not None
-                        and status_row.trust
-                        in ("BAOSTOCK_ST", "DERIVED_GAP_SUSPENDED", "EASTMONEY_SAME_DAY")
+                        and status_row.trust in TRUSTED_STATUS_KINDS
                         else None
                     )
                     if trusted is not None and (
@@ -508,8 +508,7 @@ def query_daily_facts(
                     (
                         status_row
                         if status_row is not None
-                        and status_row.trust
-                        in ("BAOSTOCK_ST", "DERIVED_GAP_SUSPENDED", "EASTMONEY_SAME_DAY")
+                        and status_row.trust in TRUSTED_STATUS_KINDS
                         else None
                     ),
                     code=code,
@@ -563,8 +562,7 @@ def query_daily_facts(
                         asl_status_trust=(
                             status_row.trust
                             if status_row is not None
-                            and status_row.trust
-                            in ("BAOSTOCK_ST", "DERIVED_GAP_SUSPENDED", "EASTMONEY_SAME_DAY")
+                            and status_row.trust in TRUSTED_STATUS_KINDS
                             else None
                         ),
                     )
@@ -578,21 +576,21 @@ def query_daily_facts(
             sessions_with_status_row=sum(
                 1
                 for (code, day), row in status_rows.items()
-                if row.trust
-                in ("BAOSTOCK_ST", "DERIVED_GAP_SUSPENDED", "EASTMONEY_SAME_DAY")
+                if row.trust in TRUSTED_STATUS_KINDS
             ),
             sessions_without_status_row=(
                 len(sessions) * len(chunk)
                 - sum(
                     1
                     for (code, day), row in status_rows.items()
-                    if row.trust
-                    in ("BAOSTOCK_ST", "DERIVED_GAP_SUSPENDED", "EASTMONEY_SAME_DAY")
+                    if row.trust in TRUSTED_STATUS_KINDS
                 )
             ),
             mode="PIT_PROVENANCE_CLASSIFIED",
             trusted_baostock_n=sum(
-                1 for row in status_rows.values() if row.trust == "BAOSTOCK_ST"
+                1
+                for row in status_rows.values()
+                if row.trust in ("BAOSTOCK_ST", "BAOSTOCK_NORMAL")
             ),
             trusted_derived_gap_n=sum(
                 1 for row in status_rows.values() if row.trust == "DERIVED_GAP_SUSPENDED"
