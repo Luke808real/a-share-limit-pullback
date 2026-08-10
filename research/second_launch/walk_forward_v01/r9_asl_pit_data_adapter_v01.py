@@ -21,7 +21,20 @@ import r9_population_generator_v01 as population
 import r9_prospective_factor_producer_v01 as producer
 
 
-ASL_CODE_SHA = "04bd94936587b35cae55c833627260866d025184"
+# The validated ASL project SHA this adapter's query contract is pinned to.
+# The shared lake the adapter reads is NOT claimed to have been created solely
+# by this SHA: its data lineage is MIXED (see ASL_DATA_LINEAGE below).
+ASL_VALIDATED_PROJECT_SHA = "45d40aad8ac94076cb44e0ce852b5e9ad19bcab7"
+ASL_CODE_SHA = ASL_VALIDATED_PROJECT_SHA
+ASL_DATA_LINEAGE = (
+    "MIXED_SHARED_LAKE:"
+    "original_init=04bd94936587b35cae55c833627260866d025184;"
+    "first_recovery=ceb1491bd2a6f4eddf3ee0785dcfa77fa1c186ed;"
+    "ledger_reconciliation=f7e990bfaebc4684a944744e9e857a1051999b83;"
+    "delisted_recovery=ff7d4f7bd06e34e66bc304a9d949677c65c4406b;"
+    "window_overlap_contract=45d40aad8ac94076cb44e0ce852b5e9ad19bcab7;"
+    "asl_upstream=07ffe26d63b1e9256ee5ed7e456f4e133afd41ae"
+)
 ASL_SOURCE_VINTAGE = f"ASL@{ASL_CODE_SHA}"
 DAILY_DATASET = "daily_bars"
 ADJ_FACTOR_DATASET = "adj_factors"
@@ -526,9 +539,11 @@ def build_pit_factor_input(
 __all__ = [
     "ADJ_FACTOR_DATASET",
     "ASL_CODE_SHA",
+    "ASL_DATA_LINEAGE",
     "ASLQueryBackend",
     "ASLPITAdapterBlocked",
     "ASL_SOURCE_VINTAGE",
+    "ASL_VALIDATED_PROJECT_SHA",
     "DAILY_DATASET",
     "STORED_ADJUST_TYPE",
     "build_pit_factor_input",
