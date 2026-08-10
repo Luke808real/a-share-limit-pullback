@@ -348,10 +348,15 @@ def query_asof_scope(
 ) -> tuple[str, ...]:
     """AS_OF pre-ST market scope from the official Query API only.
 
-    Rules (unchanged): SH/SZ main-board prefix, instrument exists, listed on
-    *as_of*, not delisted, AS_OF bar exists with positive volume.  ST is NOT
-    applied here.  Fail closed when the AS_OF market data is not readable
-    (trading day with zero AS_OF bars for the main-board scope).
+    Rules (contract): SH/SZ main-board prefix, instrument exists, listed on
+    *as_of*, not delisted.  A code with a positive AS_OF bar is INCLUDED.  A
+    code with no positive AS_OF bar is INCLUDED only when trusted non-trading
+    evidence exists for that AS_OF session (``BAOSTOCK_NONTRADING`` /
+    ``DERIVED_GAP_SUSPENDED`` / valid ``EASTMONEY_SAME_DAY`` non-trading);
+    otherwise it FAILS CLOSED — a listed, not-delisted symbol is never
+    silently dropped from the active scope.  ST is NOT applied here.  Fail
+    closed when the AS_OF market data is not readable (trading day with zero
+    AS_OF bars for the main-board scope).
     """
 
     root = Path(asl_root).expanduser().resolve()
@@ -394,9 +399,30 @@ def query_asof_scope(
         if inst["delist_date"] is not None and as_of >= inst["delist_date"]:
             continue
         volume = asof_volume.get(code)
-        if volume is None or volume <= 0:
+        if volume is not None and volume > 0:
+            out.append(code)
             continue
-        out.append(code)
+        status_rows = _query_status_rows(root, (code,), as_of, as_of)
+        status_row = status_rows.get((code, as_of))
+        trusted = (
+            status_row
+            if status_row is not None
+            and status_row.trust in TRUSTED_STATUS_KINDS
+            else None
+        )
+        if trusted is not None and (
+            trusted.trust in ("DERIVED_GAP_SUSPENDED", "BAOSTOCK_NONTRADING")
+            or (
+                trusted.trust == "EASTMONEY_SAME_DAY"
+                and (not trusted.is_trading or trusted.status == "suspended")
+            )
+        ):
+            out.append(code)
+            continue
+        raise AslAdapterError(
+            f"MISSING_REQUIRED_BAR:AS_OF_SCOPE:{code}:{as_of}:"
+            "no positive bar and no trusted non-trading evidence"
+        )
     return tuple(sorted(out))
 
 
@@ -459,6 +485,7 @@ def query_daily_facts(
                     )
                     if trusted is not None and (
                         trusted.trust == "DERIVED_GAP_SUSPENDED"
+                        or trusted.trust == "BAOSTOCK_NONTRADING"
                         or (
                             trusted.trust == "EASTMONEY_SAME_DAY"
                             and (
@@ -590,7 +617,8 @@ def query_daily_facts(
             trusted_baostock_n=sum(
                 1
                 for row in status_rows.values()
-                if row.trust in ("BAOSTOCK_ST", "BAOSTOCK_NORMAL")
+                if row.trust
+                in ("BAOSTOCK_ST", "BAOSTOCK_NORMAL", "BAOSTOCK_NONTRADING")
             ),
             trusted_derived_gap_n=sum(
                 1 for row in status_rows.values() if row.trust == "DERIVED_GAP_SUSPENDED"

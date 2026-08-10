@@ -17,10 +17,13 @@ import pytest
 
 from limit_pullback.warehouse.asl_adapter import (
     AslAdapterError,
+    AslStatusRow,
     TESTED_COMPAT_REVISION,
     CONTRACT_VERSION,
     AslDailySlice,
+    _classify_status_provenance,
     load_asl_daily_slice,
+    _status_mapping,
 )
 
 WEEKEND = (date(2026, 6, 13), date(2026, 6, 14))
@@ -255,6 +258,42 @@ def test_missing_bar_suspended_allowed(tmp_path):
     assert (("000524", date(2026, 6, 12))) in result.suspended_sessions
     assert any(
         item.code == "000524"
+        and item.trade_date == date(2026, 6, 12)
+        and item.reason == "SUSPENDED_BY_STATUS"
+        for item in result.missing_required_bars
+    )
+
+
+def test_missing_bar_baostock_nontrading_allowed(tmp_path):
+    """No bar + explicit Baostock tradestatus=0 evidence (BAOSTOCK_NONTRADING)
+    authorizes the absent session on the physical path."""
+
+    bars = {
+        "600999.SZ": _bar_rows(
+            "600999.SZ", [date(2026, 6, 11), date(2026, 6, 15)], "5.00"
+        )
+    }
+    _build_lake(
+        tmp_path,
+        bars=bars,
+        instruments=[
+            {"symbol": "600999.SZ", "list_date": None, "delist_date": None},
+        ],
+        status_rows=[
+            {
+                "symbol": "600999.SZ",
+                "trade_date": date(2026, 6, 12),
+                "is_trading": False,
+                "status": "suspended",
+                "source": "baostock",
+                "fetched_at": "2026-08-07T00:00:00+08:00",
+            },
+        ],
+    )
+    result = _load(tmp_path, codes=["600999"])
+    assert ("600999", date(2026, 6, 12)) in result.suspended_sessions
+    assert any(
+        item.code == "600999"
         and item.trade_date == date(2026, 6, 12)
         and item.reason == "SUSPENDED_BY_STATUS"
         for item in result.missing_required_bars
@@ -850,3 +889,63 @@ def test_adapter_does_not_import_strategy_modules(tmp_path):
     )
     assert out.returncode == 0, out.stderr
     assert out.stdout.strip() == "STRATEGY_IMPORTS="
+
+
+def _status_row(*, status: str, is_trading: bool) -> AslStatusRow:
+    return AslStatusRow(
+        code="600999",
+        trade_date=date(2026, 6, 12),
+        is_trading=is_trading,
+        status=status,
+        source="baostock",
+        data_version="v1",
+        fetched_at=datetime(2026, 8, 7, 2, 0, tzinfo=timezone.utc),
+        trust=_classify_status_provenance(
+            code="600999",
+            day=date(2026, 6, 12),
+            status=status,
+            is_trading=is_trading,
+            source="baostock",
+            fetched_at=datetime(2026, 8, 7, 2, 0, tzinfo=timezone.utc),
+        ),
+    )
+
+
+def test_baostock_nontrading_classification_and_mapping():
+    """Baostock suspended+false is BAOSTOCK_NONTRADING -> trade_status=false,
+    is_st=None; the ST flag on a non-trading day is NOT interpreted."""
+
+    row = _status_row(status="suspended", is_trading=False)
+    assert row.trust == "BAOSTOCK_NONTRADING"
+    trade_status, is_st = _status_mapping(
+        row, code="600999", day=date(2026, 6, 12), volume=Decimal("0")
+    )
+    assert trade_status is False
+    assert is_st is None
+
+
+@pytest.mark.parametrize(
+    ("status", "is_trading"),
+    [
+        ("st", False),
+        ("*st", False),
+        ("normal", False),
+        ("suspended", True),
+    ],
+)
+def test_baostock_invalid_combinations_fail_closed(status, is_trading):
+    with pytest.raises(AslAdapterError, match="UNEXPECTED_STATUS_SEMANTICS"):
+        _classify_status_provenance(
+            code="600999",
+            day=date(2026, 6, 12),
+            status=status,
+            is_trading=is_trading,
+            source="baostock",
+            fetched_at=datetime(2026, 8, 7, 2, 0, tzinfo=timezone.utc),
+        )
+
+
+def test_baostock_trusted_combinations_unchanged():
+    assert _status_row(status="st", is_trading=True).trust == "BAOSTOCK_ST"
+    assert _status_row(status="*st", is_trading=True).trust == "BAOSTOCK_ST"
+    assert _status_row(status="normal", is_trading=True).trust == "BAOSTOCK_NORMAL"

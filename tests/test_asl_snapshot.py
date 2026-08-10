@@ -192,6 +192,8 @@ def _build_lake(
                 {"symbol": "000010.SZ", "trade_date": date(2026, 6, 12), "is_trading": True, "status": "st", "source": "baostock", "data_version": "v1", "fetched_at": "2026-08-07T00:00:00Z"},
                 {"symbol": "000010.SZ", "trade_date": date(2026, 6, 15), "is_trading": True, "status": "*st", "source": "baostock", "data_version": "v1", "fetched_at": "2026-08-07T00:00:00Z"},
                 {"symbol": "000524.SZ", "trade_date": date(2026, 6, 12), "is_trading": False, "status": "suspended", "source": "derived_bar_gap", "data_version": "v1", "fetched_at": "2026-08-07T00:00:00Z"},
+                {"symbol": "600002.SH", "trade_date": date(2026, 6, 15), "is_trading": False, "status": "suspended", "source": "baostock", "data_version": "v1", "fetched_at": "2026-08-07T00:00:00Z"},
+                {"symbol": "600003.SH", "trade_date": date(2026, 6, 15), "is_trading": False, "status": "suspended", "source": "derived_bar_gap", "data_version": "v1", "fetched_at": "2026-08-07T00:00:00Z"},
             ],
         )
 
@@ -436,13 +438,17 @@ def _resolved_scope(lake: Path) -> set[str]:
 
 def test_codes_none_resolves_asof_scope(tmp_path):
     """codes=None now means AS_OF pre-ST market scope (evaluation date first):
-    active main-board codes with a valid positive-volume AS_OF bar only."""
+    active main-board codes with a positive-volume AS_OF bar, plus listed /
+    not-delisted codes with trusted non-trading evidence on AS_OF (Case B)."""
 
     lake = tmp_path / "lake"
     _build_lake(lake)
     scope = _resolved_scope(lake)
-    # Active main-board + positive-volume AS_OF bar -> included (A).
-    assert scope == {"000001", "000010", "000524", "605198"}
+    # A: positive-volume AS_OF bar -> included.
+    # B: no positive AS_OF bar but trusted non-trading evidence -> included.
+    assert scope == {
+        "000001", "000010", "000524", "605198", "600002", "600003",
+    }
     layout = _layout(tmp_path)
     snapshot = build_asl_candidate_snapshot(
         layout=layout, asl_root=lake, as_of=AS_OF, codes=None, start=START,
@@ -452,21 +458,48 @@ def test_codes_none_resolves_asof_scope(tmp_path):
         stored = metadata.snapshot_by_id(snapshot.snapshot_id)
         rows = read_snapshot_daily(layout, stored)
     assert {row["code"] for row in rows} == scope
-    assert len(rows) == 8  # 4 codes x 2 VALID days (6/11 was MISSING_PRECLOSE)
+    # 4 traded codes x 2 VALID days + 600002 (6/12) + 600003 (6/12, 6/15).
+    assert len(rows) == 11
 
 
 def test_asof_scope_excludes_by_listing_and_bar_rules(tmp_path):
-    """B-F: delisted / not-yet-listed / no-AS_OF-bar / zero-volume / ChiNext
-    instruments are all OUTSIDE the AS_OF scope (no hardcoded exclusions)."""
+    """Listing rules still exclude; no-bar-with-evidence is INCLUDED; an
+    unexplained no-bar active symbol FAILS CLOSED (no silent exclusion)."""
 
     lake = tmp_path / "lake"
     _build_lake(lake)
     scope = _resolved_scope(lake)
-    assert "600000" not in scope  # B: delisted before AS_OF
-    assert "600001" not in scope  # C: listed after AS_OF
-    assert "600002" not in scope  # D: no AS_OF bar
-    assert "600003" not in scope  # E: zero-volume AS_OF bar
-    assert "300750" not in scope  # F: ChiNext / non-main-board
+    assert "600000" not in scope  # delisted before AS_OF
+    assert "600001" not in scope  # listed after AS_OF
+    assert "600002" in scope  # no AS_OF bar + BAOSTOCK_NONTRADING evidence (B)
+    assert "600003" in scope  # zero-volume bar + DERIVED_GAP_SUSPENDED evidence (B)
+    assert "300750" not in scope  # ChiNext / non-main-board
+
+    from limit_pullback.warehouse.asl_adapter import AslAdapterError
+
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    lake2 = tmp_path / "lake-c"
+    _build_lake(lake2)
+    inst_path = lake2 / "curated" / "instruments" / "part-merged.parquet"
+    table = pq.read_table(inst_path)
+    extra = pa.Table.from_pylist(
+        [
+            {
+                "symbol": "600004.SH", "name": "600004.SH", "exchange": "SH",
+                "asset_type": "stock", "list_date": date(2000, 1, 1),
+                "delist_date": None, "prev_symbol": None, "source": "tdx_protocol",
+                "data_version": "v1", "fetched_at": datetime(2026, 8, 7, 2, 0, tzinfo=timezone.utc),
+            }
+        ]
+    )
+    pq.write_table(
+        pa.concat_tables([table, extra], promote_options="default"),
+        inst_path,
+    )
+    with pytest.raises(AslAdapterError, match="MISSING_REQUIRED_BAR:AS_OF_SCOPE:600004"):
+        _resolved_scope(lake2)
 
 
 def test_scope_fails_closed_missing_instruments_dataset(tmp_path):
@@ -493,7 +526,7 @@ def test_scope_accepts_alternate_instruments_filename(tmp_path):
     dst = lake / "curated" / "instruments" / "part-renamed.parquet"
     src.rename(dst)
     scope = _resolved_scope(lake)
-    assert scope == {"000001", "000010", "000524", "605198"}
+    assert scope == {"000001", "000010", "000524", "605198", "600002", "600003"}
 
 
 def test_scope_fails_closed_missing_asof_partition(tmp_path):
@@ -668,7 +701,7 @@ def test_cli_without_codes_builds_nonempty_snapshot(tmp_path, capsys):
         rows = read_snapshot_daily(layout, stored)
     assert len(rows) > 0
     assert {row["code"] for row in rows} == {
-        "000001", "000010", "000524", "605198",
+        "000001", "000010", "000524", "605198", "600002", "600003",
     }
 
 

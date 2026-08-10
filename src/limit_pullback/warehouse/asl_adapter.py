@@ -46,9 +46,13 @@ PIT status provenance contract (review round 3):
 * Every ``trading_status`` row is read WITH provenance (``source``,
   ``data_version``, ``fetched_at``) and classified before use:
   - ``source == "baostock"``: trusted historical evidence; accepted ONLY as
-    ``status in {st, *st, normal}`` with ``is_trading == True``; any other
-    combination raises. ``normal`` maps to explicit ``is_st=false`` (the
-    historical negative evidence from the bounded ST backfill).
+    ``status in {st, *st, normal}`` with ``is_trading == True``, or
+    ``status == "suspended"`` with ``is_trading == False`` (the explicit
+    ``tradestatus=0`` provider evidence); any other combination raises.
+    ``normal`` maps to explicit ``is_st=false`` (the historical negative
+    evidence from the bounded ST backfill); ``suspended`` maps to
+    ``trade_status=false / is_st=None`` (the day was not tradeable, ST
+    unknown — a Baostock ``isST=1`` on a non-trading day is NOT interpreted).
   - ``source == "derived_bar_gap"``: trusted historical suspension; accepted
     ONLY as ``status == "suspended"`` with ``is_trading == False``; any other
     combination raises.
@@ -120,7 +124,13 @@ DAILY_STATUS_SOURCES = frozenset({"eastmoney", "tdx_protocol"})
 SHANGHAI_TZ = timezone(timedelta(hours=8))
 
 TRUSTED_STATUS_KINDS = frozenset(
-    {"BAOSTOCK_ST", "BAOSTOCK_NORMAL", "DERIVED_GAP_SUSPENDED", "EASTMONEY_SAME_DAY"}
+    {
+        "BAOSTOCK_ST",
+        "BAOSTOCK_NORMAL",
+        "BAOSTOCK_NONTRADING",
+        "DERIVED_GAP_SUSPENDED",
+        "EASTMONEY_SAME_DAY",
+    }
 )
 
 RowStatus = Literal[
@@ -579,12 +589,16 @@ def _classify_status_provenance(
     """
 
     if source == BAOSTOCK_STATUS_SOURCE:
-        if status not in {"st", "*st", "normal"} or not is_trading:
-            raise AslAdapterError(
-                f"UNEXPECTED_STATUS_SEMANTICS:{code}:{day}:"
-                f"source=baostock status={status!r} is_trading={is_trading}"
-            )
-        return "BAOSTOCK_ST" if status in {"st", "*st"} else "BAOSTOCK_NORMAL"
+        if status in {"st", "*st"} and is_trading:
+            return "BAOSTOCK_ST"
+        if status == "normal" and is_trading:
+            return "BAOSTOCK_NORMAL"
+        if status == "suspended" and not is_trading:
+            return "BAOSTOCK_NONTRADING"
+        raise AslAdapterError(
+            f"UNEXPECTED_STATUS_SEMANTICS:{code}:{day}:"
+            f"source=baostock status={status!r} is_trading={is_trading}"
+        )
     if source == DERIVED_BAR_GAP_STATUS_SOURCE:
         if status != "suspended" or is_trading:
             raise AslAdapterError(
@@ -762,6 +776,8 @@ def _status_mapping(
         return True, True
     if status_row.trust == "BAOSTOCK_NORMAL":
         return True, False
+    if status_row.trust == "BAOSTOCK_NONTRADING":
+        return False, None
     if status_row.trust == "DERIVED_GAP_SUSPENDED":
         return False, None
     # EASTMONEY_SAME_DAY
@@ -793,10 +809,15 @@ def resolve_asl_asof_scope(
     Physical compaction filenames are never required: dataset discovery uses
     the adapter's deterministic ``rglob``/partition scan.
 
-    Scope rules (unchanged): allowed SH/SZ main-board prefix, instrument
-    exists, listed on *as_of*, not delisted, AS_OF bar exists with positive
-    volume.  ST is NOT applied here (positive exclusion / readiness stays a
-    later layer); historical bars are never filtered.
+    Scope rules (contract): allowed SH/SZ main-board prefix, instrument
+    exists, listed on *as_of*, not delisted.  A code with a positive AS_OF
+    bar is INCLUDED.  A code with no positive AS_OF bar is INCLUDED only when
+    trusted non-trading evidence exists for that AS_OF session
+    (``BAOSTOCK_NONTRADING`` / ``DERIVED_GAP_SUSPENDED`` / valid
+    ``EASTMONEY_SAME_DAY`` non-trading); otherwise it FAILS CLOSED — a listed,
+    not-delisted symbol is never silently dropped from the active scope.
+    ST is NOT applied here (positive exclusion / readiness stays a later
+    layer); historical bars are never filtered.
     """
 
     root = Path(asl_root).expanduser().resolve()
@@ -830,9 +851,30 @@ def resolve_asl_asof_scope(
         if delist_date is not None and as_of >= delist_date:
             continue
         volume = asof_volume.get(code)
-        if volume is None or volume <= 0:
+        if volume is not None and volume > 0:
+            out.append(code)
             continue
-        out.append(code)
+        status_rows = _read_status_rows(root, {code}, as_of, as_of)
+        status_row = status_rows.get((code, as_of))
+        trusted = (
+            status_row
+            if status_row is not None
+            and status_row.trust in TRUSTED_STATUS_KINDS
+            else None
+        )
+        if trusted is not None and (
+            trusted.trust in ("DERIVED_GAP_SUSPENDED", "BAOSTOCK_NONTRADING")
+            or (
+                trusted.trust == "EASTMONEY_SAME_DAY"
+                and (not trusted.is_trading or trusted.status == "suspended")
+            )
+        ):
+            out.append(code)
+            continue
+        raise AslAdapterError(
+            f"MISSING_REQUIRED_BAR:AS_OF_SCOPE:{code}:{as_of}:"
+            "no positive bar and no trusted non-trading evidence"
+        )
     return tuple(sorted(out))
 
 
@@ -907,7 +949,8 @@ def load_asl_daily_slice(
         trusted_baostock_n=sum(
             1
             for row in status_rows.values()
-            if row.trust in ("BAOSTOCK_ST", "BAOSTOCK_NORMAL")
+            if row.trust
+            in ("BAOSTOCK_ST", "BAOSTOCK_NORMAL", "BAOSTOCK_NONTRADING")
         ),
         trusted_derived_gap_n=sum(
             1 for row in status_rows.values() if row.trust == "DERIVED_GAP_SUSPENDED"
@@ -964,6 +1007,7 @@ def load_asl_daily_slice(
                 )
                 if trusted is not None and (
                     trusted.trust == "DERIVED_GAP_SUSPENDED"
+                    or trusted.trust == "BAOSTOCK_NONTRADING"
                     or (
                         trusted.trust == "EASTMONEY_SAME_DAY"
                         and (not trusted.is_trading or trusted.status == "suspended")

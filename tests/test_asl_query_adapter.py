@@ -165,6 +165,8 @@ def _build_lake(root: Path) -> None:
             {"symbol": "000010.SZ", "trade_date": date(2026, 6, 12), "is_trading": True, "status": "st", "source": "baostock", "data_version": "v1", "fetched_at": _FETCHED},
             {"symbol": "000010.SZ", "trade_date": date(2026, 6, 15), "is_trading": True, "status": "*st", "source": "baostock", "data_version": "v1", "fetched_at": _FETCHED},
             {"symbol": "000524.SZ", "trade_date": date(2026, 6, 12), "is_trading": False, "status": "suspended", "source": "derived_bar_gap", "data_version": "v1", "fetched_at": _FETCHED},
+            {"symbol": "600002.SH", "trade_date": date(2026, 6, 15), "is_trading": False, "status": "suspended", "source": "baostock", "data_version": "v1", "fetched_at": _FETCHED},
+            {"symbol": "600003.SH", "trade_date": date(2026, 6, 15), "is_trading": False, "status": "suspended", "source": "derived_bar_gap", "data_version": "v1", "fetched_at": _FETCHED},
         ],
     )
 
@@ -301,32 +303,42 @@ def test_pit_status_semantics_and_st_history_kept(tmp_path):
 # --- G/H: missing-session gap guard ---------------------------------------
 
 def test_unexplained_missing_session_raises(tmp_path):
-    """H: 600002 has no 6/15 bar and no trusted status -> MISSING_REQUIRED_BAR."""
-
-    lake = tmp_path / "lake"
-    _build_lake(lake)
-    with pytest.raises(AslAdapterError) as excinfo:
-        _query_rows(lake, ["600002"])
-    assert "MISSING_REQUIRED_BAR:600002:2026-06-15" in str(excinfo.value)
-
-
-def test_trusted_suspension_authorizes_missing_session(tmp_path):
-    """G: a derived_bar_gap suspension row authorizes the absent session."""
+    """H: a listed code with no 6/15 bar and no trusted status -> MISSING_REQUIRED_BAR."""
 
     lake = tmp_path / "lake"
     _build_lake(lake)
     import pyarrow as pa
     import pyarrow.parquet as pq
 
-    status_path = lake / "curated" / "trading_status" / "trade_date=2026-06" / "part-merged.parquet"
-    table = pq.ParquetFile(status_path).read()
-    rows = table.to_pylist()
-    rows.append(
-        {"symbol": "600002.SH", "trade_date": date(2026, 6, 15),
-         "is_trading": False, "status": "suspended", "source": "derived_bar_gap",
-         "data_version": "v1", "fetched_at": _FETCHED}
+    inst_path = lake / "curated" / "instruments" / "part-merged.parquet"
+    table = pq.read_table(inst_path)
+    extra = pa.Table.from_pylist(
+        [
+            {
+                "symbol": "600004.SH", "name": "600004.SH", "exchange": "SH",
+                "asset_type": "stock", "list_date": date(2000, 1, 1),
+                "delist_date": None, "prev_symbol": None, "source": "tdx_protocol",
+                "data_version": "v1", "fetched_at": _FETCHED,
+            }
+        ]
     )
-    pq.write_table(pa.Table.from_pylist(rows), status_path)
+    pq.write_table(
+        pa.concat_tables([table, extra], promote_options="default"),
+        inst_path,
+    )
+    with pytest.raises(AslAdapterError) as excinfo:
+        _query_rows(lake, ["600004"])
+    assert "MISSING_REQUIRED_BAR:600004:" in str(excinfo.value)
+
+
+def test_trusted_suspension_authorizes_missing_session(tmp_path):
+    """G: trusted non-trading evidence authorizes the absent session.
+
+    600002 (no 6/15 bar + BAOSTOCK_NONTRADING) is authorized; 600003
+    (zero-volume 6/15 bar + DERIVED_GAP_SUSPENDED) is authorized too."""
+
+    lake = tmp_path / "lake"
+    _build_lake(lake)
     slices = list(query_daily_facts(lake, as_of=AS_OF, start=START, codes=["600002"]))
     assert any(
         item.reason == "SUSPENDED_BY_STATUS"
@@ -337,6 +349,16 @@ def test_trusted_suspension_authorizes_missing_session(tmp_path):
     # 6/11 is the first row (no predecessor) -> MISSING_PRECLOSE; only 6/12
     # is VALID, and the 6/15 session is authorized as suspended.
     assert {r.trade_date for r in valid} == {date(2026, 6, 12)}
+
+    slices3 = list(query_daily_facts(lake, as_of=AS_OF, start=START, codes=["600003"]))
+    valid3 = [r for slice_ in slices3 for r in slice_.rows if r.row_status == "VALID_ROW"]
+    assert {r.trade_date for r in valid3} == {
+        date(2026, 6, 12),
+        date(2026, 6, 15),
+    }
+    row_615 = next(r for r in valid3 if r.trade_date == date(2026, 6, 15))
+    assert row_615.trade_status is False
+    assert row_615.is_st is None
 
 
 # --- baostock NORMAL negative evidence (PIT trust) --------------------------
@@ -495,12 +517,41 @@ def test_query_asof_scope(tmp_path):
     lake = tmp_path / "lake"
     _build_lake(lake)
     scope = set(query_asof_scope(lake, AS_OF))
-    assert scope == {"000001", "000010", "000524", "605198"}
+    assert scope == {"000001", "000010", "000524", "605198", "600002", "600003"}
     assert "300750" not in scope
     assert "600000" not in scope  # delisted before AS_OF
     assert "600001" not in scope  # listed after AS_OF
-    assert "600002" not in scope  # no AS_OF bar
-    assert "600003" not in scope  # zero-volume AS_OF bar
+    assert "600002" in scope  # no bar + BAOSTOCK_NONTRADING evidence (B)
+    assert "600003" in scope  # zero-volume bar + DERIVED evidence (B)
+
+
+def test_query_asof_scope_unexplained_missing_fails_closed(tmp_path):
+    """Case C: listed/not-delisted code with no AS_OF bar and no trusted
+    non-trading evidence FAILS CLOSED instead of being silently excluded."""
+
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    lake = tmp_path / "lake"
+    _build_lake(lake)
+    inst_path = lake / "curated" / "instruments" / "part-merged.parquet"
+    table = pq.read_table(inst_path)
+    extra = pa.Table.from_pylist(
+        [
+            {
+                "symbol": "600004.SH", "name": "600004.SH", "exchange": "SH",
+                "asset_type": "stock", "list_date": date(2000, 1, 1),
+                "delist_date": None, "prev_symbol": None, "source": "tdx_protocol",
+                "data_version": "v1", "fetched_at": _FETCHED,
+            }
+        ]
+    )
+    pq.write_table(
+        pa.concat_tables([table, extra], promote_options="default"),
+        inst_path,
+    )
+    with pytest.raises(AslAdapterError, match="MISSING_REQUIRED_BAR:AS_OF_SCOPE:600004"):
+        query_asof_scope(lake, AS_OF)
 
 
 # --- J: query facts == physical facts on the synthetic lake ---------------
