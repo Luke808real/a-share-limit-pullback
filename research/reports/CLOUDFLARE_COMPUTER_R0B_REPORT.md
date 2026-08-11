@@ -1,9 +1,9 @@
 # CLOUDFLARE_COMPUTER_R0B_REPORT
 
-STATUS: NETWORK_PREREQUISITE_BLOCKED (2026-08-11 resumed environment
-gate: the container runtime blocker is RESOLVED, but image builds are
-blocked by container-network 502s; see "RESUMED ATTEMPT 3". All prior
-attempt records are preserved as history.)
+STATUS: NETWORK_RECOVERED_R0B_RESUME_AUTHORIZED (2026-08-11: proxy
+mode change applied via Docker Desktop GUI; stock apt PASS, pinned
+upstream build PASS, computerd boot gate PASS — see "R0B.NET" recovery
+subsection. All prior attempt records are preserved as history.)
 
 The R0B hard gate (section 0 of the task) failed during pre-flight. No
 R0B implementation was attempted; the Cloudflare Computer Container
@@ -373,31 +373,62 @@ debian:stable-slim apt-get update`) before any further R0B gate.
 
 ### STOCK_DEBIAN_APT_RESULT
 
-Not re-run after a fix (no fix was applied). Matrix baseline passed
-once and failed on other runs — flaky 502s via the Docker Desktop
-proxy path.
+After the fix: PASS — `docker run --rm --platform linux/amd64
+debian:stable-slim apt-get update` fetched 10.1 MB in 5 min 28 s
+(~30.9 kB/s), no 502s, no errors (direct egress is slow but works).
 
 ### PINNED_BUILD_RESULT
 
-Not re-run (acceptance tests run only after a safe fix).
+After the fix: PASS — single `docker build --platform linux/amd64` of
+the pinned upstream `examples/container/Dockerfile` completed
+(`computerd-probe:0.1.1`, ~20 min at the slow direct-egress rate).
 
 ### CLOUDFLARE_BOOT_GATE
 
-Not reached.
+After the fix: PASS — `docker run` of the built image stayed
+`running=true` (exit=0) and logged:
+
+```text
+[info] FUSE_MOUNT=auto resolved to backend=shim
+computerd listening on 0.0.0.0:8080 mount=/workspace backend=shim
+```
+
+CLOUDFLARE_CONTAINER_BOOT_CAPABLE = TRUE.
+
+### CHANGE_APPLIED / REVERSIBILITY
+
+Applied by the user in the Docker Desktop GUI (2026-08-11), per the
+manual-action contract:
+
+```text
+Settings -> Resources -> Proxies
+Docker Desktop proxy : No proxy (was already selected; unchanged)
+Containers proxy     : Same as host proxy -> No proxy   (THE change)
+```
+
+This Docker Desktop 4.86 UI exposes only proxy-mode radios (no
+host-bypass field), so the agreed fallback was used. The change is
+fully reversible in the same GUI: restore `Containers proxy =
+Same as host proxy`. No config file was edited by this recovery:
+`~/.docker/config.json`, daemon.json, and Docker's private
+settings-store were untouched (settings-store hash still
+`064c950d...`). Whether to keep the temporary mode or restore is the
+user's decision.
 
 ### CORRECTNESS_BLOCKER
 
-`NETWORK_PREREQUISITE_BLOCKED`: plain-HTTP egress from containers
-through the Docker Desktop proxy path intermittently returns 502
-(Fastly port 80), blocking the pinned upstream container image build.
-Requires the manual Docker Desktop proxy change above; no local,
-non-invasive fix exists.
+None for the network prerequisite: stock apt PASS, pinned upstream
+build PASS, computerd boot PASS with `Containers proxy = No proxy`.
+Residual notes: direct container egress is slow (~30 kB/s); the proxy
+mode is temporary and restoring `Same as host proxy` would re-apply
+the 502 path; R0B implementation itself has not started.
 
 ### R0B_RECOMMENDATION
 
-NETWORK_PREREQUISITE_BLOCKED — R0B stays blocked until the user applies
-the Docker Desktop proxy change and the stock apt probe passes. No R0B
-implementation was started in this task.
+NETWORK_RECOVERED_R0B_RESUME_AUTHORIZED — the environment gate now
+passes end-to-end (engine healthy, amd64 execution, apt, pinned
+upstream build, computerd boot). R0B implementation may resume as the
+next task; it is NOT part of this task and was not started.
 
 ## R0A1_REGRESSION
 
