@@ -290,12 +290,12 @@ def accumulate_intraday_observation(
             "unique minute session trade_date must be 1"
         )
     minute_trade_date = next(iter(minute_dates))
-    minute_s1 = _decimal(
-        authority.minute_s1_price
-        if authority.minute_s1_price is not None
-        else authority.s1_price,
-        field="minute_s1_price",
-    )
+    if authority.minute_s1_price is None:
+        raise IntradayAccumulatorBlocked(
+            "STATUS=BLOCKED_PRICE_RECONCILIATION: "
+            "independent minute_s1_price authority is required"
+        )
+    minute_s1 = _decimal(authority.minute_s1_price, field="minute_s1_price")
     protocol.validate_exact_tick_reconciliation({
         "daily_symbol": _candidate_code(authority.symbol),
         "minute_symbol": _candidate_code(minute_symbol),

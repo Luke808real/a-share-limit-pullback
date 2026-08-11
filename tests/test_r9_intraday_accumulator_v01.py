@@ -73,7 +73,7 @@ def _bar_rows(
 def _authority(
     *,
     stage: str = "B1_READY",
-    minute_s1_price: str | None = None,
+    minute_s1_price: str | None = "10.50",
 ) -> accumulator.IntradaySetupAuthority:
     anchor = date(2026, 8, 5)
     candidate = date(2026, 8, 10)
@@ -676,3 +676,35 @@ def test_regression_e_already_recorded_emits_no_row():
     )
     assert second.status == "ALREADY_RECORDED"
     assert second.row is None
+
+
+# ---- Fail-closed: missing minute S1 authority ----
+
+
+def test_missing_minute_s1_authority_fails_closed():
+    auth = _authority(stage="B1_READY", minute_s1_price=None)
+    with pytest.raises(
+        protocol.ProtocolBlocked, match="BLOCKED_PRICE_RECONCILIATION"
+    ):
+        accumulator.accumulate_intraday_observation(
+            authority=auth,
+            minute_rows=_bar_rows(),
+            minute_manifest=_manifest(),
+            right_label_verified=True,
+            event_date=EVENT_DATE,
+            existing_events={},
+            existing_feature_hashes={},
+            calendar=CALENDAR,
+        )
+    # Explicit reconciled S1 still passes.
+    ok = accumulator.accumulate_intraday_observation(
+        authority=_authority(stage="B1_READY", minute_s1_price="10.50"),
+        minute_rows=_bar_rows(),
+        minute_manifest=_manifest(),
+        right_label_verified=True,
+        event_date=EVENT_DATE,
+        existing_events={},
+        existing_feature_hashes={},
+        calendar=CALENDAR,
+    )
+    assert ok.status == "APPEND"
