@@ -1,4 +1,7 @@
-import { validateManifest, type JobManifest } from "./manifest";
+import {
+  validateManifest,
+  type JobManifest,
+} from "./manifest";
 import type { RunResult } from "./result";
 import { WorkspaceAgent, type Env } from "./workspace-agent";
 
@@ -9,7 +12,7 @@ export { WorkspaceAgent };
  * the DO (host side), where the typed git/fs surfaces are available.
  */
 interface AgentRpc {
-  runJob(manifest: JobManifest): Promise<RunResult>;
+  runJob(manifest: JobManifest): Promise<RunResult | { kind: "MANIFEST_CONFLICT"; message: string }>;
   writeMarker(content: string): Promise<void>;
   readMarker(): Promise<string | null>;
   readFileBounded(
@@ -58,8 +61,19 @@ async function handleRun(request: Request, env: Env): Promise<Response> {
   }
 
   try {
-    const result = await agent(env, manifest.task_id).runJob(manifest);
-    return json(result, 200);
+    const outcome = await agent(env, manifest.task_id).runJob(manifest);
+    if ("kind" in outcome && outcome.kind === "MANIFEST_CONFLICT") {
+      // Explicit conflict: stored artifacts are preserved (no writes).
+      return json(
+        {
+          error: "MANIFEST_CONFLICT",
+          result_status: "FAIL_CLOSED",
+          message: outcome.message,
+        },
+        409,
+      );
+    }
+    return json(outcome, 200);
   } catch (err) {
     return json({ error: String(err), result_status: "FAIL_CLOSED" }, 500);
   }

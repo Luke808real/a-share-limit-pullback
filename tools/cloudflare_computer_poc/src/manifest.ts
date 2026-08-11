@@ -41,6 +41,26 @@ export class ManifestError extends Error {
   }
 }
 
+/** Raised when a task_id already owns a different manifest. */
+export class ManifestConflictError extends Error {
+  constructor(message: string) {
+    super(`manifest conflict: ${message}`);
+    this.name = "ManifestConflictError";
+  }
+}
+
+/**
+ * Serializable conflict outcome returned across the DO RPC boundary
+ * (custom Error classes do not survive Workers RPC intact).
+ */
+export interface ManifestConflict {
+  kind: "MANIFEST_CONFLICT";
+  message: string;
+}
+
+/** Fixed outputs every manifest must declare. */
+export const REQUIRED_OUTPUTS = ["result.json", "report.md", "job-manifest.json"] as const;
+
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
 }
@@ -104,6 +124,25 @@ export function validateManifest(raw: unknown): JobManifest {
   const input_files = requireStringArray(raw.input_files, "input_files");
   const output_files = requireStringArray(raw.output_files, "output_files");
 
+  // Consistency: every read:* command must reference a declared input_file.
+  for (const c of allowed as string[]) {
+    if (c.startsWith("read:")) {
+      const file = c.slice("read:".length);
+      if (!input_files.includes(file)) {
+        throw new ManifestError(
+          `read command "${c}" must reference a declared input_file (missing "${file}")`,
+        );
+      }
+    }
+  }
+
+  // Consistency: required fixed outputs must be declared.
+  for (const required of REQUIRED_OUTPUTS) {
+    if (!output_files.includes(required)) {
+      throw new ManifestError(`output_files must declare "${required}"`);
+    }
+  }
+
   return {
     task_id,
     repo_url,
@@ -115,4 +154,52 @@ export function validateManifest(raw: unknown): JobManifest {
     input_files,
     output_files,
   };
+}
+
+/**
+ * Canonical serialization for semantic manifest comparison.
+ *
+ * Keys are sorted recursively, so equality is independent of JSON key
+ * order. Values are compared exactly (including created_at), so a
+ * replay must be semantically identical.
+ */
+export function canonicalManifest(manifest: JobManifest): string {
+  return JSON.stringify(sortKeys(manifest));
+}
+
+function sortKeys(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(sortKeys);
+  if (isRecord(v)) {
+    const out: Record<string, unknown> = {};
+    for (const k of Object.keys(v).sort()) out[k] = sortKeys(v[k]);
+    return out;
+  }
+  return v;
+}
+
+/**
+ * Immutable-manifest replay gate.
+ *
+ * - no stored manifest: allowed (first write);
+ * - stored manifest, semantically identical to incoming: allowed
+ *   (idempotent replay);
+ * - stored manifest, semantically different: ManifestConflictError,
+ *   stored artifacts are preserved.
+ */
+export function checkReplay(existingRaw: string | null, incoming: JobManifest): void {
+  if (existingRaw === null) return;
+  let existing: unknown;
+  try {
+    existing = JSON.parse(existingRaw);
+  } catch {
+    throw new ManifestConflictError(
+      "stored job-manifest.json is not valid JSON; refusing to proceed",
+    );
+  }
+  const existingManifest = validateManifest(existing);
+  if (canonicalManifest(existingManifest) !== canonicalManifest(incoming)) {
+    throw new ManifestConflictError(
+      "task already owns a different manifest; stored manifest/result/report are preserved",
+    );
+  }
 }

@@ -64,6 +64,7 @@ export function buildResult(input: BuildResultInput): RunResult {
 }
 
 const REPORT_MAX_BYTES = 2 * 1024;
+const TRUNCATION_MARKER = "\n... [truncated]";
 
 export function buildWorkspaceReport(result: RunResult, manifest: JobManifest): string {
   const lines: string[] = [];
@@ -97,6 +98,26 @@ export function buildWorkspaceReport(result: RunResult, manifest: JobManifest): 
 }
 
 export function truncateUtf8(s: string, maxBytes: number): string {
-  if (s.length <= maxBytes) return s;
-  return `${s.slice(0, maxBytes)}\n... [truncated]`;
+  const encoder = new TextEncoder();
+  const bytes = encoder.encode(s);
+  if (bytes.byteLength <= maxBytes) return s;
+
+  // Reserve room for the marker so the ENCODED result (marker included)
+  // is <= maxBytes UTF-8 bytes.
+  const markerBytes = encoder.encode(TRUNCATION_MARKER).byteLength;
+  if (maxBytes < markerBytes) {
+    // The marker cannot fit; return a UTF-8-safe prefix without it.
+    let end = maxBytes;
+    while (end > 0 && (bytes[end] & 0xc0) === 0x80) end -= 1;
+    return new TextDecoder().decode(bytes.subarray(0, end));
+  }
+  const budget = Math.max(0, maxBytes - markerBytes);
+  let end = Math.min(budget, bytes.byteLength);
+
+  // Never split a code point: if the byte at `end` is a UTF-8
+  // continuation byte (10xxxxxx), back up to its sequence start.
+  while (end > 0 && (bytes[end] & 0xc0) === 0x80) end -= 1;
+
+  const prefix = new TextDecoder().decode(bytes.subarray(0, end));
+  return `${prefix}${TRUNCATION_MARKER}`;
 }

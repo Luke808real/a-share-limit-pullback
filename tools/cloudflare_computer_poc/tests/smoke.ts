@@ -111,6 +111,15 @@ function smokeManifest(taskId: string, repoCommit: string): Record<string, unkno
   };
 }
 
+/** Re-emit an object with its top-level keys in reverse insertion order. */
+function reorderKeys<T extends object>(obj: T): T {
+  const out: Record<string, unknown> = {};
+  for (const k of Object.keys(obj).reverse()) {
+    out[k] = (obj as Record<string, unknown>)[k];
+  }
+  return out as T;
+}
+
 async function main(): Promise<void> {
   const stateDir = await mkdtemp(join(tmpdir(), "cf-r0a-"));
   let wrangler: ChildProcess | null = null;
@@ -164,7 +173,74 @@ async function main(): Promise<void> {
     }
     ok("workspace artifacts", "result.json + report.md + job-manifest.json present in VFS");
 
-    // ---------- 4. exact-SHA mismatch -> FAIL_CLOSED ----------
+    // ---------- 4. immutable manifest: A->A replay, A->B conflict ----------
+    const conflictTask = `smoke-conflict-${Date.now()}`;
+    const manifestA = smokeManifest(conflictTask, REPO_COMMIT);
+    const runA = await post("/run", manifestA);
+    const runABody = (await runA.json()) as Record<string, unknown>;
+    if (runA.status !== 200 || runABody.result_status !== "SUCCESS") {
+      fail("conflict A run", JSON.stringify(runABody));
+    }
+    ok("manifest A first run", "SUCCESS");
+
+    // Replay A with reordered JSON keys: canonical comparison must
+    // treat it as the same semantic manifest.
+    const reordered = reorderKeys(manifestA);
+    const runA2 = await post("/run", reordered);
+    const runA2Body = (await runA2.json()) as Record<string, unknown>;
+    if (runA2.status !== 200 || runA2Body.result_status !== "SUCCESS") {
+      fail("manifest A replay (key order)", JSON.stringify(runA2Body));
+    }
+    ok("manifest A -> A replay", "idempotent SUCCESS despite key reorder");
+
+    const storedBefore = (await (
+      await post("/file", { task_id: conflictTask, path: "/job-manifest.json", max_bytes: 4096 }, 30_000)
+    ).json()) as { exists: boolean; bytes: number; head: string };
+    if (!storedBefore.exists) fail("conflict stored manifest read", "missing");
+    const resultBefore = (await (
+      await post("/file", { task_id: conflictTask, path: "/result.json", max_bytes: 8192 }, 30_000)
+    ).json()) as { exists: boolean; bytes: number; head: string };
+    if (!resultBefore.exists) fail("conflict stored result read", "missing");
+
+    // B differs semantically (purpose), same task_id.
+    const manifestB = { ...manifestA, purpose: "DIFFERENT manifest for conflict test" };
+    const runB = await post("/run", manifestB, 60_000);
+    const runBBody = (await runB.json()) as Record<string, unknown>;
+    if (
+      runB.status !== 409 ||
+      runBBody.error !== "MANIFEST_CONFLICT" ||
+      runBBody.result_status !== "FAIL_CLOSED"
+    ) {
+      fail("manifest A -> B conflict", JSON.stringify({ status: runB.status, body: runBBody }));
+    }
+    ok("manifest A -> B rejected", "409 MANIFEST_CONFLICT, FAIL_CLOSED");
+
+    const storedAfter = (await (
+      await post("/file", { task_id: conflictTask, path: "/job-manifest.json", max_bytes: 4096 }, 30_000)
+    ).json()) as { exists: boolean; bytes: number; head: string };
+    if (
+      !storedAfter.exists ||
+      storedAfter.bytes !== storedBefore.bytes ||
+      storedAfter.head !== storedBefore.head
+    ) {
+      fail("A -> B mutated stored manifest", JSON.stringify({ before: storedBefore, after: storedAfter }));
+    }
+    const resultAfter = (await (
+      await post("/file", { task_id: conflictTask, path: "/result.json", max_bytes: 8192 }, 30_000)
+    ).json()) as { exists: boolean; bytes: number; head: string };
+    if (
+      !resultAfter.exists ||
+      resultAfter.bytes !== resultBefore.bytes ||
+      resultAfter.head !== resultBefore.head
+    ) {
+      fail(
+        "A -> B mutated stored result",
+        JSON.stringify({ before: resultBefore, after: resultAfter }),
+      );
+    }
+    ok("A -> B does not mutate stored A", "job-manifest.json and result.json unchanged");
+
+    // ---------- 5. exact-SHA mismatch -> FAIL_CLOSED ----------
     const negTask = `smoke-neg-${Date.now()}`;
     const neg = await post("/run", smokeManifest(negTask, "0000000000000000000000000000000000000000"));
     const negBody = (await neg.json()) as Record<string, unknown>;
@@ -173,7 +249,7 @@ async function main(): Promise<void> {
     }
     ok("exact-SHA mismatch negative", "result_status=FAIL_CLOSED, commit_match=false");
 
-    // ---------- 5. missing commit SHA rejected ----------
+    // ---------- 6. missing commit SHA rejected ----------
     const missing = smokeManifest(`smoke-missing-${Date.now()}`, REPO_COMMIT);
     delete missing.repo_commit;
     const miss = await post("/run", missing, 30_000);

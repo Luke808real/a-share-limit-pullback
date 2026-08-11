@@ -127,11 +127,30 @@ Rules:
   output cap.
 - `network_policy.egress` must be `"none"`; `direct` or `http-gateway`
   are refused.
+- Consistency: every `read:*` command must reference a declared
+  `input_file`, and `output_files` must declare the fixed outputs
+  `result.json`, `report.md`, `job-manifest.json`. Contradictory
+  manifests are rejected before materialization.
+
+### Immutable manifest (first write wins)
+
+- The first manifest for a `task_id` is persisted as
+  `job-manifest.json` and is never overwritten afterwards.
+- Replaying the same semantic manifest for the same `task_id` is
+  idempotent: the job re-runs and `result.json`/`report.md` are
+  refreshed.
+- A semantically different manifest for the same `task_id` fails
+  closed: HTTP `409` with `error: "MANIFEST_CONFLICT"` and
+  `result_status: "FAIL_CLOSED"`, before any write, materialization, or
+  inspection. Stored manifest/result/report are preserved.
+- Semantic comparison uses a canonical form (recursively sorted JSON
+  keys), so equality does not depend on JSON key order. Field values
+  are compared exactly, including `created_at` and `purpose`.
 
 ## HTTP surface (local dev)
 
 ```text
-POST /run     { manifest }            -> run result.json (200) or 400/500
+POST /run     { manifest }            -> run result.json (200); 400 invalid; 409 MANIFEST_CONFLICT; 500 infra
 POST /marker  { task_id, op: write|read, content? }   -> persistence probe
 POST /file    { task_id, path, max_bytes? }           -> bounded file probe
 ```
@@ -156,8 +175,26 @@ The smoke test proves:
 4. exact-SHA mismatch: a nonexistent SHA yields `commit_match=false`
    and `result_status=FAIL_CLOSED`, with inspection skipped;
 5. missing commit SHA: rejected with HTTP 400 before execution.
+6. immutable manifest: first run A succeeds; replay A (JSON keys
+   reordered) is idempotent SUCCESS; a different manifest B for the
+   same `task_id` is rejected with 409 `MANIFEST_CONFLICT`, and the
+   stored `job-manifest.json` / `result.json` are unchanged after the
+   conflict attempt.
 
 The repository's own test suite and market data are never run.
+
+## Determinism semantics
+
+- `DETERMINISTIC_DECISION_SEMANTICS = true` — `result_status`,
+  `commit_match`, `commands_run`, and `exit_codes` are pure functions
+  of the manifest plus the verified repository state (HEAD equality is
+  checked, and any nonzero bounded-command exit or skipped inspection
+  fails closed).
+- `BYTE_IDENTICAL_RUN_ARTIFACT = false` — run artifacts are NOT
+  byte-identical across runs: `created_at`, the recorded
+  `materialization` path (preferred vs fallback vs reuse), and report
+  text can legitimately vary. No byte-identical report is claimed
+  anywhere.
 
 ## Known type bridges
 
@@ -175,8 +212,20 @@ Both are marked in code. No runtime behavior is changed.
   there is no ambient network surface at all. The only outbound
   network is the host-side git capability (isomorphic-git inside the
   DO), which is the documented exception the R0A contract permits.
+- `/run`, `/file`, and `/marker` are trusted-local PoC surfaces: no
+  authentication, authorization, or rate limiting exists, and none is
+  added here. This PoC is local-development-only.
+- Arbitrary deployment is NOT authorized. There is no deploy
+  configuration, no Cloudflare account usage, and no production
+  surface. A future production deployment would require a new,
+  separately reviewed design with real authentication and egress
+  governance.
 - No secrets, tokens, or credentials; the fixture uses a public repo.
 - Bounded outputs: 8 KiB per command detail, 2 KiB per report block.
+- Byte caps are true UTF-8 byte budgets: `truncateUtf8` and
+  `readFileBounded` truncate on code-point boundaries and never split
+  a UTF-8 sequence; the encoded (marker-included) result is always
+  `<= maxBytes` bytes.
 - Local development only. Nothing here deploys to Cloudflare.
 
 ## Limits (from upstream, preview package)

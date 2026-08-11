@@ -5,8 +5,18 @@ import {
 import { createGitClient } from "@cloudflare/computer/git";
 import { DurableObject } from "cloudflare:workers";
 import { runBoundedCommands, type CommandDetail } from "./commands";
-import type { JobManifest } from "./manifest";
-import { buildResult, buildWorkspaceReport, type RunResult } from "./result";
+import {
+  checkReplay,
+  ManifestConflictError,
+  type JobManifest,
+  type ManifestConflict,
+} from "./manifest";
+import {
+  buildResult,
+  buildWorkspaceReport,
+  truncateUtf8,
+  type RunResult,
+} from "./result";
 
 export interface Env {
   WORKSPACE_AGENT: DurableObjectNamespace;
@@ -49,11 +59,24 @@ export class WorkspaceAgent extends DurableObject<Env> {
     });
   }
 
-  async runJob(manifest: JobManifest): Promise<RunResult> {
+  async runJob(manifest: JobManifest): Promise<RunResult | ManifestConflict> {
     const ws = this.#workspace;
 
-    // The immutable manifest is persisted into the workspace first.
-    await ws.fs.writeFile(MANIFEST_PATH, JSON.stringify(manifest, null, 2));
+    // Immutable manifest: first write wins, semantic replay is
+    // idempotent, and a different manifest for the same task_id fails
+    // closed BEFORE any write, materialization, or inspection.
+    const existing = await this.readFileOrNull(MANIFEST_PATH);
+    try {
+      checkReplay(existing, manifest);
+    } catch (err) {
+      if (err instanceof ManifestConflictError) {
+        return { kind: "MANIFEST_CONFLICT", message: err.message };
+      }
+      throw err;
+    }
+    if (existing === null) {
+      await ws.fs.writeFile(MANIFEST_PATH, JSON.stringify(manifest, null, 2));
+    }
 
     const { actualCommit, materialization } = await this.materializeAtCommit(manifest);
     const commitMatch = actualCommit === manifest.repo_commit;
@@ -88,11 +111,7 @@ export class WorkspaceAgent extends DurableObject<Env> {
   }
 
   async readMarker(): Promise<string | null> {
-    try {
-      return await this.#workspace.fs.readFile(MARKER_PATH, "utf8");
-    } catch {
-      return null;
-    }
+    return this.readFileOrNull(MARKER_PATH);
   }
 
   async readFileBounded(
@@ -101,9 +120,19 @@ export class WorkspaceAgent extends DurableObject<Env> {
   ): Promise<{ exists: boolean; bytes: number; head: string }> {
     try {
       const content = await this.#workspace.fs.readFile(path, "utf8");
-      return { exists: true, bytes: content.length, head: content.slice(0, maxBytes) };
+      const bytes = new TextEncoder().encode(content).byteLength;
+      // maxBytes is a UTF-8 byte budget, not a code-unit count.
+      return { exists: true, bytes, head: truncateUtf8(content, maxBytes) };
     } catch {
       return { exists: false, bytes: 0, head: "" };
+    }
+  }
+
+  private async readFileOrNull(path: string): Promise<string | null> {
+    try {
+      return await this.#workspace.fs.readFile(path, "utf8");
+    } catch {
+      return null;
     }
   }
 
