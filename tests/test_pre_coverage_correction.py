@@ -42,6 +42,16 @@ def _staged_row(code, day, *, close, status="CONFIRMED"):
     }
 
 
+def _staged_row_with_status(code, day, *, close, trade_status):
+    return {
+        "code": code,
+        "trade_date": day,
+        "close": close,
+        "reconciliation_status": "CONFIRMED",
+        "trade_status": trade_status,
+    }
+
+
 def test_provisional_static_price_is_not_confirmed_traded_bar():
     day = date(2026, 8, 5)
     audit = classify_daily_coverage(
@@ -173,6 +183,79 @@ def test_confirmed_bar_after_last_processed_fails_verification():
     assert status == STATE_MISSING_CONFIRMED_BAR_PROCESSING
     assert through == date(2026, 7, 31)
     assert any("CONFIRMED_BAR_UNPROCESSED" in reason for reason in reasons)
+
+
+def test_nontrading_confirmed_fact_is_not_traded_bar():
+    """trade_status=false + verified evidence -> VERIFIED_NO_TRADE, never traded."""
+    day = date(2026, 8, 11)
+    audit = classify_daily_coverage(
+        contract_version="PHASE2D0_UNIVERSE_V1",
+        as_of=day,
+        universe_members=["600984"],
+        staged_rows=[
+            _staged_row_with_status(
+                "600984", day, close="4.49", trade_status=False
+            )
+        ],
+        verified_no_trade=[("600984", day)],
+    )
+    assert audit.traded_n == 0
+    assert audit.verified_no_trade_n == 1
+    assert audit.unexplained_n == 0
+
+
+def test_nontrading_without_evidence_fails_closed():
+    """trade_status=false without verified evidence -> DATA_MISSING_UNEXPLAINED."""
+    day = date(2026, 8, 11)
+    audit = classify_daily_coverage(
+        contract_version="PHASE2D0_UNIVERSE_V1",
+        as_of=day,
+        universe_members=["600984"],
+        staged_rows=[
+            _staged_row_with_status(
+                "600984", day, close="4.49", trade_status=False
+            )
+        ],
+        verified_no_trade=[],
+    )
+    assert audit.traded_n == 0
+    assert audit.verified_no_trade_n == 0
+    assert audit.unexplained_n == 1
+    assert audit.ready is False
+
+
+def test_normal_trading_bar_still_classified_traded():
+    """trade_status=true + CONFIRMED -> CONFIRMED_TRADED_BAR (old behavior)."""
+    day = date(2026, 8, 11)
+    audit = classify_daily_coverage(
+        contract_version="PHASE2D0_UNIVERSE_V1",
+        as_of=day,
+        universe_members=["600000"],
+        staged_rows=[
+            _staged_row_with_status(
+                "600000", day, close="10.0", trade_status=True
+            )
+        ],
+        verified_no_trade=[],
+    )
+    assert audit.traded_n == 1
+    assert audit.verified_no_trade_n == 0
+    assert audit.unexplained_n == 0
+
+
+def test_legacy_row_without_trade_status_keeps_old_contract():
+    """Rows without trade_status (legacy schema) keep prior default behavior."""
+    day = date(2026, 8, 11)
+    audit = classify_daily_coverage(
+        contract_version="PHASE2D0_UNIVERSE_V1",
+        as_of=day,
+        universe_members=["600000"],
+        staged_rows=[
+            _staged_row("600000", day, close="10.0")
+        ],
+        verified_no_trade=[],
+    )
+    assert audit.traded_n == 1
 
 
 def test_unexplained_missing_fails_coverage():

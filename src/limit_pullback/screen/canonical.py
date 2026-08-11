@@ -435,7 +435,8 @@ def _canonical_daily_row_stream(
     )
     sql = (
         f"SELECT {', '.join(columns)} FROM read_parquet(?) "
-        "WHERE reconciliation_status = 'CONFIRMED'"
+        "WHERE reconciliation_status = 'CONFIRMED' "
+        "AND (trade_status IS NULL OR trade_status = true)"
     )
     params: list[Any] = [str(layout.root / daily_rel)]
     if codes is not None:

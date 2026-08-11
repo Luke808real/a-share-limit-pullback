@@ -66,15 +66,31 @@ def classify_daily_coverage(
         if row.get("trade_date") == as_of
         and row.get("close") is not None
         and str(row.get("reconciliation_status")) == "CONFIRMED"
+        and row.get("trade_status") is not False
+    }
+    nontrading_keys = {
+        (str(row["code"]), row["trade_date"])
+        for row in staged_rows
+        if row.get("trade_date") == as_of
+        and str(row.get("reconciliation_status")) == "CONFIRMED"
+        and row.get("trade_status") is False
     }
     verified = set(verified_no_trade)
     traded: list[tuple[str, date]] = []
     no_trade: list[tuple[str, date]] = []
+    unexplained_nontrading: list[tuple[str, date]] = []
     unexplained: list[tuple[str, date]] = []
     for code in sorted(set(universe_members)):
         key = (code, as_of)
         if key in row_keys:
             traded.append(key)
+        elif key in nontrading_keys:
+            if key in verified:
+                no_trade.append(key)
+            else:
+                # A trusted non-trading fact without verified evidence is
+                # unexplained data, never an inferred suspension.
+                unexplained_nontrading.append(key)
         elif key in verified:
             no_trade.append(key)
         else:
@@ -85,7 +101,9 @@ def classify_daily_coverage(
         universe_members=tuple(sorted(set(universe_members))),
         traded=tuple(sorted(traded)),
         verified_no_trade=tuple(sorted(no_trade)),
-        unexplained_missing=tuple(sorted(unexplained)),
+        unexplained_missing=tuple(
+            sorted(unexplained + unexplained_nontrading)
+        ),
     )
 
 

@@ -534,7 +534,12 @@ def build_state_generation(
         pf = pq.ParquetFile(layout.root / daily_rel)
         session_set = set(session_calendar)
         for batch in pf.iter_batches(
-            columns=["code", "trade_date", "reconciliation_status"],
+            columns=[
+                "code",
+                "trade_date",
+                "reconciliation_status",
+                "trade_status",
+            ],
             batch_size=65536,
             use_threads=False,
         ):
@@ -549,12 +554,24 @@ def build_state_generation(
                     pa.scalar("CONFIRMED"),
                 ),
             )
+            # A trusted non-trading fact (trade_status=false) is not a
+            # strategy-usable confirmed bar; only positive-trade status
+            # rows count as confirmed traded sessions here.
+            mask = pc.and_(
+                mask,
+                pc.not_equal(batch["trade_status"], pa.scalar(False)),
+            )
             for row in batch.filter(mask).to_pylist():
                 confirmed_sessions.add((str(row["code"]), row["trade_date"]))
         # Lightweight index of the latest CONFIRMED bar per code through as_of.
         pf = pq.ParquetFile(layout.root / daily_rel)
         for batch in pf.iter_batches(
-            columns=["code", "trade_date", "reconciliation_status"],
+            columns=[
+                "code",
+                "trade_date",
+                "reconciliation_status",
+                "trade_status",
+            ],
             batch_size=65536,
             use_threads=False,
         ):
@@ -568,6 +585,10 @@ def build_state_generation(
                     batch["trade_date"],
                     pa.scalar(as_of),
                 ),
+            )
+            mask = pc.and_(
+                mask,
+                pc.not_equal(batch["trade_status"], pa.scalar(False)),
             )
             for row in batch.filter(mask).to_pylist():
                 code = str(row["code"])
