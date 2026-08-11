@@ -254,6 +254,151 @@ source, tests, or configuration were modified, no Dockerfile was
 written, and no workaround for the network failure was implemented.
 The only change in this commit is this report.
 
+## R0B.NET — NETWORK PREREQUISITE RECOVERY
+
+STATUS: NETWORK_PREREQUISITE_BLOCKED
+
+BASE_HEAD: `d1e6ae282db1b84ed344dfea6f4de1c1a15f61ed`
+
+Diagnosis-only task. No R0B implementation, no strategy/production
+changes, no upstream Dockerfile or apt-mirror changes, no sudo, no
+system proxy changes, no new software, no credentials printed.
+
+### PROXY_PROVENANCE
+
+```text
+HOST_PROXY            HTTP_PROXY=http://127.0.0.1:7897
+                      HTTPS_PROXY=http://127.0.0.1:7897
+                      ALL_PROXY=socks5h://127.0.0.1:7897
+                      NO_PROXY=localhost,127.0.0.1,::1
+                      (no credentials present)
+DOCKER_CLIENT_PROXY   ~/.docker/config.json: no "proxies" key -> CLI injects nothing
+CONTAINER_PROXY_ENV   stock debian:stable-slim: NO proxy env vars
+DOCKER_DESKTOP_PROXY  docker info: HTTP Proxy http.docker.internal:3128
+                      HTTPS Proxy http.docker.internal:3128
+                      No Proxy hubproxy.docker.internal, hubproxy.docker.internal:5555
+HTTP_PROXY_SOURCE     host shell environment
+HTTPS_PROXY_SOURCE    host shell environment
+NO_PROXY              localhost,127.0.0.1,::1 (host); hubproxy.docker.internal:5555 (Docker Desktop)
+```
+
+Conclusion: the proxy seen by containers is injected by Docker Desktop
+at the VM level (`http.docker.internal:3128`, configured with an
+upstream proxy auto-detected from the macOS system proxy
+127.0.0.1:7897). Docker Desktop's settings file
+(`~/Library/Group Containers/group.com.docker/settings-store.json`)
+contains no proxy keys; the active proxy configuration lives inside
+Docker Desktop's internal settings and was not modified.
+
+### NETWORK_MATRIX
+
+All probes in ephemeral stock containers, `--platform linux/amd64`,
+outputs bounded, no config changes:
+
+```text
+A baseline apt-get update
+   result: PASS this run (Fetched 10.1 MB in 1min 14s, ~137 kB/s);
+           previously FAILED 3/3 build attempts with 502 (flaky)
+B proxy-disabled env (-e http_proxy= -e https_proxy= -e HTTP_PROXY=
+  -e HTTPS_PROXY= -e ALL_PROXY= -e all_proxy=)
+   result: FAIL - E: Failed to fetch
+           http://deb.debian.org/debian/dists/stable-updates/InRelease
+           502 Bad Gateway [IP: 151.101.78.132 80]
+   -> clearing env changes nothing: not env injection
+C NO_PROXY env (deb.debian.org,security.debian.org,debian.org)
+   result: FAIL - E: Failed to fetch
+           http://deb.debian.org/debian-security/.../Packages
+           502 Bad Gateway [IP: 151.101.78.132 80]
+   -> env NO_PROXY does not bypass: proxy is below the container env
+D HTTPS-path diagnostic (alpine wget)
+   https://deb.debian.org/debian/dists/stable/Release -> 200 OK, saved 135 kB
+   http://deb.debian.org/debian/dists/stable/Release  -> HTTP/1.1 502 Bad Gateway
+   -> same hostname, same Docker Desktop proxy path:
+      HTTPS works, plain HTTP 502s
+Host contrast (same local proxy 127.0.0.1:7897)
+   https://deb.debian.org -> 200 ; http://deb.debian.org -> 200
+   -> the local proxy alone is not the failure
+```
+
+Failing Fastly IPs observed: 146.75.46.132 and 151.101.78.132 (both
+port 80). No operation was retried more than twice; no large logs were
+retained.
+
+### ROOT_CAUSE
+
+`B = DOCKER_DESKTOP_PROXY_PATH`
+
+Evidence:
+
+1. `docker info` shows Docker Desktop's own proxy
+   (`http.docker.internal:3128`) — the injection layer is Docker
+   Desktop, not the CLI and not the host env.
+2. Containers carry no proxy env; clearing env (B) and setting NO_PROXY
+   (C) have no effect.
+3. HTTPS through the same Docker Desktop proxy path succeeds while
+   plain HTTP 502s (D) — the failure is inside the Docker Desktop
+   proxy path's handling of plain-HTTP upstream fetches (intermittent;
+   one baseline run passed slowly).
+4. The host through 127.0.0.1:7897 succeeds for both schemes, so the
+   local proxy alone is not the root cause.
+
+### CHANGE_APPLIED
+
+None. The injection layer is Docker Desktop's own proxy configuration,
+which this task must not edit directly (its private settings/VM
+storage). `~/.docker/config.json` was not modified (it has no proxy
+keys), and no workaround (mirror change, upstream Dockerfile change,
+host-network bypass) was applied.
+
+### REVERSIBILITY
+
+Not applicable — no change was applied. The only candidate fix would
+be a reversible, GUI-level Docker Desktop proxy setting (see below).
+
+### MANUAL_DOCKER_DESKTOP_PROXY_CHANGE_REQUIRED
+
+Docker Desktop -> Settings -> Resources -> Proxies. Minimal change
+(either):
+
+```text
+1. Unset/disable the "Web Server (HTTP) proxy" and "Secure Web Server
+   (HTTPS) proxy" entries (containers then egress direct), or
+2. Add to the proxy bypass ("Bypass proxy settings for these hosts"):
+   deb.debian.org, security.debian.org, debian.org
+```
+
+After the user applies either change, re-run the stock-container
+acceptance probe (`docker run --rm --platform linux/amd64
+debian:stable-slim apt-get update`) before any further R0B gate.
+
+### STOCK_DEBIAN_APT_RESULT
+
+Not re-run after a fix (no fix was applied). Matrix baseline passed
+once and failed on other runs — flaky 502s via the Docker Desktop
+proxy path.
+
+### PINNED_BUILD_RESULT
+
+Not re-run (acceptance tests run only after a safe fix).
+
+### CLOUDFLARE_BOOT_GATE
+
+Not reached.
+
+### CORRECTNESS_BLOCKER
+
+`NETWORK_PREREQUISITE_BLOCKED`: plain-HTTP egress from containers
+through the Docker Desktop proxy path intermittently returns 502
+(Fastly port 80), blocking the pinned upstream container image build.
+Requires the manual Docker Desktop proxy change above; no local,
+non-invasive fix exists.
+
+### R0B_RECOMMENDATION
+
+NETWORK_PREREQUISITE_BLOCKED — R0B stays blocked until the user applies
+the Docker Desktop proxy change and the stock apt probe passes. No R0B
+implementation was started in this task.
+
 ## R0A1_REGRESSION
 
 Not applicable to code: no PoC code changed, so R0A1 contracts
@@ -290,8 +435,13 @@ to be reused for `repo_commit = dbf411e3f1fabd09aa9def2c2578c57e42fae21e`.
 
 ## CONTAINER_BACKEND_PROOF
 
-false — the Cloudflare Computer Container backend was NOT exercised:
-the required Docker runtime is absent (see CONTAINER_PREREQUISITE).
+false — the Cloudflare Computer Container backend was NOT exercised.
+[Fact update 2026-08-11: the Docker runtime blocker is RESOLVED —
+Docker Desktop 4.86.0 / engine 29.7.2 is installed and healthy on this
+machine; the current blocker is network (see "RESUMED ATTEMPT 3" and
+"R0B.NET" sections). The backend still has not run because the pinned
+upstream container image cannot be built while container-network apt
+fetches return 502.]
 
 ## PYTEST_TARGET
 
@@ -329,13 +479,14 @@ stdout/stderr bytes: n/a
 
 ## CORRECTNESS_BLOCKER
 
-`BLOCKED_CONTAINER_PREREQUISITE`: Docker (or an equivalent local
-container runtime such as podman/colima/orbstack) is required to build
-and run the Cloudflare Computer `computerd` container image under
-`wrangler dev` (upstream `examples/container` README/Dockerfile), and
-no container runtime is installed on this machine. R0B must not be
-faked via child_process, Docker exec outside Cloudflare Computer, or
-the Worker-shell backend.
+`NETWORK_PREREQUISITE_BLOCKED`: Docker is installed and healthy
+(engine 29.7.2, hello-world PASS, linux/amd64 execution PASS), but
+plain-HTTP apt fetches from inside Docker containers to
+deb.debian.org (Fastly 146.75.46.132:80) return `502 Bad Gateway`
+through the local proxy, blocking the pinned upstream container image
+build (see "RESUMED ATTEMPT 3"). R0B must not be faked via
+child_process, Docker exec outside Cloudflare Computer, or the
+Worker-shell backend.
 
 ## R0C_RECOMMENDATION
 
