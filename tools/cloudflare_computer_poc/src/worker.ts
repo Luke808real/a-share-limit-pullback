@@ -2,6 +2,7 @@ import {
   validateManifest,
   type JobManifest,
 } from "./manifest";
+import type { ExecutionResult } from "./execution";
 import type { RunResult } from "./result";
 import { WorkspaceAgent, type Env } from "./workspace-agent";
 
@@ -12,7 +13,11 @@ export { WorkspaceAgent };
  * the DO (host side), where the typed git/fs surfaces are available.
  */
 interface AgentRpc {
-  runJob(manifest: JobManifest): Promise<RunResult | { kind: "MANIFEST_CONFLICT"; message: string }>;
+  runJob(
+    manifest: JobManifest,
+  ): Promise<
+    (RunResult & { execution?: ExecutionResult }) | { kind: "MANIFEST_CONFLICT"; message: string }
+  >;
   writeMarker(content: string): Promise<void>;
   readMarker(): Promise<string | null>;
   readFileBounded(

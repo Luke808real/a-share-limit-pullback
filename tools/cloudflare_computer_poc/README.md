@@ -244,3 +244,24 @@ Both are marked in code. No runtime behavior is changed.
   retry (one extra attempt) applies only when a materialization attempt
   ends in that observed transient `internal error`; the smoke /run
   ceiling is 420 s to absorb slow GitHub clones over the local proxy.
+
+## R0B container execution (V01)
+
+- One frozen profile: `PYTEST_CONFIG_V01` ->
+  `python -m pytest -q tests/test_config.py`, executed through the
+  Cloudflare Computer Container backend (`container-shell`) inside a
+  computerd-backed container. The manifest only names the profile id;
+  arbitrary shell strings are rejected.
+- The container image (`container/Dockerfile`, pinned
+  `--platform=linux/amd64 python:3.12-slim` + computerd 0.1.1) bakes
+  the minimal dependency set of `tests/test_config.py` (pytest,
+  pydantic, PyYAML, pyarrow) at build time; runtime egress stays
+  `none`. Execution env sets `PYTHONDONTWRITEBYTECODE=1` and
+  `PYTEST_ADDOPTS=-p no:cacheprovider` so the repository working tree
+  stays clean.
+- Artifacts: `/execution-result.json`, `/execution-stdout.txt`,
+  `/execution-stderr.txt` (64 KiB true-UTF-8 caps), plus the unchanged
+  R0A1 artifacts. SHA-256 hashes are verified against the persisted
+  bytes (DO read-back + external /file read-back).
+- Run: `npm run smoke:r0b` (requires Docker + the container image
+  build; docker.io registry egress must be working).

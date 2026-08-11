@@ -8,6 +8,19 @@
   "durable_objects": {
     "bindings": [{ "name": "WORKSPACE_AGENT", "class_name": "WorkspaceAgent" }]
   },
+  // R0B: the WorkspaceAgent DO also owns a Cloudflare Computer
+  // Container (computerd) built from the local Dockerfile. Local
+  // `wrangler dev` builds/runs it through Docker.
+  "containers": [
+    {
+      "class_name": "WorkspaceAgent",
+      "image": "./container/Dockerfile",
+      "instance_type": "standard-2",
+      "max_instances": 1,
+      "rollout_active_grace_period": 0,
+      "rollout_step_percentage": [100]
+    }
+  ],
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["WorkspaceAgent"] }
   ]

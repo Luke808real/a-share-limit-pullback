@@ -148,3 +148,47 @@ describe("checkReplay (immutable manifest)", () => {
     expect(() => checkReplay("{not json", manifestA())).toThrow(ManifestConflictError);
   });
 });
+
+describe("R0B execution profile validation", () => {
+  const PROFILE_COMMIT = "dbf411e3f1fabd09aa9def2c2578c57e42fae21e";
+
+  function r0bManifest(): Record<string, unknown> {
+    const raw = validManifest();
+    return {
+      ...raw,
+      repo_commit: PROFILE_COMMIT,
+      execution_profile: "PYTEST_CONFIG_V01",
+      output_files: [
+        "result.json",
+        "report.md",
+        "job-manifest.json",
+        "execution-result.json",
+        "execution-stdout.txt",
+        "execution-stderr.txt",
+      ],
+    };
+  }
+
+  it("accepts a valid R0B manifest with the frozen profile", () => {
+    const m = validateManifest(r0bManifest());
+    expect(m.execution_profile).toBe("PYTEST_CONFIG_V01");
+  });
+
+  it("rejects an unknown profile with EXECUTION_PROFILE_NOT_ALLOWED", () => {
+    const raw = r0bManifest();
+    raw.execution_profile = "NOPE_PROFILE";
+    expect(() => validateManifest(raw)).toThrow(/EXECUTION_PROFILE_NOT_ALLOWED/);
+  });
+
+  it("rejects a repo_commit that differs from the frozen profile commit", () => {
+    const raw = r0bManifest();
+    raw.repo_commit = "112bc94218be6dc530e4803cabec288eede6175d";
+    expect(() => validateManifest(raw)).toThrow(/frozen PYTEST_CONFIG_V01 profile commit/);
+  });
+
+  it("rejects missing execution outputs when a profile is present", () => {
+    const raw = r0bManifest();
+    raw.output_files = ["result.json", "report.md", "job-manifest.json"];
+    expect(() => validateManifest(raw)).toThrow(/execution-result\.json/);
+  });
+});

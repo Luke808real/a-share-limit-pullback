@@ -2,15 +2,24 @@ import {
   Workspace,
   type DurableObjectStorageLike,
 } from "@cloudflare/computer";
+import {
+  CloudflareContainerBackend,
+  withWorkspaceContainer,
+} from "@cloudflare/computer/backends/container";
 import { createGitClient } from "@cloudflare/computer/git";
 import { DurableObject } from "cloudflare:workers";
 import { runBoundedCommands, type CommandDetail } from "./commands";
 import {
-  checkReplay,
-  ManifestConflictError,
-  type JobManifest,
-  type ManifestConflict,
-} from "./manifest";
+  boundArtifacts,
+  buildExecutionResult,
+  executionResultFileRaw,
+  fillArtifactHashes,
+  sha256Utf8,
+  verifyArtifactHash,
+  type ExecutionResult,
+} from "./execution";
+import { checkReplay, ManifestConflictError, type JobManifest, type ManifestConflict } from "./manifest";
+import { resolveProfile } from "./profiles";
 import {
   buildResult,
   buildWorkspaceReport,
@@ -27,6 +36,20 @@ const MANIFEST_PATH = "/job-manifest.json";
 const RESULT_PATH = "/result.json";
 const REPORT_PATH = "/report.md";
 const MARKER_PATH = "/persistence-marker.txt";
+const EXECUTION_RESULT_PATH = "/execution-result.json";
+const EXECUTION_STDOUT_PATH = "/execution-stdout.txt";
+const EXECUTION_STDERR_PATH = "/execution-stderr.txt";
+
+/** Frozen dependency-install step baked into the container image (build time). */
+const DEPENDENCY_INSTALL_COMMAND =
+  'pip install --no-cache-dir "pytest>=8.3,<9" "pydantic>=2.10,<3" "PyYAML>=6.0,<7" "pyarrow>=17,<21"';
+
+/** The container only starts if the image build (incl. pip install) succeeded. */
+const DEPENDENCY_INSTALL_EXIT_CODE = 0;
+
+class WorkspaceAgentContainerBase extends withWorkspaceContainer(
+  class extends DurableObject<Env> {},
+) {}
 
 /**
  * One Durable Object instance per task_id (idFromName(task_id)). The
@@ -44,8 +67,16 @@ const MARKER_PATH = "/persistence-marker.txt";
  * `GitClient`, while the RPC stub surface only forwards `git cli(...)`
  * argv.
  */
-export class WorkspaceAgent extends DurableObject<Env> {
+export class WorkspaceAgent extends WorkspaceAgentContainerBase {
   #workspace: Workspace;
+
+  readonly backend = new CloudflareContainerBackend({
+    container: () => this,
+    workspace: { binding: "WORKSPACE_AGENT", id: this.ctx.id.toString() },
+    // No outbound egress for the container: dependencies are baked at
+    // image build time and pytest runs with sockets blocked (repo
+    // conftest). Matches network_policy.egress = "none".
+  });
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -56,10 +87,13 @@ export class WorkspaceAgent extends DurableObject<Env> {
       // DurableObjectStorage, so this is a declaration-only bridge.
       storage: ctx.storage as unknown as DurableObjectStorageLike,
       git: createGitClient(),
+      backends: [this.backend],
     });
   }
 
-  async runJob(manifest: JobManifest): Promise<RunResult | ManifestConflict> {
+  async runJob(
+    manifest: JobManifest,
+  ): Promise<(RunResult & { execution?: ExecutionResult }) | ManifestConflict> {
     const ws = this.#workspace;
 
     // Immutable manifest: first write wins, semantic replay is
@@ -103,7 +137,223 @@ export class WorkspaceAgent extends DurableObject<Env> {
     await ws.fs.writeFile(RESULT_PATH, JSON.stringify(result, null, 2));
     await ws.fs.writeFile(REPORT_PATH, buildWorkspaceReport(result, manifest));
 
-    return result;
+    if (manifest.execution_profile === undefined) {
+      return result;
+    }
+
+    const execution = await this.runExecution(manifest, commitMatch, actualCommit);
+    return { ...result, execution };
+  }
+
+  /**
+   * R0B container execution for the frozen PYTEST_CONFIG_V01 profile.
+   * Runs inside the real Cloudflare Computer Container (computerd),
+   * persists bounded artifacts, and verifies hashes by reading the
+   * persisted bytes back. Never falls back to host processes.
+   */
+  private async runExecution(
+    manifest: JobManifest,
+    commitMatch: boolean,
+    actualCommit: string,
+  ): Promise<ExecutionResult> {
+    const profile = resolveProfile(manifest.execution_profile);
+    if (!profile) {
+      throw new Error("internal: execution_profile missing after validation");
+    }
+    const ws = this.#workspace;
+    const startedAt = new Date().toISOString();
+    const emptyArtifacts = { stdout: "", stderr: "", stdout_truncated: false, stderr_truncated: false };
+
+    const baseInput = {
+      task_id: manifest.task_id,
+      profile_id: profile.profile_id,
+      requested_commit: manifest.repo_commit,
+      actual_commit: actualCommit,
+      commit_match: commitMatch,
+      backend: profile.backend,
+      command: profile.command,
+      dependency_install_command: DEPENDENCY_INSTALL_COMMAND,
+      dependency_install_exit_code: DEPENDENCY_INSTALL_EXIT_CODE,
+      python_version: "",
+      pip_version: "",
+      repo_state_before: "",
+      exit_code: null,
+      started_at: startedAt,
+      finished_at: startedAt,
+      duration_ms: 0,
+      timeout: false,
+      infra_error: false,
+      skipped_reason: null,
+      artifacts: emptyArtifacts,
+    };
+
+    if (!commitMatch) {
+      // Exact-SHA fail closed: container execution never starts.
+      const result = buildExecutionResult({
+        ...baseInput,
+        skipped_reason:
+          "actual HEAD does not match requested commit; container execution skipped (fail closed)",
+      });
+      await this.persistExecutionArtifacts(ws, result, emptyArtifacts);
+      return result;
+    }
+
+    // Working-tree state before execution (bounded).
+    const repoStateBefore = await this.repoState(REPO_DIR);
+
+    let pythonVersion = "";
+    let pipVersion = "";
+    let exitCode: number | null = null;
+    let stdout = "";
+    let stderr = "";
+    let timeout = false;
+    let infraError = false;
+    const execStartedMs = Date.now();
+
+    try {
+      // Internal version probes (no user-supplied commands).
+      const pv = await this.execCapture(ws, "python --version", profile, 60_000);
+      pythonVersion = pv.stdout.trim();
+      const pip = await this.execCapture(ws, "pip --version", profile, 60_000);
+      pipVersion = pip.stdout.trim();
+    } catch (err) {
+      infraError = true;
+      stderr = `version probe failed: ${String(err).slice(0, 2000)}`;
+    }
+
+    if (!infraError) {
+      try {
+        using run = await ws.runtime.exec(profile.command, {
+          backend: profile.backend,
+          cwd: profile.cwd,
+          encoding: "utf8",
+          timeoutMs: profile.timeout_ms,
+          // Keep the repository working tree clean: no __pycache__ or
+          // .pytest_cache writes from inside the container.
+          env: { PYTHONDONTWRITEBYTECODE: "1", PYTEST_ADDOPTS: "-p no:cacheprovider" },
+        });
+        const res = await run.result();
+        exitCode = res.exitCode;
+        stdout = res.stdout ?? "";
+        stderr = res.stderr ?? "";
+        if (res.status === "cancelled") timeout = true;
+      } catch (err) {
+        const msg = String(err);
+        if (
+          /timeout/i.test(msg) ||
+          Date.now() - execStartedMs >= profile.timeout_ms
+        ) {
+          timeout = true;
+        } else {
+          infraError = true;
+          stderr = msg.slice(0, 4000);
+        }
+      }
+    }
+
+    const finishedAt = new Date().toISOString();
+    const durationMs = new Date(finishedAt).getTime() - new Date(startedAt).getTime();
+    const artifacts = boundArtifacts(stdout, stderr);
+    const result = await fillArtifactHashes(
+      buildExecutionResult({
+        ...baseInput,
+        python_version: pythonVersion,
+        pip_version: pipVersion,
+        repo_state_before: repoStateBefore,
+        exit_code: exitCode,
+        started_at: startedAt,
+        finished_at: finishedAt,
+        duration_ms: durationMs,
+        timeout,
+        infra_error: infraError,
+        artifacts,
+      }),
+      artifacts,
+    );
+
+    // Persist, then verify hashes against the bytes actually stored.
+    const persisted = await this.persistExecutionArtifacts(ws, result, artifacts);
+    const verified = await this.verifyPersistedExecutionArtifacts(ws, persisted);
+    if (!verified) {
+      const failed = {
+        ...persisted,
+        execution_result_sha256: "",
+        execution_status: "ARTIFACT_HASH_MISMATCH" as const,
+        result_status: "FAIL_CLOSED" as const,
+      };
+      await ws.fs.writeFile(EXECUTION_RESULT_PATH, JSON.stringify(failed, null, 2));
+      return failed;
+    }
+    return persisted;
+  }
+
+  private async execCapture(
+    ws: Workspace,
+    command: string,
+    profile: { backend: string; cwd: string },
+    timeoutMs: number,
+  ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+    using run = await ws.runtime.exec(command, {
+      backend: profile.backend,
+      cwd: profile.cwd,
+      encoding: "utf8",
+      timeoutMs,
+      env: { PYTHONDONTWRITEBYTECODE: "1" },
+    });
+    const res = await run.result();
+    return { stdout: res.stdout ?? "", stderr: res.stderr ?? "", exitCode: res.exitCode };
+  }
+
+  private async persistExecutionArtifacts(
+    ws: Workspace,
+    result: ExecutionResult,
+    artifacts: { stdout: string; stderr: string },
+  ): Promise<ExecutionResult> {
+    const fileHash = await sha256Utf8(executionResultFileRaw(result));
+    const final = { ...result, execution_result_sha256: fileHash };
+    await ws.fs.writeFile(EXECUTION_STDOUT_PATH, artifacts.stdout);
+    await ws.fs.writeFile(EXECUTION_STDERR_PATH, artifacts.stderr);
+    await ws.fs.writeFile(EXECUTION_RESULT_PATH, JSON.stringify(final, null, 2));
+    return final;
+  }
+
+  private async verifyPersistedExecutionArtifacts(
+    ws: Workspace,
+    result: ExecutionResult,
+  ): Promise<boolean> {
+    const stdout = await this.readFileOrNull(EXECUTION_STDOUT_PATH);
+    const stderr = await this.readFileOrNull(EXECUTION_STDERR_PATH);
+    const resultRaw = await this.readFileOrNull(EXECUTION_RESULT_PATH);
+    if (stdout === null || stderr === null || resultRaw === null) return false;
+    const stdoutHash = await sha256Utf8(stdout);
+    const stderrHash = await sha256Utf8(stderr);
+    let selfHashOk = false;
+    try {
+      const parsed = JSON.parse(resultRaw) as Record<string, unknown>;
+      delete parsed.execution_result_sha256;
+      selfHashOk =
+        (await sha256Utf8(JSON.stringify(parsed, null, 2))) === result.execution_result_sha256;
+    } catch {
+      selfHashOk = false;
+    }
+    return (
+      verifyArtifactHash(result.stdout_sha256, stdoutHash) &&
+      verifyArtifactHash(result.stderr_sha256, stderrHash) &&
+      resultRaw === JSON.stringify(result, null, 2) &&
+      selfHashOk
+    );
+  }
+
+  private async repoState(dir: string): Promise<string> {
+    try {
+      const r = await this.#workspace.git.cli({
+        argv: ["status", "--porcelain"],
+        cwd: dir,
+      });
+      return r.stdout.trim() === "" ? "clean" : truncateUtf8(r.stdout, 1000);
+    } catch (err) {
+      return `unknown (${String(err).slice(0, 200)})`;
+    }
   }
 
   async writeMarker(content: string): Promise<void> {

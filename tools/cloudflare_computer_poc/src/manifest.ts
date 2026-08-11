@@ -1,3 +1,5 @@
+import { resolveProfile } from "./profiles";
+
 /**
  * R0A job manifest contract.
  *
@@ -30,6 +32,8 @@ export interface JobManifest {
   network_policy: NetworkPolicy;
   input_files: string[];
   output_files: string[];
+  /** R0B: frozen execution profile id (optional; R0A1 manifests omit it). */
+  execution_profile?: string;
 }
 
 const FULL_SHA_RE = /^[0-9a-f]{40}$/;
@@ -60,6 +64,13 @@ export interface ManifestConflict {
 
 /** Fixed outputs every manifest must declare. */
 export const REQUIRED_OUTPUTS = ["result.json", "report.md", "job-manifest.json"] as const;
+
+/** Additional fixed outputs required when an execution profile is present. */
+export const EXECUTION_OUTPUTS = [
+  "execution-result.json",
+  "execution-stdout.txt",
+  "execution-stderr.txt",
+] as const;
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
@@ -124,6 +135,22 @@ export function validateManifest(raw: unknown): JobManifest {
   const input_files = requireStringArray(raw.input_files, "input_files");
   const output_files = requireStringArray(raw.output_files, "output_files");
 
+  // R0B: optional frozen execution profile. Only known profile ids are
+  // accepted; the profile's pinned repo_commit must match the manifest.
+  let execution_profile: string | undefined;
+  if (raw.execution_profile !== undefined) {
+    execution_profile = requireString(raw.execution_profile, "execution_profile");
+    const profile = resolveProfile(execution_profile); // throws if unknown
+    if (!profile) {
+      throw new ManifestError(`internal: unresolved profile "${execution_profile}"`);
+    }
+    if (profile.repo_commit !== repo_commit) {
+      throw new ManifestError(
+        `repo_commit ${repo_commit} does not match the frozen ${profile.profile_id} profile commit ${profile.repo_commit}`,
+      );
+    }
+  }
+
   // Consistency: every read:* command must reference a declared input_file.
   for (const c of allowed as string[]) {
     if (c.startsWith("read:")) {
@@ -142,6 +169,13 @@ export function validateManifest(raw: unknown): JobManifest {
       throw new ManifestError(`output_files must declare "${required}"`);
     }
   }
+  if (execution_profile !== undefined) {
+    for (const required of EXECUTION_OUTPUTS) {
+      if (!output_files.includes(required)) {
+        throw new ManifestError(`output_files must declare "${required}"`);
+      }
+    }
+  }
 
   return {
     task_id,
@@ -153,8 +187,10 @@ export function validateManifest(raw: unknown): JobManifest {
     network_policy: { egress: "none" },
     input_files,
     output_files,
+    ...(execution_profile !== undefined ? { execution_profile } : {}),
   };
 }
+
 
 /**
  * Canonical serialization for semantic manifest comparison.

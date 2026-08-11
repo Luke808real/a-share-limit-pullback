@@ -6,6 +6,12 @@ computerd boot PASS, NETWORK_STABILITY_GATE = PASS — see "R0B.NET
 FINAL NETWORK EVIDENCE CLOSEOUT". All prior attempt records are
 preserved as history.)
 
+Follow-up (2026-08-12): R0B IMPLEMENTATION V01 — code and unit tests
+complete; the real container smoke is blocked by a NEW docker.io
+registry-egress issue in the frozen proxy mode (see the
+"R0B IMPLEMENTATION V01" section; the HTTP/APT stability gate itself
+is unchanged).
+
 The R0B hard gate (section 0 of the task) failed during pre-flight. No
 R0B implementation was attempted; the Cloudflare Computer Container
 backend cannot be exercised in the supported local environment.
@@ -489,6 +495,160 @@ R0B_RECOMMENDATION: RESUME_AUTHORIZED — the network prerequisite gate
 is formally closed (HTTP 2/2, APT 2/2, pinned build, computerd boot).
 RESUME_AUTHORIZED != R0B_PASS; R0B implementation was not started and
 must not start automatically.
+
+## R0B IMPLEMENTATION V01
+
+STATUS: BLOCKED_REGISTRY_EGRESS — R0B implementation is complete and
+unit-verified; the ONE real container smoke could not run because the
+container image cannot be built in the frozen proxy mode (docker.io
+unreachable from the Docker daemon; exact evidence below).
+
+BASE_HEAD: `112bc94218be6dc530e4803cabec288eede6175d`
+
+FILES_CHANGED:
+
+```text
+tools/cloudflare_computer_poc/container/Dockerfile      (new)
+tools/cloudflare_computer_poc/wrangler.jsonc            (containers binding)
+tools/cloudflare_computer_poc/src/profiles.ts           (new: frozen profile)
+tools/cloudflare_computer_poc/src/execution.ts          (new: artifacts/hashes)
+tools/cloudflare_computer_poc/src/manifest.ts           (execution_profile)
+tools/cloudflare_computer_poc/src/workspace-agent.ts    (container backend + runExecution)
+tools/cloudflare_computer_poc/src/worker.ts             (execution in /run response)
+tools/cloudflare_computer_poc/tests/execution.test.ts   (new)
+tools/cloudflare_computer_poc/tests/manifest.test.ts    (profile validation)
+tools/cloudflare_computer_poc/tests/smoke-r0b.ts        (new)
+tools/cloudflare_computer_poc/tests/tsconfig.smoke.json
+tools/cloudflare_computer_poc/tsconfig.json
+tools/cloudflare_computer_poc/package.json              (smoke:r0b script)
+tools/cloudflare_computer_poc/README.md
+research/reports/CLOUDFLARE_COMPUTER_R0B_REPORT.md
+```
+
+EXECUTION_PROFILE: frozen exactly one profile —
+`PYTEST_CONFIG_V01` -> `python -m pytest -q tests/test_config.py`,
+backend `container-shell`, cwd `/workspace/repo`, timeout 180 s,
+profile-pinned repo_commit `dbf411e3f1fabd09aa9def2c2578c57e42fae21e`.
+Manifest carries only the profile id; arbitrary shell strings are
+rejected (unknown profile -> `EXECUTION_PROFILE_NOT_ALLOWED` -> 400
+FAIL_CLOSED, no execution). repo_commit differing from the frozen
+profile commit is rejected before execution.
+
+CONTAINER_BACKEND_PROOF: NOT RUN. The backend is wired exactly per
+the pinned upstream example (`withWorkspaceContainer` +
+`CloudflareContainerBackend({ container, workspace })`, runtime
+`workspace.runtime.exec(source, { backend: "container-shell", cwd,
+encoding: "utf8", timeoutMs, env })`), no host child_process, no
+worker-shell, no docker-exec substitute — but no exec happened because
+the image build cannot complete (see CORRECTNESS_BLOCKER).
+
+PYTHON_VERSION: not executed. Container image pins
+`--platform=linux/amd64 python:3.12-slim` (satisfies >=3.11,<3.13);
+the runtime records `python --version` / `pip --version` in
+execution-result.json.
+
+DEPENDENCY_INSTALL: baked at image build time (runtime egress stays
+none):
+
+```text
+pip install --no-cache-dir "pytest>=8.3,<9" "pydantic>=2.10,<3"
+  "PyYAML>=6.0,<7" "pyarrow>=17,<21"
+```
+
+This is the real import graph of tests/test_config.py (pydantic,
+yaml, pyarrow via limit_pullback.warehouse.parquet; pytest). The
+install exit code is recorded as 0 by construction (the container only
+starts if the image build succeeded). Not executed yet.
+
+EXACT_COMMIT_PIN: enforced in code — R0A1 materialization is reused;
+`rev-parse HEAD == repo_commit` gates the execution; commit mismatch
+-> `SKIPPED_COMMIT_MISMATCH` / FAIL_CLOSED with container execution
+skipped; `repo_state_before` (git status --porcelain) is recorded.
+Unit-tested.
+
+PYTEST_TARGET: `tests/test_config.py` (config-only, no market data).
+
+PYTEST_RESULT: NOT RUN (smoke blocked before execution).
+
+EXECUTION_EXIT_CODE: n/a (no run).
+
+ARTIFACTS: contract implemented — `/execution-result.json`,
+`/execution-stdout.txt`, `/execution-stderr.txt` (stdout/stderr capped
+at 64 KiB each with R0A1 UTF-8-safe truncation; R0A artifacts
+result.json / report.md / job-manifest.json preserved).
+
+ARTIFACT_HASHES / ARTIFACT_HASH_MATCH: implemented — SHA-256 of the
+persisted stdout/stderr bytes and of execution-result.json (self-hash
+convention: field removed, deterministic 2-space re-stringify); the DO
+re-reads the persisted bytes and verifies before declaring SUCCESS;
+the smoke verifies again from outside via the bounded /file surface.
+Unit-tested (including mismatch -> FAIL_CLOSED).
+
+NEGATIVE_TESTS: PASS — new unit coverage: unknown profile
+(EXECUTION_PROFILE_NOT_ALLOWED), wrong repo_commit vs frozen profile,
+nonzero exit seam (EXECUTION_FAILED), timeout seam (EXECUTION_TIMEOUT),
+infra-error seam, dependency-install-failure, artifact-hash mismatch,
+manifest A->B conflict preservation, UTF-8 64 KiB caps, self-hash
+convention.
+
+R0A1_REGRESSION: `npm test` PASS 45/45 (was 29, +16 R0B tests) —
+IMMUTABLE_MANIFEST, MANIFEST_CONSISTENCY, UTF8_BYTE_CAP,
+EXACT_SHA_FAIL_CLOSED, MANIFEST_CONFLICT_PRESERVATION all preserved.
+The R0A1 smoke script is currently environment-blocked at `wrangler
+dev` startup (see CORRECTNESS_BLOCKER) — not a contract regression.
+
+TYPECHECK: PASS (`npm run typecheck`, worker + smoke-driver).
+
+TARGETED_TESTS: PASS — 45/45 unit tests.
+
+REAL_SMOKE (npm run smoke:r0b): NOT RUN — blocked before execution.
+Root cause, exact evidence (2026-08-12, proxy mode unchanged from the
+closeout: Containers proxy = No proxy):
+
+```text
+docker build (wrangler dev startup, python:3.12-slim FROM):
+  ERROR: failed to solve: DeadlineExceeded: python:3.12-slim:
+  failed to resolve source metadata for
+  docker.io/library/python:3.12-slim: context deadline exceeded
+docker pull --platform linux/amd64 python:3.12-slim:
+  failed to do request: Head https://registry-1.docker.io/v2/
+  library/python/manifests/3.12-slim: context deadline exceeded
+docker pull --platform linux/amd64 busybox:latest (control):
+  failed to do request: Head .../busybox/manifests/latest: EOF
+container direct egress control:
+  ghcr.io/v2/               -> HTTP 401 (reachable, normal auth)
+  deb.debian.org (HTTP+HTTPS)-> 200 (closeout)
+  registry-1.docker.io:443  -> download timed out
+  hubproxy.docker.internal:5555 -> reachable
+host via 127.0.0.1:7897:
+  registry-1.docker.io/v2/  -> HTTP 401 (reachable; different IP than
+  the container route)
+```
+
+Every docker.io manifest fetch from the Docker daemon fails
+(EOF/timeout) in the frozen No-proxy mode, while other registries and
+hosts work. All earlier docker.io pulls (hello-world, debian, alpine,
+ghcr) succeeded under the previous Same-as-host-proxy mode. The task
+freezes the proxy mode and prohibits Dockerfile/registry-mirror/daemon
+workarounds, so the image cannot be built and the real container smoke
+cannot run. Bounded retries are exhausted.
+
+RESOURCE_USAGE: n/a (no execution; image build never completed).
+
+CORRECTNESS_BLOCKER: `BLOCKED_REGISTRY_EGRESS` — docker.io
+(registry-1.docker.io) is unreachable from the Docker daemon in the
+frozen Containers proxy = No proxy mode, blocking the R0B container
+image build (python:3.12-slim FROM). The R0A1 smoke is likewise blocked
+at `wrangler dev` startup because it now builds the container image
+first. Options require a user decision (the task forbids acting on
+them): restore `Containers proxy = Same as host proxy` (original
+setting; docker.io HTTPS pulls worked under it; the plain-HTTP apt 502
+path is irrelevant to this Dockerfile, which uses only HTTPS sources),
+or repair the direct docker.io route.
+
+R0C_RECOMMENDATION: NOT_ELIGIBLE — the real Container-backed smoke did
+not pass; R0C eligibility requires the full V01 pass. (Per contract,
+only `ELIGIBLE_FOR_REVIEW` could ever be written here; not applicable.)
 
 ## R0A1_REGRESSION
 

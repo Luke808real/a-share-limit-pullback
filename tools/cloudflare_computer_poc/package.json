@@ -8,6 +8,7 @@
     "typecheck": "tsc --noEmit && tsc --noEmit -p tests/tsconfig.smoke.json",
     "test": "vitest run",
     "smoke": "node tests/smoke.ts",
+    "smoke:r0b": "node tests/smoke-r0b.ts",
     "dev": "wrangler dev --local"
   },
   "devDependencies": {
