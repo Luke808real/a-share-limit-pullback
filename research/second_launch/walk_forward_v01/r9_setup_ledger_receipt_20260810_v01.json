@@ -1,0 +1,43 @@
+{
+  "activation_status_counts": {
+    "NOT_ACTIVE_AFTER_ADMINISTRATIVE_EXPIRY": 41,
+    "NO_ACTIVATION_WITHIN_TTL": 10,
+    "PENDING": 161,
+    "PREOBSERVED_ACTIVATION": 30
+  },
+  "artifact_type": "R9_SETUP_LEDGER",
+  "asl_code_sha": "04bd94936587b35cae55c833627260866d025184",
+  "candidate_date": "2026-08-10",
+  "endpoint_ledger_row_n": 0,
+  "factor_bundle_set_hash": "f1115e6b85b1e9a8b7b2235376011ae3f4836beb17cd1207aaf6a51142a42a80",
+  "feature_hash_set_hash": "d9d5a7eda23990adb21923c62897d124a9aab4b7be08b6dbda2a27bcce5d7313",
+  "final_r9_protocol_sha": "4d9e8fd7cdf0d3e4c631f8a970451c95f8c56aed",
+  "gate2a_member_hash": "7efdf2e8dd988f5d7ad82ffb3e211ae6024ed51a09ca9c0308b6b4f76f91e1a1",
+  "intraday_ineligible_reason_counts": {
+    "": 161,
+    "ADMINISTRATIVE_TTL_EXPIRED": 41,
+    "NO_ELIGIBLE_SESSION_WITHIN_TTL": 10,
+    "PREOBSERVED_ACTIVATION": 30
+  },
+  "intraday_ledger_row_n": 0,
+  "intraday_primary_eligible_false_n": 81,
+  "intraday_primary_eligible_true_n": 161,
+  "ledger_filename": "r9_setup_ledger_2026-08-10_v01.csv",
+  "ledger_sha256": "884e908d807997db956550fa58d01d7905b3f329737ca4f9a81dbecedef627a1",
+  "primary_oos_performance_available": false,
+  "r9_active_false_n": 41,
+  "r9_active_true_n": 201,
+  "r9_research_code_sha": "e00bb9adf1ded2e6bcbd2dfda0b8c8f7f72459ed",
+  "receipt_version": "R9_SETUP_LEDGER_RECEIPT_V01",
+  "row_n": 242,
+  "setup_status_counts": {
+    "ACTIVE": 161,
+    "FIRST_OBSERVED_AFTER_ADMINISTRATIVE_EXPIRY": 41,
+    "NO_ACTIVATION_WITHIN_TTL": 10,
+    "PREOBSERVED_ACTIVATION": 30
+  },
+  "source_manifest_hash": "2ae21f8b0a7bd629736018e08fc1f6c865f9d47fd04eb18715d4593cccb93696",
+  "state_engine_sha": "05c09fc721392a2c91f754388df3bf3b3193f712",
+  "state_generation": "stategen-2026-08-10-b0b209bda1d7",
+  "state_root": "1bd5bfdbe6ca29b59535766a14b2a25661adbf682efa4fcb15d31753fe959830"
+}
