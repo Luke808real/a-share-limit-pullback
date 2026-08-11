@@ -1,9 +1,10 @@
 # CLOUDFLARE_COMPUTER_R0B_REPORT
 
-STATUS: NETWORK_RECOVERED_R0B_RESUME_AUTHORIZED (2026-08-11: proxy
-mode change applied via Docker Desktop GUI; stock apt PASS, pinned
-upstream build PASS, computerd boot gate PASS — see "R0B.NET" recovery
-subsection. All prior attempt records are preserved as history.)
+STATUS: NETWORK_RECOVERED_R0B_RESUME_AUTHORIZED (2026-08-11 final
+evidence closeout: HTTP 2/2 PASS, APT 2/2 PASS, pinned build PASS,
+computerd boot PASS, NETWORK_STABILITY_GATE = PASS — see "R0B.NET
+FINAL NETWORK EVIDENCE CLOSEOUT". All prior attempt records are
+preserved as history.)
 
 The R0B hard gate (section 0 of the task) failed during pre-flight. No
 R0B implementation was attempted; the Cloudflare Computer Container
@@ -429,6 +430,65 @@ NETWORK_RECOVERED_R0B_RESUME_AUTHORIZED — the environment gate now
 passes end-to-end (engine healthy, amd64 execution, apt, pinned
 upstream build, computerd boot). R0B implementation may resume as the
 next task; it is NOT part of this task and was not started.
+
+## R0B.NET FINAL NETWORK EVIDENCE CLOSEOUT
+
+STATUS: NETWORK_RECOVERED_R0B_RESUME_AUTHORIZED
+
+BASE_HEAD: `c4b1ccc7f22ded8bf511ee1d6216503062583006`
+
+Validation/report-only task. No R0B implementation, no re-run of the
+pinned build or computerd boot, no Docker Desktop / host proxy change,
+no config.json / daemon.json / Dockerfile / mirror changes.
+
+PROXY_MODE: unchanged from the previous acceptance state —
+`Containers proxy = No proxy` (Docker Desktop proxy = No proxy),
+applied by the user in the Docker Desktop GUI. Verified behaviorally
+by the 2/2 HTTP and 2/2 APT runs below (any proxy-path regression would
+have surfaced as 502).
+
+HTTP_RUN_1: PASS — `docker run --rm --platform linux/amd64
+alpine:latest wget http://deb.debian.org/debian/dists/stable/Release`
+-> `HTTP/1.1 200 OK`, saved (ephemeral container #1).
+
+HTTP_RUN_2: PASS — same URL, independent ephemeral container #2 ->
+`HTTP/1.1 200 OK`, saved.
+
+APT_RUN_1: PASS — existing evidence, NOT re-run:
+`apt-get update` fetched 10.1 MB in 5 min 28 s, no 502, exit 0
+(recorded at c4b1ccc).
+
+APT_RUN_2: PASS — new independent run:
+`docker run --rm --platform linux/amd64 debian:stable-slim apt-get update`
+fetched 10.1 MB in 11 min 1 s (~15.3 kB/s), exit code 0, no 502.
+
+PINNED_BUILD_RESULT: PASS — `computerd-probe:0.1.1` (single build of
+the pinned upstream `examples/container/Dockerfile`), NOT re-run.
+
+CLOUDFLARE_BOOT_GATE: PASS — computerd container stayed
+`running=true` and logged `computerd listening on 0.0.0.0:8080
+mount=/workspace backend=shim`; CLOUDFLARE_CONTAINER_BOOT_CAPABLE =
+TRUE. NOT re-run.
+
+REUSED_FROM_COMMIT: `c4b1ccc7f22ded8bf511ee1d6216503062583006`
+(APT_RUN_1, PINNED_BUILD_RESULT, CLOUDFLARE_BOOT_GATE are cited from
+that commit's verified results; they are not claimed as re-runs).
+
+NETWORK_STABILITY_GATE: PASS
+
+CORRECTNESS_BLOCKER: none for the network prerequisite. Residual
+notes: (1) direct container egress is slow (~15-31 kB/s) and the
+`Containers proxy = No proxy` mode is temporary by design — restoring
+`Same as host proxy` re-applies the 502 path; (2) Docker Desktop
+rewrote its own settings-store on the GUI change/restart
+(settings-store.json hash now `30077ff8...`; previously `064c950d...`
+at c4b1ccc) — the rewrite was performed by Docker Desktop itself, not
+by this task (no config files were edited by us).
+
+R0B_RECOMMENDATION: RESUME_AUTHORIZED — the network prerequisite gate
+is formally closed (HTTP 2/2, APT 2/2, pinned build, computerd boot).
+RESUME_AUTHORIZED != R0B_PASS; R0B implementation was not started and
+must not start automatically.
 
 ## R0A1_REGRESSION
 
