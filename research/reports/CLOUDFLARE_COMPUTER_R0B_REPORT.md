@@ -1,6 +1,8 @@
 # CLOUDFLARE_COMPUTER_R0B_REPORT
 
-STATUS: BLOCKED_CONTAINER_PREREQUISITE
+STATUS: BLOCKED_CONTAINER_PREREQUISITE (re-confirmed by the 2026-08-11
+resume re-gate; see "RESUMED ATTEMPT" section below. The original
+blocked-attempt record is preserved as history.)
 
 The R0B hard gate (section 0 of the task) failed during pre-flight. No
 R0B implementation was attempted; the Cloudflare Computer Container
@@ -58,6 +60,55 @@ runtime)**. Upstream evidence at the pinned revision:
 Per the task's hard gate, no substitute was used: no local
 child_process, no Docker-exec-outside-Cloudflare-Computer, no
 Worker-shell backend, and no Python execution outside the Container.
+
+Re-checked on resume (2026-08-11): still unavailable — see the
+"RESUMED ATTEMPT" section for the exact re-gate evidence.
+
+## RESUMED ATTEMPT — PREREQUISITE RE-GATE (2026-08-11)
+
+Re-opened R0B per the R0B_RESUME contract. Section 0 re-gate executed
+exactly as specified; the smallest Cloudflare Computer container
+availability probe was NOT reached because the Docker CLI itself is
+absent.
+
+```text
+$ which docker
+docker not found
+
+$ docker --version
+zsh:1: command not found: docker
+
+$ docker info
+zsh:1: command not found: docker
+
+$ docker run --rm hello-world
+zsh:1: command not found: docker
+```
+
+Alternative runtimes re-checked:
+
+```text
+podman  MISSING
+colima  MISSING
+orb     MISSING
+orbctl  MISSING
+lima    MISSING
+limactl MISSING
+```
+
+Re-gate verdict:
+
+```text
+DOCKER_CLI = UNAVAILABLE
+DOCKER_RUNTIME = NOT_CHECKED (daemon unreachable: no CLI)
+TEST_CONTAINER = FAIL (not run: no CLI)
+CLOUDFLARE_CONTAINER_BOOT_CAPABLE = FALSE
+```
+
+Any failed item requires `STATUS = BLOCKED_CONTAINER_PREREQUISITE`;
+therefore R0B was NOT resumed. Nothing was implemented, and no PoC
+source, tests, or configuration were modified by this attempt. The
+only change is this report.
 
 ## R0A1_REGRESSION
 
