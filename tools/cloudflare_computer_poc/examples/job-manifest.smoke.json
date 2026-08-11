@@ -1,0 +1,23 @@
+{
+  "task_id": "r0a-smoke-1cb5fb7a",
+  "repo_url": "https://github.com/Luke808real/a-share-limit-pullback.git",
+  "repo_commit": "1cb5fb7a1792edccc18c70207340980377cbd4eb",
+  "created_at": "2026-08-11T00:00:00.000Z",
+  "purpose": "R0A smoke fixture: prove exact-commit materialization and bounded inspection (research only)",
+  "allowed_commands": [
+    "git:status",
+    "git:log-1",
+    "read:README.md",
+    "read:docs/project-operating-model.md"
+  ],
+  "network_policy": { "egress": "none" },
+  "input_files": [
+    "README.md",
+    "docs/project-operating-model.md"
+  ],
+  "output_files": [
+    "result.json",
+    "report.md",
+    "job-manifest.json"
+  ]
+}

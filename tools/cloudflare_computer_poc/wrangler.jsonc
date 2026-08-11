@@ -1,0 +1,14 @@
+{
+  // Research-only local PoC. No deploy target, no secrets, no bindings
+  // beyond the SQLite-backed Durable Object that hosts the workspace.
+  "name": "cloudflare-computer-poc",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-08-10",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [{ "name": "WORKSPACE_AGENT", "class_name": "WorkspaceAgent" }]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["WorkspaceAgent"] }
+  ]
+}
