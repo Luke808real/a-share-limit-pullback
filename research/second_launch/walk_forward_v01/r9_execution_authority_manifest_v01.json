@@ -1,0 +1,17 @@
+{
+  "manifest_version": "R9_EXECUTION_AUTHORITY_MANIFEST_V01",
+  "state_engine_sha": "911ebc3f8e6f6d279c873bf910838c85b28763fe",
+  "state_required_blobs": {
+    "src/limit_pullback/screen/canonical.py": "8d85aae14dc634d5e3ac513ddf2e9fcddfad6db0",
+    "src/limit_pullback/coverage.py": "2b59c9eaf9a6382cbe6bc41222850d6379049a1c",
+    "src/limit_pullback/screen/generation.py": "0cf60131f4f4bbf9fd72b374b55f02334ca079a7"
+  },
+  "r9_protocol_sha": "4d9e8fd7cdf0d3e4c631f8a970451c95f8c56aed",
+  "r9_code_authority_sha": "2748d74499beddaf29c4afcaf74a92a55958d668",
+  "r9_required_blobs": {
+    "research/second_launch/walk_forward_v01/r9_protocol_v02.py": "43910f4d0809cb00a87846cbdfc31f4710b86579",
+    "research/second_launch/walk_forward_v01/r9_intraday_accumulator_v01.py": "960dfeebcd66f36e024756a9126f7d6af8f71d95",
+    "research/second_launch/walk_forward_v01/r9_setup_accumulator_v01.py": "81128e6276c4a1cb86aa9284e98e97f96a45103a"
+  },
+  "latest_review_artifact_head": "fc6d096b26d21082903a1c1a262cbee34ee55d32"
+}
