@@ -28,6 +28,7 @@ from typing import Any
 
 import r9_protocol_v02 as protocol
 import r9_ttl_event_eligibility_v01 as ttl
+from r9_asl_pit_data_adapter_v01 import _candidate_code
 from r8a_intraday_contract_v01 import (
     acceptance_window_bars,
     breakout_hold_ratio,
@@ -112,6 +113,7 @@ class IntradaySetupAuthority:
     event_search_end: date | None
     s1_price: Decimal | str
     price_tick: Decimal | str
+    minute_s1_price: Decimal | str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -197,42 +199,6 @@ def _to_frame(records: tuple[dict[str, Any], ...]):
     return frame.rename(columns={"bar_time": "bar_end"})
 
 
-def _compute_observable_features(
-    records: tuple[dict[str, Any], ...],
-    s1: Decimal,
-) -> dict[str, Decimal | int]:
-    """FEATURE_OBSERVABLE path only; formulas delegated to R8A."""
-    frame = _to_frame(records)
-    touch = first_s1_touch_bar(frame, float(s1))
-    if touch is None:
-        raise IntradayAccumulatorBlocked("no first S1 touch in session")
-    idx = int(frame.index[frame["bar_end"] == touch["bar_end"]][0])
-    window = acceptance_window_bars(frame, idx)
-    vwap = vwap_of(
-        window["amount"].to_numpy(), window["volume"].to_numpy()
-    )
-    return {
-        "breakout_hold_ratio": Decimal(str(
-            breakout_hold_ratio(window, float(s1)))),
-        "retest_depth": Decimal(str(retest_depth(window, float(s1)))),
-        "false_break_duration": Decimal(str(
-            false_break_duration(window, float(s1)))),
-        "vwap_acceptance_ratio": Decimal(str(
-            vwap_acceptance_ratio(window, vwap))),
-    }
-
-
-def _reference_price_10_30(records: tuple[dict[str, Any], ...]) -> Decimal:
-    """10:30 completed 5m close only; never the session close."""
-    frame = _to_frame(records)
-    through = completed_bars_through(frame, PRIMARY_CHECKPOINT)
-    if through.empty or through.iloc[-1]["bar_end"] != PRIMARY_CHECKPOINT:
-        raise IntradayAccumulatorBlocked(
-            "10:30 completed 5m bar is absent; reference price unavailable"
-        )
-    return Decimal(str(through.iloc[-1]["close"]))
-
-
 # ---------------------------------------------------------------------------
 # Public accumulation entry point
 # ---------------------------------------------------------------------------
@@ -309,19 +275,64 @@ def accumulate_intraday_observation(
     )
     s1 = _decimal(authority.s1_price, field="s1_price")
     tick = _decimal(authority.price_tick, field="price_tick")
+
+    # Exact daily/minute S1 + tick reconciliation, inside the accumulator
+    # (frozen contract; never a test-side helper substitute).
+    minute_symbols = {str(r["symbol"]) for r in records}
+    if len(minute_symbols) != 1:
+        raise IntradayAccumulatorBlocked(
+            "unique minute session symbol N must be 1"
+        )
+    minute_symbol = next(iter(minute_symbols))
+    minute_dates = {r["trade_date"] for r in records}
+    if len(minute_dates) != 1:
+        raise IntradayAccumulatorBlocked(
+            "unique minute session trade_date must be 1"
+        )
+    minute_trade_date = next(iter(minute_dates))
+    minute_s1 = _decimal(
+        authority.minute_s1_price
+        if authority.minute_s1_price is not None
+        else authority.s1_price,
+        field="minute_s1_price",
+    )
+    protocol.validate_exact_tick_reconciliation({
+        "daily_symbol": _candidate_code(authority.symbol),
+        "minute_symbol": _candidate_code(minute_symbol),
+        "daily_trade_date": event_date.isoformat(),
+        "minute_trade_date": str(minute_trade_date),
+        "daily_s1_price": str(s1),
+        "minute_s1_price": str(minute_s1),
+        "price_tick": str(tick),
+    })
+
     eligibility = _eligibility_from_authority(authority, calendar)
 
-    # FIRST_S1_TOUCH through the frozen R8A contract (full session, right-labeled).
-    frame = _to_frame(records)
-    touch = first_s1_touch_bar(frame, float(s1))
+    # FIRST_S1_TOUCH is located on the FULL right-labeled session; the
+    # feature view is strictly the primary checkpoint window.
+    full_frame = _to_frame(records)
+    touch = first_s1_touch_bar(full_frame, float(s1))
     if touch is None:
         return IntradayAccumulationResult(
             row=None, status="NO_S1_TOUCH", event_id=None, feature_hash=None,
         )
     touch_time = _canonical_clock(str(touch["bar_end"]))
-    anchor_idx = int(frame.index[frame["bar_end"] == touch["bar_end"]][0])
-    post_window = acceptance_window_bars(frame, anchor_idx)
-    post_activation_bar_n = int(len(post_window))
+    primary_view = completed_bars_through(full_frame, PRIMARY_CHECKPOINT)
+    primary_view_ids = list(primary_view["bar_end"])
+
+    if touch_time > PRIMARY_CHECKPOINT:
+        # Late touch: event exists but is not observable at the primary
+        # checkpoint; no 10:35+ bar may enter any feature.
+        primary_anchor_idx = None
+        post_activation_bar_n = 0
+    else:
+        if touch["bar_end"] not in primary_view_ids:
+            raise IntradayAccumulatorBlocked(
+                "touch <= 10:30 must exist inside primary view"
+            )
+        primary_anchor_idx = primary_view_ids.index(touch["bar_end"])
+        primary_post_window = primary_view.iloc[primary_anchor_idx + 1:]
+        post_activation_bar_n = int(len(primary_post_window))
 
     # Frozen Gate 2B event registration (never a reconfirmation).  A frozen
     # refusal (out-of-window, TTL, structural invalidation, repeat drift) is
@@ -349,8 +360,24 @@ def accumulate_intraday_observation(
     )
 
     if status == FEATURE_OBSERVABLE:
-        features = _compute_observable_features(records, s1)
-        reference_price = _reference_price_10_30(records)
+        # Session VWAP through the primary checkpoint (R8B semantics):
+        # sum(PRIMARY_VIEW.amount) / sum(PRIMARY_VIEW.volume), never a
+        # post-touch-window-only VWAP.
+        session_vwap_1030 = vwap_of(
+            primary_view["amount"].to_numpy(),
+            primary_view["volume"].to_numpy(),
+        )
+        features = {
+            "breakout_hold_ratio": Decimal(str(
+                breakout_hold_ratio(primary_post_window, float(s1)))),
+            "retest_depth": Decimal(str(
+                retest_depth(primary_post_window, float(s1)))),
+            "false_break_duration": Decimal(str(
+                false_break_duration(primary_post_window, float(s1)))),
+            "vwap_acceptance_ratio": Decimal(str(
+                vwap_acceptance_ratio(primary_post_window, session_vwap_1030))),
+        }
+        reference_price = Decimal(str(primary_view.iloc[-1]["close"]))
     else:
         # Non-observable statuses never fabricate zeros; frozen CSV convention
         # serializes None as an empty field (shared with setup accumulator).
@@ -387,6 +414,14 @@ def accumulate_intraday_observation(
         checkpoint=PRIMARY_CHECKPOINT,
         feature_hash=feature_hash,
     )
+
+    if append_status != "APPEND":
+        # ALREADY_RECORDED never emits a new row (mirrors the setup
+        # accumulator: status != APPEND -> no new row).
+        return IntradayAccumulationResult(
+            row=None, status=append_status, event_id=event.event_id,
+            feature_hash=feature_hash,
+        )
 
     row: dict[str, str | None] = {
         "event_id": event.event_id,

@@ -70,7 +70,11 @@ def _bar_rows(
     return rows
 
 
-def _authority(*, stage: str = "B1_READY") -> accumulator.IntradaySetupAuthority:
+def _authority(
+    *,
+    stage: str = "B1_READY",
+    minute_s1_price: str | None = None,
+) -> accumulator.IntradaySetupAuthority:
     anchor = date(2026, 8, 5)
     candidate = date(2026, 8, 10)
     setup_id = make_setup_id("000001", anchor, Decimal("10.00"), Decimal("0.01"))
@@ -94,6 +98,7 @@ def _authority(*, stage: str = "B1_READY") -> accumulator.IntradaySetupAuthority
         event_search_end=eligibility.event_search_end,
         s1_price=Decimal("10.50"),
         price_tick=Decimal("0.01"),
+        minute_s1_price=minute_s1_price,
     )
 
 
@@ -234,7 +239,7 @@ def test_e_repeat_exact_already_recorded():
         calendar=CALENDAR,
     )
     assert second.status == "ALREADY_RECORDED"
-    assert second.row is not None
+    assert second.row is None  # ALREADY_RECORDED never emits a new row
 
 
 # ---- F. feature drift -> BLOCKED_FEATURE_DRIFT ----
@@ -296,20 +301,32 @@ def test_g_minute_manifest_mismatch_fails_closed():
 
 
 def test_h_s1_tick_reconciliation_mismatch_fails_closed():
+    # Reconciliation is integrated inside the accumulator: a minute-side S1
+    # that disagrees with the daily authority fails closed on the real path.
+    auth = _authority(stage="B1_READY", minute_s1_price="10.51")
     with pytest.raises(protocol.ProtocolBlocked, match="BLOCKED_PRICE_RECONCILIATION"):
-        protocol.validate_exact_tick_reconciliation({
-            "daily_symbol": "000001", "minute_symbol": "000001",
-            "daily_trade_date": "2026-08-11", "minute_trade_date": "2026-08-11",
-            "daily_s1_price": "10.50", "minute_s1_price": "10.51",
-            "price_tick": "0.01",
-        })
-    # and the frozen contract passes when reconciled
-    protocol.validate_exact_tick_reconciliation({
-        "daily_symbol": "000001", "minute_symbol": "000001",
-        "daily_trade_date": "2026-08-11", "minute_trade_date": "2026-08-11",
-        "daily_s1_price": "10.50", "minute_s1_price": "10.50",
-        "price_tick": "0.01",
-    })
+        accumulator.accumulate_intraday_observation(
+            authority=auth,
+            minute_rows=_bar_rows(),
+            minute_manifest=_manifest(),
+            right_label_verified=True,
+            event_date=EVENT_DATE,
+            existing_events={},
+            existing_feature_hashes={},
+            calendar=CALENDAR,
+        )
+    # Exact reconciliation passes through the accumulator.
+    ok = accumulator.accumulate_intraday_observation(
+        authority=_authority(stage="B1_READY", minute_s1_price="10.50"),
+        minute_rows=_bar_rows(),
+        minute_manifest=_manifest(),
+        right_label_verified=True,
+        event_date=EVENT_DATE,
+        existing_events={},
+        existing_feature_hashes={},
+        calendar=CALENDAR,
+    )
+    assert ok.status == "APPEND"
 
 
 # ---- I. right-label violation -> fail closed ----
@@ -402,3 +419,260 @@ def test_l_no_binary_b2_rule_in_source():
     text = source.read_text()
     for forbidden in ("B2_CONFIRMED", "BUY", "threshold search", "confidence"):
         assert forbidden not in text, f"forbidden token present: {forbidden}"
+
+
+# ---- Regression: A. no post-10:30 leakage ----
+
+
+def _bar_rows_pm(strong: bool) -> list[dict]:
+    """09:35..10:30 identical; 10:35..15:00 either strong or weak."""
+    rows = []
+    for clock in GRID:
+        am = clock <= "10:30"
+        if am:
+            high = 10.8 if clock == "10:00" else 10.2
+            close = 10.5
+            volume = 1000
+            amount = 10500
+        else:
+            high = 12.5 if strong else 10.1
+            close = 12.0 if strong else 10.0
+            volume = 2000 if strong else 100
+            amount = 24000 if strong else 1000
+        rows.append({
+            "symbol": "000001.SZ",
+            "trade_date": "2026-08-11",
+            "bar_time": clock,
+            "open": "10.0",
+            "high": str(high),
+            "low": "9.8",
+            "close": str(close),
+            "volume": str(volume),
+            "amount": str(amount),
+        })
+    return rows
+
+
+def test_regression_a_no_post_1030_leakage():
+    auth = _authority(stage="B1_READY")
+    strong = accumulator.accumulate_intraday_observation(
+        authority=auth,
+        minute_rows=_bar_rows_pm(strong=True),
+        minute_manifest=_manifest(),
+        right_label_verified=True,
+        event_date=EVENT_DATE,
+        existing_events={},
+        existing_feature_hashes={},
+        calendar=CALENDAR,
+    )
+    weak = accumulator.accumulate_intraday_observation(
+        authority=auth,
+        minute_rows=_bar_rows_pm(strong=False),
+        minute_manifest=_manifest(),
+        right_label_verified=True,
+        event_date=EVENT_DATE,
+        existing_events={},
+        existing_feature_hashes={},
+        calendar=CALENDAR,
+    )
+    assert strong.status == weak.status == "APPEND"
+    for field in (
+        "activation_time", "post_activation_bar_n",
+        "breakout_hold_ratio", "retest_depth",
+        "false_break_duration", "vwap_acceptance_ratio",
+        "reference_price_10_30", "feature_hash",
+    ):
+        assert strong.row[field] == weak.row[field], field
+
+
+# ---- Regression: B. touch exactly 10:30 ----
+
+
+def test_regression_b_touch_exactly_1030():
+    auth = _authority(stage="B1_READY")
+    rows = _bar_rows(touch_at="10:30")
+    result = accumulator.accumulate_intraday_observation(
+        authority=auth,
+        minute_rows=rows,
+        minute_manifest=_manifest(),
+        right_label_verified=True,
+        event_date=EVENT_DATE,
+        existing_events={},
+        existing_feature_hashes={},
+        calendar=CALENDAR,
+    )
+    assert result.row is not None
+    assert result.row["activation_time"] == "10:30"
+    assert result.row["post_activation_bar_n"] == "0"
+    assert result.row["intraday_primary_feature_status"] == "NO_POST_ACTIVATION_BAR"
+    for field in ("breakout_hold_ratio", "retest_depth",
+                  "false_break_duration", "vwap_acceptance_ratio"):
+        assert result.row[field] is None or result.row[field] == ""
+
+
+# ---- Regression: C. session VWAP through 10:30, not post-touch VWAP ----
+
+
+def test_regression_c_session_vwap_not_post_touch_vwap():
+    """Pre-touch and post-touch bars have very different amounts/volumes."""
+    rows = []
+    for clock in GRID:
+        if clock == "10:00":
+            high, close = 10.8, 10.6
+        else:
+            high, close = 10.2, 10.3
+        if clock <= "10:00":
+            volume, amount = 100, 1000      # pre-touch cheap bars
+        else:
+            volume, amount = 10000, 110000  # post-touch expensive bars
+        rows.append({
+            "symbol": "000001.SZ",
+            "trade_date": "2026-08-11",
+            "bar_time": clock,
+            "open": "10.0",
+            "high": str(high),
+            "low": "9.8",
+            "close": str(close),
+            "volume": str(volume),
+            "amount": str(amount),
+        })
+    auth = _authority(stage="B1_READY")
+    result = accumulator.accumulate_intraday_observation(
+        authority=auth,
+        minute_rows=rows,
+        minute_manifest=_manifest(),
+        right_label_verified=True,
+        event_date=EVENT_DATE,
+        existing_events={},
+        existing_feature_hashes={},
+        calendar=CALENDAR,
+    )
+    assert result.status == "APPEND"
+    # Session VWAP through 10:30 (all <=10:30 bars), never post-touch-only.
+    import numpy as np
+    primary = [r for r in rows if r["bar_time"] <= "10:30"]
+    session_vwap = (
+        sum(float(r["amount"]) for r in primary)
+        / sum(float(r["volume"]) for r in primary)
+    )
+    post_window = [r for r in primary if r["bar_time"] > "10:00"]
+    expected = sum(
+        1 for r in post_window if float(r["close"]) >= session_vwap
+    ) / len(post_window)
+    assert abs(float(result.row["vwap_acceptance_ratio"]) - expected) < 1e-9
+
+
+# ---- Regression: D. reconciliation inside the accumulator ----
+
+
+def test_regression_d_reconciliation_inside_accumulator():
+    auth = _authority(stage="B1_READY", minute_s1_price="10.50")
+    # wrong minute symbol
+    bad_rows = [
+        {**row, "symbol": "000002.SZ"} for row in _bar_rows()
+    ]
+    with pytest.raises(protocol.ProtocolBlocked, match="BLOCKED_PRICE_RECONCILIATION"):
+        accumulator.accumulate_intraday_observation(
+            authority=auth,
+            minute_rows=bad_rows,
+            minute_manifest=_manifest(),
+            right_label_verified=True,
+            event_date=EVENT_DATE,
+            existing_events={},
+            existing_feature_hashes={},
+            calendar=CALENDAR,
+        )
+    # wrong S1
+    with pytest.raises(protocol.ProtocolBlocked, match="BLOCKED_PRICE_RECONCILIATION"):
+        accumulator.accumulate_intraday_observation(
+            authority=_authority(stage="B1_READY", minute_s1_price="10.51"),
+            minute_rows=_bar_rows(),
+            minute_manifest=_manifest(),
+            right_label_verified=True,
+            event_date=EVENT_DATE,
+            existing_events={},
+            existing_feature_hashes={},
+            calendar=CALENDAR,
+        )
+    # bad tick
+    bad_tick = _authority(stage="B1_READY", minute_s1_price="10.50")
+    bad_tick = accumulator.IntradaySetupAuthority(
+        setup_id=bad_tick.setup_id, symbol=bad_tick.symbol, t0_date=bad_tick.t0_date,
+        candidate_date=bad_tick.candidate_date, ttl_end_date=bad_tick.ttl_end_date,
+        first_observation_stage=bad_tick.first_observation_stage,
+        intraday_primary_eligible=bad_tick.intraday_primary_eligible,
+        intraday_ineligible_reason=bad_tick.intraday_ineligible_reason,
+        event_search_start=bad_tick.event_search_start,
+        event_search_end=bad_tick.event_search_end,
+        s1_price=Decimal("10.505"), price_tick=Decimal("0.01"),
+        minute_s1_price="10.505",
+    )
+    with pytest.raises(protocol.ProtocolBlocked, match="BLOCKED_PRICE_RECONCILIATION"):
+        accumulator.accumulate_intraday_observation(
+            authority=bad_tick,
+            minute_rows=_bar_rows(),
+            minute_manifest=_manifest(),
+            right_label_verified=True,
+            event_date=EVENT_DATE,
+            existing_events={},
+            existing_feature_hashes={},
+            calendar=CALENDAR,
+        )
+    # wrong trade_date
+    wrong_day = _bar_rows(trade_date="2026-08-12")
+    with pytest.raises(protocol.ProtocolBlocked):
+        accumulator.accumulate_intraday_observation(
+            authority=auth,
+            minute_rows=wrong_day,
+            minute_manifest=_manifest(),
+            right_label_verified=True,
+            event_date=EVENT_DATE,
+            existing_events={},
+            existing_feature_hashes={},
+            calendar=CALENDAR,
+        )
+    # exact reconciled PASS
+    ok = accumulator.accumulate_intraday_observation(
+        authority=auth,
+        minute_rows=_bar_rows(),
+        minute_manifest=_manifest(),
+        right_label_verified=True,
+        event_date=EVENT_DATE,
+        existing_events={},
+        existing_feature_hashes={},
+        calendar=CALENDAR,
+    )
+    assert ok.status == "APPEND"
+
+
+# ---- Regression: E. ALREADY_RECORDED emits no row ----
+
+
+def test_regression_e_already_recorded_emits_no_row():
+    auth = _authority(stage="B1_READY")
+    first = accumulator.accumulate_intraday_observation(
+        authority=auth,
+        minute_rows=_bar_rows(touch_at="10:00"),
+        minute_manifest=_manifest(),
+        right_label_verified=True,
+        event_date=EVENT_DATE,
+        existing_events={},
+        existing_feature_hashes={},
+        calendar=CALENDAR,
+    )
+    assert first.status == "APPEND"
+    assert first.row is not None
+    second = accumulator.accumulate_intraday_observation(
+        authority=auth,
+        minute_rows=_bar_rows(touch_at="10:00"),
+        minute_manifest=_manifest(),
+        right_label_verified=True,
+        event_date=EVENT_DATE,
+        existing_events={},
+        existing_feature_hashes={
+            (auth.setup_id, first.event_id, "10:30"): first.feature_hash,
+        },
+        calendar=CALENDAR,
+    )
+    assert second.status == "ALREADY_RECORDED"
+    assert second.row is None
