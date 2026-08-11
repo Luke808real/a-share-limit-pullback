@@ -12,6 +12,8 @@ import { runBoundedCommands, type CommandDetail } from "./commands";
 import {
   boundArtifacts,
   buildExecutionResult,
+  combineResultStatus,
+  CONTAINER_EGRESS_ENFORCEMENT_AVAILABLE,
   executionResultFileRaw,
   fillArtifactHashes,
   sha256Utf8,
@@ -44,7 +46,14 @@ const EXECUTION_STDERR_PATH = "/execution-stderr.txt";
 const DEPENDENCY_INSTALL_COMMAND =
   'pip install --no-cache-dir "pytest>=8.3,<9" "pydantic>=2.10,<3" "PyYAML>=6.0,<7" "pyarrow>=17,<21"';
 
-/** The container only starts if the image build (incl. pip install) succeeded. */
+/**
+ * DEPENDENCY_INSTALL_MODE = IMAGE_BUILD: the pip install is a
+ * Dockerfile RUN step executed during image build, NOT a runtime
+ * command. The recorded exit code is 0 BY CONSTRUCTION with this exact
+ * semantics: the image successfully exists => the build (including the
+ * pip install step) completed. It is not a runtime-observed pip exit
+ * code.
+ */
 const DEPENDENCY_INSTALL_EXIT_CODE = 0;
 
 class WorkspaceAgentContainerBase extends withWorkspaceContainer(
@@ -134,15 +143,22 @@ export class WorkspaceAgent extends WorkspaceAgentContainerBase {
       created_at: new Date().toISOString(),
     });
 
-    await ws.fs.writeFile(RESULT_PATH, JSON.stringify(result, null, 2));
-    await ws.fs.writeFile(REPORT_PATH, buildWorkspaceReport(result, manifest));
-
     if (manifest.execution_profile === undefined) {
+      await ws.fs.writeFile(RESULT_PATH, JSON.stringify(result, null, 2));
+      await ws.fs.writeFile(REPORT_PATH, buildWorkspaceReport(result, manifest));
       return result;
     }
 
     const execution = await this.runExecution(manifest, commitMatch, actualCommit);
-    return { ...result, execution };
+    // No partial success: the top-level status reflects BOTH the R0A
+    // bounded inspection and the R0B execution result, and the same
+    // combined status is persisted to result.json and returned in the
+    // HTTP response.
+    const topLevel = combineResultStatus(result.result_status, execution.result_status);
+    const combined = { ...result, result_status: topLevel };
+    await ws.fs.writeFile(RESULT_PATH, JSON.stringify(combined, null, 2));
+    await ws.fs.writeFile(REPORT_PATH, buildWorkspaceReport(combined, manifest));
+    return { ...combined, execution };
   }
 
   /**
@@ -174,6 +190,7 @@ export class WorkspaceAgent extends WorkspaceAgentContainerBase {
       command: profile.command,
       dependency_install_command: DEPENDENCY_INSTALL_COMMAND,
       dependency_install_exit_code: DEPENDENCY_INSTALL_EXIT_CODE,
+      dependency_install_mode: "IMAGE_BUILD" as const,
       python_version: "",
       pip_version: "",
       repo_state_before: "",
@@ -183,7 +200,8 @@ export class WorkspaceAgent extends WorkspaceAgentContainerBase {
       duration_ms: 0,
       timeout: false,
       infra_error: false,
-      skipped_reason: null,
+      skip: null,
+      egress_unenforced: false,
       artifacts: emptyArtifacts,
     };
 
@@ -191,15 +209,45 @@ export class WorkspaceAgent extends WorkspaceAgentContainerBase {
       // Exact-SHA fail closed: container execution never starts.
       const result = buildExecutionResult({
         ...baseInput,
-        skipped_reason:
-          "actual HEAD does not match requested commit; container execution skipped (fail closed)",
+        skip: {
+          status: "SKIPPED_COMMIT_MISMATCH",
+          reason:
+            "actual HEAD does not match requested commit; container execution skipped (fail closed)",
+        },
       });
       await this.persistExecutionArtifacts(ws, result, emptyArtifacts);
       return result;
     }
 
-    // Working-tree state before execution (bounded).
+    // Clean-worktree gate: the repository must be untouched before any
+    // container execution. No auto-clean; fail closed only.
     const repoStateBefore = await this.repoState(REPO_DIR);
+    if (repoStateBefore !== "clean") {
+      const result = buildExecutionResult({
+        ...baseInput,
+        repo_state_before: repoStateBefore,
+        skip: {
+          status: "SKIPPED_DIRTY_WORKTREE",
+          reason: `git status --porcelain is not empty (${repoStateBefore.slice(0, 400)}); container execution skipped (fail closed)`,
+        },
+      });
+      await this.persistExecutionArtifacts(ws, result, emptyArtifacts);
+      return result;
+    }
+
+    // Egress enforcement gate: the published 0.1.1 wrapper cannot set
+    // or prove container-level deny-internet (see
+    // CONTAINER_EGRESS_ENFORCEMENT_AVAILABLE). While unavailable, R0B
+    // execution fails closed; the real smoke is not authorized.
+    if (!CONTAINER_EGRESS_ENFORCEMENT_AVAILABLE) {
+      const result = buildExecutionResult({
+        ...baseInput,
+        repo_state_before: repoStateBefore,
+        egress_unenforced: true,
+      });
+      await this.persistExecutionArtifacts(ws, result, emptyArtifacts);
+      return result;
+    }
 
     let pythonVersion = "";
     let pipVersion = "";

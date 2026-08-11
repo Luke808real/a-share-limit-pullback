@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   boundArtifacts,
   buildExecutionResult,
+  combineResultStatus,
+  CONTAINER_EGRESS_ENFORCEMENT_AVAILABLE,
   executionResultFileRaw,
   sha256Utf8,
+  utf8ByteLength,
   verifyArtifactHash,
   type ExecutionInput,
 } from "../src/execution";
@@ -23,6 +26,7 @@ function base(): ExecutionInput {
     pip_version: "pip 24.2 from ...",
     dependency_install_command: "pip install ...",
     dependency_install_exit_code: 0,
+    dependency_install_mode: "IMAGE_BUILD",
     repo_state_before: "clean",
     exit_code: 0,
     started_at: "2026-08-12T00:00:00.000Z",
@@ -30,7 +34,8 @@ function base(): ExecutionInput {
     duration_ms: 20000,
     timeout: false,
     infra_error: false,
-    skipped_reason: null,
+    skip: null,
+    egress_unenforced: false,
     artifacts: { stdout: "..... 5 passed", stderr: "", stdout_truncated: false, stderr_truncated: false },
   };
 }
@@ -47,7 +52,10 @@ describe("buildExecutionResult (fail-closed semantics)", () => {
       ...base(),
       commit_match: false,
       actual_commit: "112bc94218be6dc530e4803cabec288eede6175d",
-      skipped_reason: "actual HEAD does not match requested commit",
+      skip: {
+        status: "SKIPPED_COMMIT_MISMATCH" as const,
+        reason: "actual HEAD does not match requested commit",
+      },
       exit_code: null,
     });
     expect(r.execution_status).toBe("SKIPPED_COMMIT_MISMATCH");
@@ -69,6 +77,22 @@ describe("buildExecutionResult (fail-closed semantics)", () => {
   it("is FAIL_CLOSED + EXECUTION_INFRA_ERROR on infra failure", () => {
     const r = buildExecutionResult({ ...base(), infra_error: true, exit_code: null });
     expect(r.execution_status).toBe("EXECUTION_INFRA_ERROR");
+    expect(r.result_status).toBe("FAIL_CLOSED");
+  });
+
+  it("is FAIL_CLOSED + SKIPPED_DIRTY_WORKTREE on a dirty worktree", () => {
+    const r = buildExecutionResult({
+      ...base(),
+      skip: { status: "SKIPPED_DIRTY_WORKTREE", reason: "git status --porcelain is not empty" },
+      exit_code: null,
+    });
+    expect(r.execution_status).toBe("SKIPPED_DIRTY_WORKTREE");
+    expect(r.result_status).toBe("FAIL_CLOSED");
+  });
+
+  it("is FAIL_CLOSED + EGRESS_ENFORCEMENT_UNAVAILABLE when egress cannot be enforced", () => {
+    const r = buildExecutionResult({ ...base(), egress_unenforced: true, exit_code: null });
+    expect(r.execution_status).toBe("EGRESS_ENFORCEMENT_UNAVAILABLE");
     expect(r.result_status).toBe("FAIL_CLOSED");
   });
 
@@ -127,5 +151,36 @@ describe("execution-result self-hash convention", () => {
     expect(parsed.execution_result_sha256).toBeUndefined();
     expect(JSON.stringify(parsed, null, 2)).toBe(raw);
     expect(await sha256Utf8(raw)).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
+
+describe("top-level status (no partial success)", () => {
+  it("is SUCCESS only when both sides are SUCCESS", () => {
+    expect(combineResultStatus("SUCCESS", "SUCCESS")).toBe("SUCCESS");
+    expect(combineResultStatus("SUCCESS", "FAIL_CLOSED")).toBe("FAIL_CLOSED");
+    expect(combineResultStatus("FAIL_CLOSED", "SUCCESS")).toBe("FAIL_CLOSED");
+    expect(combineResultStatus("FAIL_CLOSED", "FAIL_CLOSED")).toBe("FAIL_CLOSED");
+  });
+
+  it("never allows top-level SUCCESS with a FAIL_CLOSED execution", () => {
+    const r = buildExecutionResult({ ...base(), egress_unenforced: true, exit_code: null });
+    expect(combineResultStatus("SUCCESS", r.result_status)).toBe("FAIL_CLOSED");
+  });
+});
+
+describe("utf8ByteLength (true byte length)", () => {
+  it("counts UTF-8 bytes, not code units", () => {
+    expect(utf8ByteLength("abc")).toBe(3);
+    expect(utf8ByteLength("中文")).toBe(6);
+    expect(utf8ByteLength("😀")).toBe(4);
+    expect(utf8ByteLength("a😀中")).toBe(1 + 4 + 3);
+  });
+});
+
+describe("egress enforcement availability (evidence-pinned)", () => {
+  it("documents that published 0.1.1 cannot enforce container deny-internet", () => {
+    // If a future package adds a deny mechanism, this flag is the one
+    // place to flip AFTER re-verifying the typings/source.
+    expect(CONTAINER_EGRESS_ENFORCEMENT_AVAILABLE).toBe(false);
   });
 });

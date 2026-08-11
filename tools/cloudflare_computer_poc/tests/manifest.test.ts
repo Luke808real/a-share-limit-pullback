@@ -138,6 +138,17 @@ describe("checkReplay (immutable manifest)", () => {
     expect(() => checkReplay(stored, manifestA())).not.toThrow();
   });
 
+  it("allows replay of the exact same manifest (identical bytes)", () => {
+    const stored = JSON.stringify(manifestA());
+    expect(() => checkReplay(stored, manifestA())).not.toThrow();
+  });
+
+  it("rejects replay when created_at differs", () => {
+    const stored = JSON.stringify(manifestA());
+    const different = validateManifest({ ...validManifest(), created_at: "2026-08-12T00:00:00.000Z" });
+    expect(() => checkReplay(stored, different)).toThrow(ManifestConflictError);
+  });
+
   it("rejects A -> B", () => {
     const stored = JSON.stringify(manifestA());
     const different = validateManifest({ ...validManifest(), purpose: "different purpose" });

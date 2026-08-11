@@ -650,6 +650,124 @@ R0C_RECOMMENDATION: NOT_ELIGIBLE — the real Container-backed smoke did
 not pass; R0C eligibility requires the full V01 pass. (Per contract,
 only `ELIGIBLE_FOR_REVIEW` could ever be written here; not applicable.)
 
+## R0B V01.1 INDEPENDENT REVIEW FIXES
+
+STATUS: BLOCKED_EGRESS_ENFORCEMENT
+
+BASE_HEAD: `80a6936a3c3dec3d36bf5efe6073feb36206a34f`
+
+Targeted correctness patch from independent review. No Docker/proxy
+changes, no docker pull/build, no smoke:r0b, no R0C, no strategy
+changes; the frozen profile, repo_commit and pytest target are
+unchanged.
+
+FILES_CHANGED:
+
+```text
+tools/cloudflare_computer_poc/src/execution.ts
+tools/cloudflare_computer_poc/src/workspace-agent.ts
+tools/cloudflare_computer_poc/tests/execution.test.ts
+tools/cloudflare_computer_poc/tests/manifest.test.ts
+tools/cloudflare_computer_poc/tests/smoke-r0b.ts
+research/reports/CLOUDFLARE_COMPUTER_R0B_REPORT.md
+```
+
+REPLAY_SEMANTICS: fixed. smoke-r0b now constructs ONE `manifestA` per
+task and reuses the exact same object for the first /run and the
+replay (created_at is never regenerated); the A->B conflict changes
+only `purpose`. New tests: same task_id + same exact manifest ->
+replay allowed; created_at change -> MANIFEST_CONFLICT (409). R0A1
+canonical comparison is unchanged.
+
+TOP_LEVEL_FAIL_CLOSED: fixed. For jobs with execution_profile, the
+top-level result_status now combines the R0A bounded-inspection status
+AND the R0B execution status (`combineResultStatus`: SUCCESS only when
+both are SUCCESS). The same combined status is persisted to result.json
+and returned in the HTTP response, so no
+`top-level SUCCESS + execution FAIL_CLOSED` state can occur. Unit
+tests: execution nonzero -> top-level FAIL_CLOSED; artifact hash
+mismatch -> top-level FAIL_CLOSED; dirty worktree -> top-level
+FAIL_CLOSED; egress gate -> top-level FAIL_CLOSED.
+
+DIRTY_WORKTREE_GATE: added. Before ANY container execution (probes
+included), `git status --porcelain` on the materialized repo must be
+empty; otherwise execution_status = `SKIPPED_DIRTY_WORKTREE`,
+result_status = FAIL_CLOSED, top-level = FAIL_CLOSED, and no container
+exec starts. No automatic git reset/clean. Unit-tested.
+
+EGRESS_ENFORCEMENT: UNAVAILABLE (option B). Read-only inspection of
+the installed packages concluded that the published
+`@cloudflare/computer@0.1.1` wrapper has no container-level
+deny-internet mechanism, so nothing is faked. With
+`CONTAINER_EGRESS_ENFORCEMENT_AVAILABLE = false`, jobs with
+execution_profile fail closed
+(`EGRESS_ENFORCEMENT_UNAVAILABLE` / FAIL_CLOSED) and the real container
+smoke is NOT authorized. The repo conftest socket block remains
+defense-in-depth only.
+
+EGRESS_API_EVIDENCE (package API / type / source locations):
+
+```text
+@cloudflare/computer 0.1.1, dist/backends/container/index.d.ts:
+  CloudflareContainerBackendOptions = { container, workspace,
+  egressHost?, containerPort?, containerEnv?, connectTimeoutMs?,
+  heartbeatIntervalMs?, restartAttempts?, healthProbeTimeoutMs?,
+  healthRetryInitialDelayMs?, healthRetryMaxDelayMs?, id? }
+  -> no deny / egress-mode option
+@cloudflare/computer 0.1.1, dist/shared-Dz77Tt5c.d.ts:
+  WorkspaceBackend = { id, type, callable?, connect(host) }
+  -> no egress / network-policy member
+@cloudflare/computer 0.1.1, dist/backends/container/index.js:
+  connect() calls host.interceptOutboundHttp(egressHost, workspace)
+  with DEFAULT_EGRESS_HOST = "computer.internal" — a single-host
+  allow-list routing hook, NOT a deny-internet mechanism
+@cloudflare/computer 0.1.1, dist/backends/worker-shell/index.d.ts:
+  WorkerShellBackendOptions has no egress option either (docs/12
+  WorkspaceEgressPolicy describes repo-HEAD code ahead of 0.1.1)
+@cloudflare/containers: NOT installed; no policy surface available
+```
+
+UTF8_READBACK: fixed. smoke-r0b no longer compares `head.length ===
+bytes`; it uses `new TextEncoder().encode(head).byteLength === bytes`
+(true UTF-8 bytes), matching R0A1 semantics. A `utf8ByteLength` helper
+is unit-tested (ASCII/Chinese/emoji).
+
+DEPENDENCY_INSTALL_SEMANTICS: clarified.
+`DEPENDENCY_INSTALL_MODE = IMAGE_BUILD` is now an explicit result
+field: the pip install is a Dockerfile RUN step at image build time,
+NOT a runtime command. The recorded exit code is `0` BY CONSTRUCTION
+with the exact semantics "the image successfully exists => the
+Dockerfile RUN pip install completed"; it is not a runtime-observed
+pip exit code. Documented in code and here.
+
+TYPECHECK: PASS (`npm run typecheck`).
+
+TARGETED_TESTS: PASS — `npm test` 53/53 (was 45; +8): exact A->A
+replay, created_at change => conflict, no-partial-success (combine),
+dirty-worktree fail closed, egress-gate fail closed, execution nonzero
+fail closed, hash mismatch fail closed, unknown profile, wrong frozen
+repo_commit, UTF-8 byte length, self-hash convention, existing R0A1
+conflict regressions.
+
+R0A1_REGRESSION: PASS — immutable manifest, canonical comparison,
+MANIFEST_CONFLICT preservation, UTF-8 caps, exact-SHA fail-closed all
+covered by the 53 tests; no weakening.
+
+REGISTRY_EGRESS_BLOCKER: unchanged and NOT touched this round
+(docker.io unreachable from the Docker daemon in the frozen proxy
+mode; see "R0B IMPLEMENTATION V01").
+
+CORRECTNESS_BLOCKER: `BLOCKED_EGRESS_ENFORCEMENT` — the published 0.1.1
+wrapper cannot set or prove container-level deny-internet, so R0B
+container execution is fail-closed by design until a real enforcement
+mechanism exists (e.g., a future package egress policy). The docker.io
+registry blocker additionally prevents the image build today.
+
+REAL_SMOKE_STATUS: NOT_RUN / NOT_AUTHORIZED (egress gate + registry
+blocker).
+
+R0C_RECOMMENDATION: NOT_ELIGIBLE — real container smoke has not passed.
+
 ## R0A1_REGRESSION
 
 Not applicable to code: no PoC code changed, so R0A1 contracts

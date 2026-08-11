@@ -132,32 +132,39 @@ async function main(): Promise<void> {
     wrangler = await startWrangler(stateDir);
     await waitReady(wrangler);
 
-    // ---------- 1. positive: real container-backed PYTEST_CONFIG_V01 ----------
+    // ---------- 1. R0B job through the pipeline (egress-gated) ----------
     const runTask = `r0b-run-${Date.now()}`;
-    // First run includes the container image build: generous timeout.
-    const run = await post("/run", r0bManifest(runTask), 60 * 60_000);
+    // One immutable semantic manifest for this task: the first run and
+    // the replay MUST reuse the same created_at (A->A replay contract).
+    const manifestA = r0bManifest(runTask);
+    // Container execution is currently gated fail-closed by
+    // EGRESS_ENFORCEMENT_UNAVAILABLE (published 0.1.1 has no
+    // container-level deny-internet). The smoke verifies the pipeline,
+    // artifacts and hashes; the SUCCESS path re-arms once enforcement
+    // exists. First run may include the container image build.
+    const run = await post("/run", manifestA, 60 * 60_000);
     const body = (await run.json()) as Record<string, unknown>;
     if (run.status !== 200) fail("r0b positive http", JSON.stringify(body).slice(0, 2000));
-    if (body.result_status !== "SUCCESS") fail("r0b r0a status", JSON.stringify(body).slice(0, 2000));
     const exec = body.execution as Record<string, unknown>;
-    if (!exec || exec.result_status !== "SUCCESS") {
-      fail("r0b execution status", JSON.stringify(exec).slice(0, 4000));
+    if (!exec || exec.result_status !== "FAIL_CLOSED") {
+      fail("r0b execution status (expected FAIL_CLOSED, egress-gated)", JSON.stringify(exec).slice(0, 4000));
     }
-    if (exec.execution_status !== "EXECUTION_SUCCEEDED") {
-      fail("r0b execution_status", JSON.stringify(exec).slice(0, 4000));
+    if (exec.execution_status !== "EGRESS_ENFORCEMENT_UNAVAILABLE") {
+      fail("r0b execution_status (expected EGRESS_ENFORCEMENT_UNAVAILABLE)", JSON.stringify(exec).slice(0, 4000));
+    }
+    if (body.result_status !== "FAIL_CLOSED") {
+      fail("top-level status must be FAIL_CLOSED (no partial success)", JSON.stringify(body).slice(0, 2000));
     }
     if (exec.commit_match !== true || exec.actual_commit !== PROFILE_COMMIT) {
       fail("r0b commit pin", JSON.stringify(exec).slice(0, 2000));
     }
-    if (exec.exit_code !== 0) fail("r0b exit_code", String(exec.exit_code));
     if (exec.profile_id !== "PYTEST_CONFIG_V01") fail("r0b profile", String(exec.profile_id));
     if (exec.backend !== "container-shell") fail("r0b backend", String(exec.backend));
-    const pyver = String(exec.python_version);
-    if (!/^Python 3\.(11|12)\./.test(pyver)) {
-      fail("python version allowed", pyver);
+    if (exec.dependency_install_mode !== "IMAGE_BUILD") {
+      fail("dependency install mode", String(exec.dependency_install_mode));
     }
     if (exec.repo_state_before !== "clean") fail("repo state before", String(exec.repo_state_before));
-    ok("container-backed PYTEST_CONFIG_V01", `python ${pyver}, exit 0, backend ${String(exec.backend)}`);
+    ok("r0b pipeline (egress-gated)", "manifest accepted; commit pinned; FAIL_CLOSED + EGRESS_ENFORCEMENT_UNAVAILABLE; no container exec");
 
     // ---------- 2. artifacts present + independent hash verification ----------
     for (const path of ["/execution-result.json", "/execution-stdout.txt", "/execution-stderr.txt"]) {
@@ -169,7 +176,10 @@ async function main(): Promise<void> {
     const recorded = JSON.parse(resultFile.head) as Record<string, unknown>;
     const stdoutFile = await readFileFull(runTask, "/execution-stdout.txt");
     const stderrFile = await readFileFull(runTask, "/execution-stderr.txt");
-    if (stdoutFile.head.length !== stdoutFile.bytes || stderrFile.head.length !== stderrFile.bytes) {
+    if (
+      new TextEncoder().encode(stdoutFile.head).byteLength !== stdoutFile.bytes ||
+      new TextEncoder().encode(stderrFile.head).byteLength !== stderrFile.bytes
+    ) {
       fail("artifact full readback", "bounded file surface did not return full ASCII content");
     }
     const stdoutHash = sha256Hex(stdoutFile.head);
@@ -183,18 +193,30 @@ async function main(): Promise<void> {
     }
     ok("artifacts + hashes", "execution-result.json / stdout / stderr present; read-back SHA-256 verified from outside");
 
-    // ---------- 3. A->A replay (idempotent) ----------
-    const run2 = await post("/run", r0bManifest(runTask), 10 * 60_000);
+    // ---------- 3. A->A replay: same task_id + same exact manifest ----------
+    const run2 = await post("/run", manifestA, 10 * 60_000);
     const body2 = (await run2.json()) as Record<string, unknown>;
     const exec2 = body2.execution as Record<string, unknown>;
-    if (run2.status !== 200 || exec2?.result_status !== "SUCCESS") {
-      fail("r0b A->A replay", JSON.stringify(exec2).slice(0, 2000));
+    if (run2.status !== 200 || exec2?.execution_status !== "EGRESS_ENFORCEMENT_UNAVAILABLE") {
+      fail("r0b A->A replay", JSON.stringify({ status: run2.status, exec: exec2 }).slice(0, 2000));
     }
-    ok("r0b A -> A replay", "idempotent SUCCESS");
+    ok("r0b A -> A replay", "same exact manifest replay allowed (no 409)");
+
+    // ---------- 3b. created_at change => MANIFEST_CONFLICT ----------
+    const manifestCreatedAtChanged = {
+      ...manifestA,
+      created_at: new Date(Date.now() + 60_000).toISOString(),
+    };
+    const runTs = await post("/run", manifestCreatedAtChanged, 60_000);
+    const bodyTs = (await runTs.json()) as Record<string, unknown>;
+    if (runTs.status !== 409 || bodyTs.error !== "MANIFEST_CONFLICT") {
+      fail("created_at change -> conflict", JSON.stringify({ status: runTs.status, body: bodyTs }));
+    }
+    ok("created_at change -> MANIFEST_CONFLICT", "semantic manifest identity includes created_at");
 
     // ---------- 4. A->B manifest conflict, stored artifacts preserved ----------
     const before = await readFileFull(runTask, "/execution-result.json");
-    const manifestB = { ...r0bManifest(runTask), purpose: "DIFFERENT manifest for conflict test" };
+    const manifestB = { ...manifestA, purpose: "DIFFERENT manifest for conflict test" };
     const runB = await post("/run", manifestB, 60_000);
     const bodyB = (await runB.json()) as Record<string, unknown>;
     if (runB.status !== 409 || bodyB.error !== "MANIFEST_CONFLICT") {

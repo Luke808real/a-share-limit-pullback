@@ -9,13 +9,42 @@ import { truncateUtf8 } from "./result";
 export const EXECUTION_STDOUT_CAP_BYTES = 64 * 1024;
 export const EXECUTION_STDERR_CAP_BYTES = 64 * 1024;
 
+/**
+ * Egress enforcement availability for the Cloudflare Computer
+ * Container backend in the PUBLISHED @cloudflare/computer 0.1.1.
+ *
+ * Evidence (0.1.1 typings/source, read-only):
+ * - WorkspaceBackend = { id, type, callable?, connect(host) } — no
+ *   egress/network-policy member.
+ * - CloudflareContainerBackendOptions has no deny/egress-mode option;
+ *   its only network surface is
+ *   `interceptOutboundHttp(egressHost, workspace)` — a single-host
+ *   allow-list routing hook, not a deny-internet mechanism.
+ * - WorkerShellBackendOptions (0.1.1) likewise has no egress option
+ *   (docs/12 WorkspaceEgressPolicy describes repo-HEAD code, ahead of
+ *   the published package).
+ * - @cloudflare/containers is not installed.
+ *
+ * Therefore container-level deny-internet cannot be set OR proven with
+ * 0.1.1. We do NOT fake it (no env vars, no comments, no conftest
+ * socket block as primary enforcement, no host firewall changes).
+ * While this is false, R0B execution fails closed and the real
+ * container smoke is NOT authorized. The repo conftest socket block
+ * remains defense-in-depth only.
+ */
+export const CONTAINER_EGRESS_ENFORCEMENT_AVAILABLE = false;
+
 export type ExecutionStatus =
   | "EXECUTION_SUCCEEDED"
   | "EXECUTION_FAILED"
   | "EXECUTION_TIMEOUT"
   | "EXECUTION_INFRA_ERROR"
   | "SKIPPED_COMMIT_MISMATCH"
+  | "SKIPPED_DIRTY_WORKTREE"
+  | "EGRESS_ENFORCEMENT_UNAVAILABLE"
   | "ARTIFACT_HASH_MISMATCH";
+
+export type ExecutionSkipStatus = "SKIPPED_COMMIT_MISMATCH" | "SKIPPED_DIRTY_WORKTREE";
 
 export interface ExecutionArtifacts {
   stdout: string;
@@ -36,6 +65,7 @@ export interface ExecutionInput {
   pip_version: string;
   dependency_install_command: string;
   dependency_install_exit_code: number;
+  dependency_install_mode: "IMAGE_BUILD";
   repo_state_before: string;
   exit_code: number | null;
   started_at: string;
@@ -43,7 +73,8 @@ export interface ExecutionInput {
   duration_ms: number;
   timeout: boolean;
   infra_error: boolean;
-  skipped_reason: string | null;
+  skip: { status: ExecutionSkipStatus; reason: string } | null;
+  egress_unenforced: boolean;
   artifacts: ExecutionArtifacts;
 }
 
@@ -58,6 +89,7 @@ export interface ExecutionResult {
   pip_version: string;
   dependency_install_command: string;
   dependency_install_exit_code: number;
+  dependency_install_mode: "IMAGE_BUILD";
   repo_state_before: string;
   command: string;
   started_at: string;
@@ -96,8 +128,11 @@ export function buildExecutionResult(input: ExecutionInput): ExecutionResult {
   let status: ExecutionStatus;
   let resultStatus: "SUCCESS" | "FAIL_CLOSED";
 
-  if (input.skipped_reason !== null) {
-    status = "SKIPPED_COMMIT_MISMATCH";
+  if (input.egress_unenforced) {
+    status = "EGRESS_ENFORCEMENT_UNAVAILABLE";
+    resultStatus = "FAIL_CLOSED";
+  } else if (input.skip !== null) {
+    status = input.skip.status;
     resultStatus = "FAIL_CLOSED";
   } else if (input.timeout) {
     status = "EXECUTION_TIMEOUT";
@@ -127,6 +162,7 @@ export function buildExecutionResult(input: ExecutionInput): ExecutionResult {
     pip_version: input.pip_version,
     dependency_install_command: input.dependency_install_command,
     dependency_install_exit_code: input.dependency_install_exit_code,
+    dependency_install_mode: input.dependency_install_mode,
     repo_state_before: input.repo_state_before,
     command: input.command,
     started_at: input.started_at,
@@ -173,4 +209,21 @@ export function verifyArtifactHash(expected: string, actual: string): boolean {
 /** Canonical file content for the self-hash convention. */
 export function executionResultFileRaw(result: ExecutionResult): string {
   return JSON.stringify({ ...result, execution_result_sha256: undefined }, null, 2);
+}
+
+/**
+ * Top-level result for profile jobs: reflects BOTH the R0A bounded
+ * inspection result AND the R0B execution result. No partial success:
+ * either side FAIL_CLOSED => top-level FAIL_CLOSED.
+ */
+export function combineResultStatus(
+  r0a: "SUCCESS" | "FAIL_CLOSED",
+  execution: "SUCCESS" | "FAIL_CLOSED",
+): "SUCCESS" | "FAIL_CLOSED" {
+  return r0a === "SUCCESS" && execution === "SUCCESS" ? "SUCCESS" : "FAIL_CLOSED";
+}
+
+/** True UTF-8 byte length (not string code units). */
+export function utf8ByteLength(s: string): number {
+  return new TextEncoder().encode(s).byteLength;
 }
