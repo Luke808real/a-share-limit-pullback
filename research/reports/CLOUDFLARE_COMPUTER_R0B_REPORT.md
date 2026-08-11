@@ -1,8 +1,9 @@
 # CLOUDFLARE_COMPUTER_R0B_REPORT
 
-STATUS: BLOCKED_CONTAINER_PREREQUISITE (final gate 2026-08-11:
-re-confirmed by a full-machine sweep; see "RESUMED ATTEMPT 2" below.
-All prior blocked-attempt records are preserved as history.)
+STATUS: NETWORK_PREREQUISITE_BLOCKED (2026-08-11 resumed environment
+gate: the container runtime blocker is RESOLVED, but image builds are
+blocked by container-network 502s; see "RESUMED ATTEMPT 3". All prior
+attempt records are preserved as history.)
 
 The R0B hard gate (section 0 of the task) failed during pre-flight. No
 R0B implementation was attempted; the Cloudflare Computer Container
@@ -161,6 +162,97 @@ CLOUDFLARE_CONTAINER_BOOT_CAPABLE = FALSE
 was implemented. The Cloudflare Computer container boot probe was not
 reached. This is the final gate record for this state; no further
 repeated gate-history commits will be made without a state change.
+
+## RESUMED ATTEMPT 3 — ENVIRONMENT GATE (2026-08-11)
+
+Trigger: Docker Desktop 4.86.0 was installed and validated on this
+machine (arm64 host; engine 29.7.2; linux/amd64 execution working; the
+pinned computerd image pulls successfully). R0B was therefore resumed
+up to the environment gate.
+
+Git state confirmed before any change:
+
+```text
+branch = research/cloudflare-computer-r0b
+HEAD   = b1ed5614cabf3619e6a0ff35955a03e3e915bd37
+worktree clean
+```
+
+Docker gate (passed):
+
+```text
+docker --version                     -> Docker version 29.7.2
+docker info                          -> Server 29.7.2 / linux/aarch64
+docker run --rm hello-world          -> PASS
+docker run --rm --platform linux/amd64 debian:stable-slim uname -m -> x86_64
+
+DOCKER_ENGINE = HEALTHY
+HELLO_WORLD = PASS
+AMD64_CONTAINER_BOOT = PASS
+AMD64_UNAME = x86_64
+```
+
+Cloudflare Computer boot probe (pinned contract: computerd
+`ghcr.io/cloudflare/computer-computerd-linux-x64:0.1.1`):
+
+1. Raw image boot attempt (scratch image, entrypoint
+   `/usr/local/bin/computerd`): FAILS with
+   `rosetta error: failed to open elf at /lib64/ld-linux-x86-64.so.2`
+   (exit 133). Expected: the scratch image ships only the SEA binary;
+   the pinned upstream recipe (`examples/container/Dockerfile`) copies
+   it into a debian base that supplies glibc. The boot probe therefore
+   used the upstream recipe, exactly as the pinned example requires.
+2. `docker build --platform linux/amd64` of the pinned upstream
+   `examples/container/Dockerfile`: FAILED on all 3 attempts
+   (initial + 2 bounded retries) at the debian apt step with:
+
+   ```text
+   E: Failed to fetch http://deb.debian.org/.../libkeyutils1_..._amd64.deb  502  Bad Gateway [IP: 146.75.46.132 80]
+   E: Failed to fetch http://deb.debian.org/.../libpsl5t64_..._amd64.deb  502  Bad Gateway
+   E: Failed to fetch http://deb.debian.org/.../libp11-kit0_..._amd64.deb  502  Bad Gateway
+   E: Failed to fetch http://deb.debian.org/.../libcurl4t64_..._amd64.deb  502  Bad Gateway
+   E: Failed to fetch http://deb.debian.org/debian-security/dists/stable-security/InRelease  502  Bad Gateway
+   -> apt-get exit code 100, build failed
+   ```
+
+3. Reproduction in a stock container (environment-level, not a
+   Dockerfile issue):
+
+   ```text
+   docker run --rm --platform linux/amd64 debian:stable-slim apt-get update
+   -> E: Failed to fetch http://deb.debian.org/debian-security/.../InRelease  502  Bad Gateway [IP: 146.75.46.132 80]
+   ```
+
+4. Host-side probes (through the same local proxy 127.0.0.1:7897):
+
+   ```text
+   https://deb.debian.org/debian/  -> 200
+   http://deb.debian.org/debian/dists/stable/Release -> 200
+   https://pypi.org/simple/        -> 200
+   ```
+
+   The host HTTP(S) path works; plain-HTTP fetches from inside Docker
+   containers to deb.debian.org (Fastly 146.75.46.132) return 502
+   through the local proxy. Registry pulls (HTTPS) succeed.
+
+Gate verdict:
+
+```text
+DOCKER_CLI = AVAILABLE
+DOCKER_ENGINE = HEALTHY
+HELLO_WORLD = PASS
+AMD64_CONTAINER_BOOT = PASS
+AMD64_UNAME = x86_64
+CLOUDFLARE_CONTAINER_BOOT_CAPABLE = NOT_REACHABLE (image build blocked)
+
+NETWORK_RETRY_COUNT = 2 (per the bounded-retry rule; same apt operation)
+CLASSIFICATION = NETWORK_PREREQUISITE_BLOCKED
+```
+
+Per the resume contract, R0B implementation was NOT started: no PoC
+source, tests, or configuration were modified, no Dockerfile was
+written, and no workaround for the network failure was implemented.
+The only change in this commit is this report.
 
 ## R0A1_REGRESSION
 
