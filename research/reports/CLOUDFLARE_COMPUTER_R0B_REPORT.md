@@ -1,8 +1,8 @@
 # CLOUDFLARE_COMPUTER_R0B_REPORT
 
-STATUS: BLOCKED_CONTAINER_PREREQUISITE (re-confirmed by the 2026-08-11
-resume re-gate; see "RESUMED ATTEMPT" section below. The original
-blocked-attempt record is preserved as history.)
+STATUS: BLOCKED_CONTAINER_PREREQUISITE (final gate 2026-08-11:
+re-confirmed by a full-machine sweep; see "RESUMED ATTEMPT 2" below.
+All prior blocked-attempt records are preserved as history.)
 
 The R0B hard gate (section 0 of the task) failed during pre-flight. No
 R0B implementation was attempted; the Cloudflare Computer Container
@@ -109,6 +109,58 @@ Any failed item requires `STATUS = BLOCKED_CONTAINER_PREREQUISITE`;
 therefore R0B was NOT resumed. Nothing was implemented, and no PoC
 source, tests, or configuration were modified by this attempt. The
 only change is this report.
+
+## RESUMED ATTEMPT 2 — FINAL CONTAINER GATE (2026-08-11)
+
+Trigger: the user reported that a local container runtime had been
+installed. The final gate was therefore re-run. The report's own
+resume condition says this attempt is authorized only on that
+confirmation; the evidence below shows the confirmed runtime is not
+present on this machine.
+
+Gate commands:
+
+```text
+$ which docker
+docker not found
+
+$ docker --version
+zsh:1: command not found: docker
+
+$ docker info
+zsh:1: command not found: docker
+
+$ docker run --rm hello-world
+zsh:1: command not found: docker
+```
+
+Full-machine sweep (performed because the runtime was reported
+installed but is not on PATH):
+
+```text
+/usr/local/bin/docker, /opt/homebrew/bin/docker, /usr/bin/docker: absent
+/Applications/Docker.app, OrbStack.app, Rancher Desktop.app, UTM.app: absent
+~/Applications/Docker.app: absent
+brew formulae/casks matching docker|podman|colima|lima|orb|containerd: NONE
+~/.docker, ~/.colima, ~/.orbstack, ~/.lima: absent
+/var/run/docker.sock: absent
+launchd container services: none (only macOS containermanagerd, unrelated)
+podman, colima, orb, orbctl, lima, limactl, nerdctl, finch: all MISSING
+```
+
+Final gate verdict:
+
+```text
+DOCKER_CLI = UNAVAILABLE
+DOCKER_RUNTIME = NOT_CHECKED (no CLI/daemon/socket anywhere)
+TEST_CONTAINER = FAIL (not run)
+CLOUDFLARE_CONTAINER_BOOT_CAPABLE = FALSE
+```
+
+`STATUS = BLOCKED_CONTAINER_PREREQUISITE`. R0B was not resumed; nothing
+was implemented. The Cloudflare Computer container boot probe was not
+reached. This is the final gate record for this state; no further
+repeated gate-history commits will be made without a state change.
 
 ## R0A1_REGRESSION
 
