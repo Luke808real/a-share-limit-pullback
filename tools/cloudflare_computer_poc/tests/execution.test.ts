@@ -4,10 +4,18 @@ import {
   buildExecutionResult,
   combineResultStatus,
   CONTAINER_EGRESS_ENFORCEMENT_AVAILABLE,
+  egressProbeGate,
+  EXECUTION_RESULT_PATH,
+  EXECUTION_STDOUT_PATH,
+  EXECUTION_STDERR_PATH,
   executionResultFileRaw,
+  finalizeExecutionArtifacts,
+  PUBLIC_EGRESS_PROBE_TARGET,
   sha256Utf8,
   utf8ByteLength,
   verifyArtifactHash,
+  type ArtifactStore,
+  type ExecutionSkipStatus,
   type ExecutionInput,
 } from "../src/execution";
 
@@ -182,5 +190,123 @@ describe("egress enforcement availability (evidence-pinned)", () => {
     // If a future package adds a deny mechanism, this flag is the one
     // place to flip AFTER re-verifying the typings/source.
     expect(CONTAINER_EGRESS_ENFORCEMENT_AVAILABLE).toBe(false);
+  });
+});
+
+describe("finalizeExecutionArtifacts (unified early-fail path)", () => {
+  const EMPTY_SHA = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+  const EMPTY_ARTIFACTS = {
+    stdout: "",
+    stderr: "",
+    stdout_truncated: false,
+    stderr_truncated: false,
+  } as const;
+
+  class MemoryStore implements ArtifactStore {
+    data = new Map<string, string>();
+    tamperStdout = false;
+    async writeFile(path: string, content: string): Promise<void> {
+      this.data.set(path, content);
+    }
+    async readFile(path: string): Promise<string | null> {
+      if (!this.data.has(path)) return null;
+      if (this.tamperStdout && path === EXECUTION_STDOUT_PATH) return "tampered";
+      return this.data.get(path)!;
+    }
+  }
+
+  async function assertEarlyFailFinalized(status: ExecutionSkipStatus): Promise<void> {
+    const store = new MemoryStore();
+    const input = base();
+    if (status === "SKIPPED_COMMIT_MISMATCH") {
+      input.commit_match = false;
+      input.actual_commit = "112bc94218be6dc530e4803cabec288eede6175d";
+      input.exit_code = null;
+    }
+    input.skip = { status, reason: "early fail test" };
+    const returned = await finalizeExecutionArtifacts(store, buildExecutionResult(input), EMPTY_ARTIFACTS);
+
+    expect(returned.result_status).toBe("FAIL_CLOSED");
+    expect(returned.stdout_sha256).toBe(EMPTY_SHA);
+    expect(returned.stderr_sha256).toBe(EMPTY_SHA);
+    expect(returned.execution_result_sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(returned.stdout_sha256).not.toBe("");
+    expect(returned.stderr_sha256).not.toBe("");
+    expect(returned.execution_result_sha256).not.toBe("");
+
+    // Persisted == returned (semantic equality) and hashes are valid.
+    const raw = store.data.get(EXECUTION_RESULT_PATH)!;
+    expect(raw).toBeDefined();
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    expect(JSON.stringify(parsed)).toBe(JSON.stringify(returned));
+    const { execution_result_sha256, ...rest } = parsed;
+    expect(await sha256Utf8(JSON.stringify(rest, null, 2))).toBe(execution_result_sha256 as string);
+    expect(store.data.get(EXECUTION_STDOUT_PATH)).toBe("");
+    expect(store.data.get(EXECUTION_STDERR_PATH)).toBe("");
+  }
+
+  it("finalizes SKIPPED_COMMIT_MISMATCH (hashes = SHA-256 of empty)", async () => {
+    await assertEarlyFailFinalized("SKIPPED_COMMIT_MISMATCH");
+  });
+
+  it("finalizes SKIPPED_DIRTY_WORKTREE (hashes = SHA-256 of empty)", async () => {
+    await assertEarlyFailFinalized("SKIPPED_DIRTY_WORKTREE");
+  });
+
+  it("finalizes EGRESS_ENFORCEMENT_UNAVAILABLE (hashes = SHA-256 of empty)", async () => {
+    const store = new MemoryStore();
+    const returned = await finalizeExecutionArtifacts(
+      store,
+      buildExecutionResult({ ...base(), egress_unenforced: true, exit_code: null }),
+      EMPTY_ARTIFACTS,
+    );
+    expect(returned.result_status).toBe("FAIL_CLOSED");
+    expect(returned.execution_status).toBe("EGRESS_ENFORCEMENT_UNAVAILABLE");
+    expect(returned.stdout_sha256).toBe(EMPTY_SHA);
+    expect(returned.stderr_sha256).toBe(EMPTY_SHA);
+    expect(returned.execution_result_sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(JSON.stringify(JSON.parse(store.data.get(EXECUTION_RESULT_PATH)!))).toBe(
+      JSON.stringify(returned),
+    );
+  });
+
+  it("preserves the ARTIFACT_HASH_MISMATCH gate on read-back failure", async () => {
+    const store = new MemoryStore();
+    store.tamperStdout = true;
+    const returned = await finalizeExecutionArtifacts(
+      store,
+      buildExecutionResult(base()),
+      { stdout: "real output", stderr: "", stdout_truncated: false, stderr_truncated: false },
+    );
+    expect(returned.execution_status).toBe("ARTIFACT_HASH_MISMATCH");
+    expect(returned.result_status).toBe("FAIL_CLOSED");
+    expect(returned.stdout_sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(returned.execution_result_sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(JSON.stringify(JSON.parse(store.data.get(EXECUTION_RESULT_PATH)!))).toBe(
+      JSON.stringify(returned),
+    );
+  });
+
+  it("finalizes the success path with content hashes of the persisted bytes", async () => {
+    const store = new MemoryStore();
+    const returned = await finalizeExecutionArtifacts(
+      store,
+      buildExecutionResult(base()),
+      { stdout: "..... 5 passed", stderr: "", stdout_truncated: false, stderr_truncated: false },
+    );
+    expect(returned.result_status).toBe("SUCCESS");
+    expect(returned.stdout_sha256).toBe(await sha256Utf8("..... 5 passed"));
+    expect(returned.stderr_sha256).toBe(await sha256Utf8(""));
+  });
+});
+
+describe("egress runtime proof contract (defined, not executed)", () => {
+  it("defines a fixed public probe target and command", () => {
+    expect(PUBLIC_EGRESS_PROBE_TARGET).toBe("https://example.com");
+  });
+
+  it("gates: BLOCKED proceeds, UNEXPECTEDLY_REACHABLE fails closed", () => {
+    expect(egressProbeGate("BLOCKED")).toBe("PROCEED");
+    expect(egressProbeGate("UNEXPECTEDLY_REACHABLE")).toBe("FAIL_CLOSED");
   });
 });

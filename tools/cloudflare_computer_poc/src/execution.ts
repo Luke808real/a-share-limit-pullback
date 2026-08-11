@@ -8,6 +8,24 @@ import { truncateUtf8 } from "./result";
 
 export const EXECUTION_STDOUT_CAP_BYTES = 64 * 1024;
 export const EXECUTION_STDERR_CAP_BYTES = 64 * 1024;
+export const EXECUTION_RESULT_PATH = "/execution-result.json";
+export const EXECUTION_STDOUT_PATH = "/execution-stdout.txt";
+export const EXECUTION_STDERR_PATH = "/execution-stderr.txt";
+
+/**
+ * Fixed public endpoint for the future in-container negative egress
+ * probe (RUNTIME PROOF CONTRACT, not executed this round). Before any
+ * PYTEST_CONFIG_V01 execution, the container must prove
+ * PUBLIC_EGRESS_PROBE = BLOCKED; if the endpoint is unexpectedly
+ * reachable, execution fails closed.
+ */
+export const PUBLIC_EGRESS_PROBE_TARGET = "https://example.com";
+export const PUBLIC_EGRESS_PROBE_COMMAND = `python -c "import urllib.request; urllib.request.urlopen('${PUBLIC_EGRESS_PROBE_TARGET}', timeout=5)"`;
+export type EgressProbeVerdict = "BLOCKED" | "UNEXPECTEDLY_REACHABLE";
+
+export function egressProbeGate(probe: EgressProbeVerdict): "PROCEED" | "FAIL_CLOSED" {
+  return probe === "BLOCKED" ? "PROCEED" : "FAIL_CLOSED";
+}
 
 /**
  * Egress enforcement availability for the Cloudflare Computer
@@ -226,4 +244,77 @@ export function combineResultStatus(
 /** True UTF-8 byte length (not string code units). */
 export function utf8ByteLength(s: string): number {
   return new TextEncoder().encode(s).byteLength;
+}
+
+/**
+ * Minimal storage surface for artifact finalization (implemented by
+ * the DO over workspace.fs, and by an in-memory fake in tests).
+ */
+export interface ArtifactStore {
+  writeFile(path: string, content: string): Promise<void>;
+  readFile(path: string): Promise<string | null>;
+}
+
+/**
+ * UNIFIED artifact finalization for EVERY execution outcome (including
+ * early fail-closed paths):
+ *
+ *   1. fill stdout/stderr SHA-256 (empty outputs hash SHA-256(""));
+ *   2. persist stdout/stderr/result (self-hash convention);
+ *   3. read the persisted bytes back and verify all hashes;
+ *   4. mismatch -> ARTIFACT_HASH_MISMATCH / FAIL_CLOSED (still with
+ *      valid hashes, persisted);
+ *   5. return the EXACT object that was persisted.
+ *
+ * No "" hash placeholders may remain in the returned/persisted result.
+ */
+export async function finalizeExecutionArtifacts(
+  store: ArtifactStore,
+  result: ExecutionResult,
+  artifacts: ExecutionArtifacts,
+): Promise<ExecutionResult> {
+  const filled = await fillArtifactHashes(result, artifacts);
+  const persisted = await persistExecutionArtifactsToStore(store, filled, artifacts);
+  if (await verifyPersistedArtifacts(store, persisted)) {
+    return persisted;
+  }
+  const failed: ExecutionResult = {
+    ...persisted,
+    execution_status: "ARTIFACT_HASH_MISMATCH",
+    result_status: "FAIL_CLOSED",
+  };
+  return persistExecutionArtifactsToStore(store, failed, artifacts);
+}
+
+async function persistExecutionArtifactsToStore(
+  store: ArtifactStore,
+  result: ExecutionResult,
+  artifacts: ExecutionArtifacts,
+): Promise<ExecutionResult> {
+  const selfHash = await sha256Utf8(executionResultFileRaw(result));
+  const final = { ...result, execution_result_sha256: selfHash };
+  await store.writeFile(EXECUTION_STDOUT_PATH, artifacts.stdout);
+  await store.writeFile(EXECUTION_STDERR_PATH, artifacts.stderr);
+  await store.writeFile(EXECUTION_RESULT_PATH, JSON.stringify(final, null, 2));
+  return final;
+}
+
+async function verifyPersistedArtifacts(
+  store: ArtifactStore,
+  result: ExecutionResult,
+): Promise<boolean> {
+  const stdout = await store.readFile(EXECUTION_STDOUT_PATH);
+  const stderr = await store.readFile(EXECUTION_STDERR_PATH);
+  const raw = await store.readFile(EXECUTION_RESULT_PATH);
+  if (stdout === null || stderr === null || raw === null) return false;
+  if (!verifyArtifactHash(result.stdout_sha256, await sha256Utf8(stdout))) return false;
+  if (!verifyArtifactHash(result.stderr_sha256, await sha256Utf8(stderr))) return false;
+  if (raw !== JSON.stringify(result, null, 2)) return false;
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    delete parsed.execution_result_sha256;
+    return (await sha256Utf8(JSON.stringify(parsed, null, 2))) === result.execution_result_sha256;
+  } catch {
+    return false;
+  }
 }

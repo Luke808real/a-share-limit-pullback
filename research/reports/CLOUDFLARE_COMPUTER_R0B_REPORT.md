@@ -768,6 +768,153 @@ blocker).
 
 R0C_RECOMMENDATION: NOT_ELIGIBLE — real container smoke has not passed.
 
+## R0B V01.2 ARTIFACT + EGRESS COMPATIBILITY
+
+STATUS: LOW_LEVEL_EGRESS_INTEGRATION_REQUIRES_ARCH_CHANGE
+
+BASE_HEAD: `0426e24e603794e7e2afd9320420aa4cb48c151e`
+
+Targeted correctness patch + compatibility spike. No Docker/proxy
+changes, no docker pull/build, no smoke runs, no Dockerfile change, no
+package upgrade/install, no R0C.
+
+FILES_CHANGED:
+
+```text
+tools/cloudflare_computer_poc/src/execution.ts
+tools/cloudflare_computer_poc/src/workspace-agent.ts
+tools/cloudflare_computer_poc/tests/execution.test.ts
+research/reports/CLOUDFLARE_COMPUTER_R0B_REPORT.md
+```
+
+EARLY_FAIL_ARTIFACT_FINALIZATION: fixed. All execution outcomes now go
+through ONE unified path — `finalizeExecutionArtifacts(store, result,
+artifacts)` — which: (1) fills stdout/stderr SHA-256; (2) persists
+stdout/stderr/execution-result; (3) reads the persisted bytes back and
+verifies every hash incl. the self-hash convention; (4) on mismatch
+writes and returns an `ARTIFACT_HASH_MISMATCH` / FAIL_CLOSED variant;
+(5) returns the EXACT persisted object. The three early-fail paths
+(SKIPPED_COMMIT_MISMATCH, SKIPPED_DIRTY_WORKTREE,
+EGRESS_ENFORCEMENT_UNAVAILABLE) previously discarded the finalized
+return value and returned an unfinalized result with empty hashes; the
+DO's `finalize()` wrapper now routes all paths through the shared
+helper via a small `ArtifactStore` adapter over workspace.fs.
+
+PERSISTED_RETURNED_EQUALITY: guaranteed by construction (the returned
+object IS the object whose JSON was written). Targeted tests assert
+`JSON.stringify(JSON.parse(persisted)) === JSON.stringify(returned)`
+for all three early-fail outcomes and the mismatch outcome.
+
+EMPTY_STDOUT_SHA256 / EMPTY_STDERR_SHA256: for empty outputs the
+finalized hashes are the valid 64-hex SHA-256 of the empty string
+(`e3b0c442...b855`), never an empty-string placeholder. Unit-tested.
+
+ARTIFACT_HASH_MISMATCH_GATE: preserved and not weakened by the unified
+helper — read-back verification still runs after every persist; a
+tampered-stdout seam test proves the mismatch variant is written and
+returned fail-closed with valid hashes.
+
+STALE_COMMENT_FIX: corrected in workspace-agent.ts — the class doc no
+longer claims "no execution backend is configured"; it now states that
+the container backend exists for R0B, that runtime execution is
+fail-closed before any exec until enforceable container egress policy
+is proven, and that the pytest conftest socket block is
+defense-in-depth only. The backend-field comment likewise no longer
+claims "no outbound egress for the container".
+
+COMPUTER_0_1_1_START_PATH (Q1): the container is started by
+`CloudflareContainerBackend.connect()` ->
+`host.start(env)` (host = `getWorkspaceContainer()` from the
+`withWorkspaceContainer` mixin -> `WorkspaceContainerAPI(ctx)`);
+`WorkspaceContainerAPI.start(env)` and `.restart(env)` both call
+`this.#container.start({ enableInternet: true, env })` —
+`enableInternet: true` is HARDCODED on every start path
+(node_modules/@cloudflare/computer/dist/backends/container/index.js,
+class WorkspaceContainerAPI, start/restart).
+
+CTX_CONTAINER_API (Q2): the DO's `ctx.container` is the platform
+Container handle; `@cloudflare/workers-types` 5.20260811.1 line 3968:
+`interface ContainerStartupOptions { entrypoint?; enableInternet:
+boolean; env?; ... }` — `enableInternet` is a REQUIRED boolean.
+
+ENABLE_INTERNET_FALSE_PATH (Q2): structurally callable — the DO could
+invoke `ctx.container.start({ enableInternet: false, ... })` before
+the backend's first connect. NOT reliable on the current stack: the
+0.1.1 wrapper re-issues `start({ enableInternet: true })` on every
+backend connect, and `restart()` (health restart, crash recovery,
+re-connect after session teardown) hardcodes true again, so
+internet-disabled cannot be guaranteed for the container's lifetime.
+
+LIFECYCLE_COMPATIBILITY (Q3): conflicting. A DO-side pre-start(false)
+would be overridden by the wrapper's start(true) on the backend
+restart/connect paths; the wrapper owns the container lifecycle through
+connect()/restart(). Q4: `wrangler` 4.120.1 dist contains NO
+`enableInternet` symbol, so local dev does not appear to apply the
+start policy at all — a local runtime proof of deny would be
+impossible with this wrangler regardless.
+
+EGRESS_DECISION: CASE B — CURRENT_STACK_CANNOT_ENFORCE.
+`CONTAINER_EGRESS_ENFORCEMENT_AVAILABLE` stays `false`; R0B execution
+remains fail-closed (`EGRESS_ENFORCEMENT_UNAVAILABLE`). Minimal
+candidates (NOT executed):
+
+```text
+OPTION_1  upgrade @cloudflare/computer to a release exposing egress
+          policy (repo HEAD already has WorkspaceEgressPolicy /
+          egress options ahead of 0.1.1)
+OPTION_2  add/use @cloudflare/containers with
+          ctx.container.start({ enableInternet: false }) and replace
+          the withWorkspaceContainer wiring accordingly
+```
+
+EGRESS_API_EVIDENCE:
+
+```text
+@cloudflare/computer 0.1.1 dist/backends/container/index.js:
+  WorkspaceContainerAPI.start/restart -> container.start({
+  enableInternet: true, env }) (hardcoded, all paths)
+@cloudflare/computer 0.1.1 dist/backends/container/index.js:
+  CloudflareContainerBackend.connect() -> host.start(env);
+  withWorkspaceContainer -> getWorkspaceContainer() ->
+  new WorkspaceContainerAPI(this.ctx)
+@cloudflare/workers-types 5.20260811.1 index.d.ts:3968:
+  ContainerStartupOptions.enableInternet: boolean (required)
+@cloudflare/workers-types 5.20260811.1: ctx.container (Container
+  binding) with start(options: ContainerStartupOptions)
+wrangler 4.120.1 dist: no enableInternet symbol (local dev does not
+  implement the start policy)
+```
+
+RUNTIME_PROOF_CONTRACT: defined and unit-tested, NOT executed.
+`PUBLIC_EGRESS_PROBE_TARGET = https://example.com` with
+`PUBLIC_EGRESS_PROBE_COMMAND`; `egressProbeGate("BLOCKED")` =
+PROCEED, `egressProbeGate("UNEXPECTEDLY_REACHABLE")` = FAIL_CLOSED.
+Once enforceable egress exists, the in-container negative probe must
+report BLOCKED before PYTEST_CONFIG_V01 may run.
+
+TYPECHECK: PASS.
+
+TARGETED_TESTS: PASS — `npm test` 60/60 (was 53; +7): early-fail
+finalization for the three outcomes (hashes = SHA-256(""), valid
+64-hex, persisted == returned), mismatch-gate tamper seam, success-path
+finalization, egress probe gate, plus all prior coverage.
+
+R0A1_REGRESSION: PASS (60/60 suite includes all R0A1 manifest /
+UTF-8 / conflict / exact-SHA tests).
+
+REGISTRY_EGRESS_BLOCKER: unchanged and untouched this round.
+
+CORRECTNESS_BLOCKER: `LOW_LEVEL_EGRESS_INTEGRATION_REQUIRES_ARCH_CHANGE`
+— the published 0.1.1 wrapper cannot reliably enforce
+enableInternet=false for the container lifetime (hardcoded true on all
+start/restart paths; wrangler local dev lacks the policy symbol);
+enforcement requires OPTION_1/OPTION_2, both out of scope. The
+docker.io registry blocker also remains.
+
+REAL_SMOKE_STATUS: NOT_RUN / NOT_AUTHORIZED.
+
+R0C_RECOMMENDATION: NOT_ELIGIBLE.
+
 ## R0A1_REGRESSION
 
 Not applicable to code: no PoC code changed, so R0A1 contracts

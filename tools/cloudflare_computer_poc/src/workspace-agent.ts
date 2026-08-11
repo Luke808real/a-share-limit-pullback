@@ -10,14 +10,15 @@ import { createGitClient } from "@cloudflare/computer/git";
 import { DurableObject } from "cloudflare:workers";
 import { runBoundedCommands, type CommandDetail } from "./commands";
 import {
+  EXECUTION_RESULT_PATH,
+  EXECUTION_STDOUT_PATH,
+  EXECUTION_STDERR_PATH,
   boundArtifacts,
   buildExecutionResult,
   combineResultStatus,
   CONTAINER_EGRESS_ENFORCEMENT_AVAILABLE,
-  executionResultFileRaw,
-  fillArtifactHashes,
-  sha256Utf8,
-  verifyArtifactHash,
+  finalizeExecutionArtifacts,
+  type ArtifactStore,
   type ExecutionResult,
 } from "./execution";
 import { checkReplay, ManifestConflictError, type JobManifest, type ManifestConflict } from "./manifest";
@@ -38,9 +39,6 @@ const MANIFEST_PATH = "/job-manifest.json";
 const RESULT_PATH = "/result.json";
 const REPORT_PATH = "/report.md";
 const MARKER_PATH = "/persistence-marker.txt";
-const EXECUTION_RESULT_PATH = "/execution-result.json";
-const EXECUTION_STDOUT_PATH = "/execution-stdout.txt";
-const EXECUTION_STDERR_PATH = "/execution-stderr.txt";
 
 /** Frozen dependency-install step baked into the container image (build time). */
 const DEPENDENCY_INSTALL_COMMAND =
@@ -66,10 +64,13 @@ class WorkspaceAgentContainerBase extends withWorkspaceContainer(
  * persists across requests and across local `wrangler dev` restarts,
  * which is the R0A workspace-persistence claim.
  *
- * No execution backend is configured: there is no shell isolate and no
- * ambient network surface. The only network capability is the host-side
- * git client (isomorphic-git running in the DO), which is exactly the
- * host capability the R0A contract permits for git materialization.
+ * A Cloudflare Computer Container backend IS configured for R0B (the
+ * DO is container-enabled). Runtime execution is currently FAIL-CLOSED
+ * before any exec until an enforceable container egress policy is
+ * proven (see CONTAINER_EGRESS_ENFORCEMENT_AVAILABLE). The only network
+ * capability actually used is the host-side git client (isomorphic-git
+ * in the DO); the repo pytest conftest socket block is
+ * defense-in-depth only, not primary egress enforcement.
  *
  * The job runner lives here (host side) because the typed git methods
  * (clone / fetch / checkout / revParse) exist on the DO-side
@@ -82,9 +83,11 @@ export class WorkspaceAgent extends WorkspaceAgentContainerBase {
   readonly backend = new CloudflareContainerBackend({
     container: () => this,
     workspace: { binding: "WORKSPACE_AGENT", id: this.ctx.id.toString() },
-    // No outbound egress for the container: dependencies are baked at
-    // image build time and pytest runs with sockets blocked (repo
-    // conftest). Matches network_policy.egress = "none".
+    // The published 0.1.1 wrapper cannot enforce container-level
+    // deny-internet (its start path hardcodes enableInternet: true).
+    // Runtime execution is gated fail-closed below; dependencies are
+    // baked at image build time; the repo conftest socket block is
+    // defense-in-depth only.
   });
 
   constructor(ctx: DurableObjectState, env: Env) {
@@ -215,8 +218,7 @@ export class WorkspaceAgent extends WorkspaceAgentContainerBase {
             "actual HEAD does not match requested commit; container execution skipped (fail closed)",
         },
       });
-      await this.persistExecutionArtifacts(ws, result, emptyArtifacts);
-      return result;
+      return this.finalize(result, emptyArtifacts);
     }
 
     // Clean-worktree gate: the repository must be untouched before any
@@ -231,8 +233,7 @@ export class WorkspaceAgent extends WorkspaceAgentContainerBase {
           reason: `git status --porcelain is not empty (${repoStateBefore.slice(0, 400)}); container execution skipped (fail closed)`,
         },
       });
-      await this.persistExecutionArtifacts(ws, result, emptyArtifacts);
-      return result;
+      return this.finalize(result, emptyArtifacts);
     }
 
     // Egress enforcement gate: the published 0.1.1 wrapper cannot set
@@ -245,9 +246,15 @@ export class WorkspaceAgent extends WorkspaceAgentContainerBase {
         repo_state_before: repoStateBefore,
         egress_unenforced: true,
       });
-      await this.persistExecutionArtifacts(ws, result, emptyArtifacts);
-      return result;
+      return this.finalize(result, emptyArtifacts);
     }
+
+    // RUNTIME PROOF CONTRACT (defined, NOT executed this round): once
+    // enforceable egress exists, before PYTEST_CONFIG_V01 the container
+    // must prove PUBLIC_EGRESS_PROBE = BLOCKED against
+    // PUBLIC_EGRESS_PROBE_TARGET (command PUBLIC_EGRESS_PROBE_COMMAND);
+    // an unexpectedly reachable endpoint fails closed via
+    // egressProbeGate("UNEXPECTEDLY_REACHABLE") and pytest does not run.
 
     let pythonVersion = "";
     let pipVersion = "";
@@ -302,37 +309,42 @@ export class WorkspaceAgent extends WorkspaceAgentContainerBase {
     const finishedAt = new Date().toISOString();
     const durationMs = new Date(finishedAt).getTime() - new Date(startedAt).getTime();
     const artifacts = boundArtifacts(stdout, stderr);
-    const result = await fillArtifactHashes(
-      buildExecutionResult({
-        ...baseInput,
-        python_version: pythonVersion,
-        pip_version: pipVersion,
-        repo_state_before: repoStateBefore,
-        exit_code: exitCode,
-        started_at: startedAt,
-        finished_at: finishedAt,
-        duration_ms: durationMs,
-        timeout,
-        infra_error: infraError,
-        artifacts,
-      }),
+    const result = buildExecutionResult({
+      ...baseInput,
+      python_version: pythonVersion,
+      pip_version: pipVersion,
+      repo_state_before: repoStateBefore,
+      exit_code: exitCode,
+      started_at: startedAt,
+      finished_at: finishedAt,
+      duration_ms: durationMs,
+      timeout,
+      infra_error: infraError,
       artifacts,
-    );
+    });
+    return this.finalize(result, artifacts);
+  }
 
-    // Persist, then verify hashes against the bytes actually stored.
-    const persisted = await this.persistExecutionArtifacts(ws, result, artifacts);
-    const verified = await this.verifyPersistedExecutionArtifacts(ws, persisted);
-    if (!verified) {
-      const failed = {
-        ...persisted,
-        execution_result_sha256: "",
-        execution_status: "ARTIFACT_HASH_MISMATCH" as const,
-        result_status: "FAIL_CLOSED" as const,
-      };
-      await ws.fs.writeFile(EXECUTION_RESULT_PATH, JSON.stringify(failed, null, 2));
-      return failed;
-    }
-    return persisted;
+  /**
+   * Unified finalization for EVERY outcome: fill hashes (empty outputs
+   * hash SHA-256("")) -> persist -> read-back verify -> return the
+   * EXACT persisted result; verification mismatch fails closed with
+   * ARTIFACT_HASH_MISMATCH. Never returns an unfinalized result.
+   */
+  private async finalize(
+    result: ExecutionResult,
+    artifacts: {
+      stdout: string;
+      stderr: string;
+      stdout_truncated: boolean;
+      stderr_truncated: boolean;
+    },
+  ): Promise<ExecutionResult> {
+    const store: ArtifactStore = {
+      writeFile: (path, content) => this.#workspace.fs.writeFile(path, content),
+      readFile: (path) => this.readFileOrNull(path),
+    };
+    return finalizeExecutionArtifacts(store, result, artifacts);
   }
 
   private async execCapture(
@@ -350,46 +362,6 @@ export class WorkspaceAgent extends WorkspaceAgentContainerBase {
     });
     const res = await run.result();
     return { stdout: res.stdout ?? "", stderr: res.stderr ?? "", exitCode: res.exitCode };
-  }
-
-  private async persistExecutionArtifacts(
-    ws: Workspace,
-    result: ExecutionResult,
-    artifacts: { stdout: string; stderr: string },
-  ): Promise<ExecutionResult> {
-    const fileHash = await sha256Utf8(executionResultFileRaw(result));
-    const final = { ...result, execution_result_sha256: fileHash };
-    await ws.fs.writeFile(EXECUTION_STDOUT_PATH, artifacts.stdout);
-    await ws.fs.writeFile(EXECUTION_STDERR_PATH, artifacts.stderr);
-    await ws.fs.writeFile(EXECUTION_RESULT_PATH, JSON.stringify(final, null, 2));
-    return final;
-  }
-
-  private async verifyPersistedExecutionArtifacts(
-    ws: Workspace,
-    result: ExecutionResult,
-  ): Promise<boolean> {
-    const stdout = await this.readFileOrNull(EXECUTION_STDOUT_PATH);
-    const stderr = await this.readFileOrNull(EXECUTION_STDERR_PATH);
-    const resultRaw = await this.readFileOrNull(EXECUTION_RESULT_PATH);
-    if (stdout === null || stderr === null || resultRaw === null) return false;
-    const stdoutHash = await sha256Utf8(stdout);
-    const stderrHash = await sha256Utf8(stderr);
-    let selfHashOk = false;
-    try {
-      const parsed = JSON.parse(resultRaw) as Record<string, unknown>;
-      delete parsed.execution_result_sha256;
-      selfHashOk =
-        (await sha256Utf8(JSON.stringify(parsed, null, 2))) === result.execution_result_sha256;
-    } catch {
-      selfHashOk = false;
-    }
-    return (
-      verifyArtifactHash(result.stdout_sha256, stdoutHash) &&
-      verifyArtifactHash(result.stderr_sha256, stderrHash) &&
-      resultRaw === JSON.stringify(result, null, 2) &&
-      selfHashOk
-    );
   }
 
   private async repoState(dir: string): Promise<string> {
