@@ -1,0 +1,41 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "anchor_date": {
+      "format": "date",
+      "title": "Anchor Date",
+      "type": "string"
+    },
+    "anchor_price": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "type": "string"
+        }
+      ],
+      "gt": "0",
+      "title": "Anchor Price"
+    },
+    "frozen_as_of": {
+      "format": "date",
+      "title": "Frozen As Of",
+      "type": "string"
+    },
+    "source": {
+      "minLength": 1,
+      "title": "Source",
+      "type": "string"
+    }
+  },
+  "required": [
+    "anchor_date",
+    "anchor_price",
+    "frozen_as_of",
+    "source"
+  ],
+  "title": "AnchorSnapshot",
+  "type": "object"
+}

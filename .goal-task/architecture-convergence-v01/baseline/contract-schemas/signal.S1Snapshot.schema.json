@@ -1,0 +1,57 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "eligible_from": {
+      "format": "date",
+      "title": "Eligible From",
+      "type": "string"
+    },
+    "frozen_as_of": {
+      "format": "date",
+      "title": "Frozen As Of",
+      "type": "string"
+    },
+    "s1_high": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "type": "string"
+        }
+      ],
+      "gt": "0",
+      "title": "S1 High"
+    },
+    "s1_low": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "type": "string"
+        }
+      ],
+      "gt": "0",
+      "title": "S1 Low"
+    },
+    "sources": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Sources",
+      "type": "array"
+    }
+  },
+  "required": [
+    "s1_low",
+    "s1_high",
+    "sources",
+    "frozen_as_of",
+    "eligible_from"
+  ],
+  "title": "S1Snapshot",
+  "type": "object"
+}

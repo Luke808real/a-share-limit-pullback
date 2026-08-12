@@ -2,11 +2,11 @@
 
 Item state values: `pending`, `in_progress`, `needs_input`, `deferred`, `accepted`.
 
-## REF-R0 — Baseline Freeze (`in_progress`, round-2 evidence awaiting re-review)
+## REF-R0 — Baseline Freeze (`in_progress`, round-3 evidence awaiting final review)
 
 - Freeze exact Runtime, Brain, and ASL SHAs and repository cleanliness evidence. [done: evidence v02 sections 1,8]
-- Resolve and record strategy/rule/config versions and hashes, TEST_HASH/GOLDEN_HASH, reference snapshot/generation/episodes, ASL contract/version, and current authority gates. [done: evidence v02 sections 2-3; TEST_HASH 9fb950f0..., GOLDEN_HASH 1f215fd4...; authority gates re-attributed to IMPLEMENTATION_LOG.md]
-- Characterize existing public contracts, state/signal/artifact outputs, PIT prefixes, Runtime performance/RSS/artifact size, and legacy call/dependency inventory. [done: evidence v02 sections 5-6; corrected providers=4, StrategySignal=36 fields, lifecycle wording]
+- Resolve and record strategy/rule/config versions and hashes, TEST_HASH/GOLDEN_HASH, reference snapshot/generation/episodes, ASL contract/version, and current authority gates. [done: evidence v03 sections 2-3; TEST_HASH 9fb950f0..., GOLDEN_HASH 3891b170..., CONTRACT_HASH df33ec3f...; ASL contract anchors VFLASH_ASL_PHASE1A_V1 / ba5681a; authority gates via IMPLEMENTATION_LOG.md + 00_Project/CURRENT_STATE.md]
+- Characterize existing public contracts, state/signal/artifact outputs, PIT prefixes, Runtime performance/RSS/artifact size, and legacy call/dependency inventory. [done: evidence v03 sections 5-6; providers=4 with stated criterion, StrategySignal=36 fields, lifecycle wording, 13 contract schema fingerprints]
 - Confirm no frozen artifact was modified and store baseline evidence without raw market data or secrets in Git. [done: evidence v02 section 8; baseline hash files committed under .goal-task/architecture-convergence-v01/baseline/]
 - Gate: reproducible, reviewer-approved baseline sufficient to detect semantic, lineage, and performance drift. [pending: round-2 three-reader re-review]
 
@@ -16,7 +16,7 @@ Baseline findings to feed later phases:
 - F2: chunked `screen --rebuild` without `--start` raises AttributeError instead of a validation error.
 - F3: single full-market run JSON embeds all rows (4.27 GB artifact).
 
-Later-phase hard prerequisites recorded in evidence v02 section 7: Replay(D)=Daily(D) baseline, ASL-vs-Legacy equivalence, 20-stock frozen replay reproduction (needs frozen code list), Runtime/Brain CI gap.
+Later-phase hard prerequisites recorded in evidence v03 section 7: Replay(D)=Daily(D) baseline, ASL-vs-Legacy equivalence, 20-stock frozen replay reproduction (needs frozen code list), Runtime/Brain CI gap.
 
 ## REF-R1 — Architecture Constitution (`pending`)
 

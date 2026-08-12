@@ -1,0 +1,74 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "bars_prefix_hash": {
+      "title": "Bars Prefix Hash",
+      "type": "string"
+    },
+    "code": {
+      "pattern": "^\\d{6}$",
+      "title": "Code",
+      "type": "string"
+    },
+    "config_hash": {
+      "title": "Config Hash",
+      "type": "string"
+    },
+    "last_processed_date": {
+      "format": "date",
+      "title": "Last Processed Date",
+      "type": "string"
+    },
+    "limit_pool_prefix_hash": {
+      "title": "Limit Pool Prefix Hash",
+      "type": "string"
+    },
+    "processed_at": {
+      "format": "date-time",
+      "title": "Processed At",
+      "type": "string"
+    },
+    "reconciliation_policy_version": {
+      "title": "Reconciliation Policy Version",
+      "type": "string"
+    },
+    "setup_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Setup Id"
+    },
+    "signal_json": {
+      "title": "Signal Json",
+      "type": "string"
+    },
+    "snapshot_id": {
+      "title": "Snapshot Id",
+      "type": "string"
+    },
+    "strategy_commit": {
+      "title": "Strategy Commit",
+      "type": "string"
+    }
+  },
+  "required": [
+    "code",
+    "last_processed_date",
+    "signal_json",
+    "snapshot_id",
+    "bars_prefix_hash",
+    "limit_pool_prefix_hash",
+    "strategy_commit",
+    "config_hash",
+    "reconciliation_policy_version",
+    "processed_at"
+  ],
+  "title": "ScreenState",
+  "type": "object"
+}

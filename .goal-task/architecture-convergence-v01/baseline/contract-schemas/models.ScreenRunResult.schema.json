@@ -1,0 +1,169 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "active_setup_count": {
+      "minimum": 0,
+      "title": "Active Setup Count",
+      "type": "integer"
+    },
+    "as_of": {
+      "format": "date",
+      "title": "As Of",
+      "type": "string"
+    },
+    "codes": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Codes",
+      "type": "array"
+    },
+    "config_hash": {
+      "title": "Config Hash",
+      "type": "string"
+    },
+    "entry_candidate_count": {
+      "minimum": 0,
+      "title": "Entry Candidate Count",
+      "type": "integer"
+    },
+    "kind": {
+      "title": "Kind",
+      "type": "string"
+    },
+    "new_anchor_count": {
+      "minimum": 0,
+      "title": "New Anchor Count",
+      "type": "integer"
+    },
+    "notes": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Notes",
+      "type": "array"
+    },
+    "output_hash": {
+      "title": "Output Hash",
+      "type": "string"
+    },
+    "output_path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Output Path"
+    },
+    "pool_mode": {
+      "default": "formal",
+      "title": "Pool Mode",
+      "type": "string"
+    },
+    "quality_rejection_count": {
+      "minimum": 0,
+      "title": "Quality Rejection Count",
+      "type": "integer"
+    },
+    "reused": {
+      "default": false,
+      "title": "Reused",
+      "type": "boolean"
+    },
+    "rows_count": {
+      "minimum": 0,
+      "title": "Rows Count",
+      "type": "integer"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "snapshot_id": {
+      "title": "Snapshot Id",
+      "type": "string"
+    },
+    "start": {
+      "anyOf": [
+        {
+          "format": "date",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Start"
+    },
+    "state_path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "State Path"
+    },
+    "status_counts": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "default": {},
+      "title": "Status Counts",
+      "type": "object"
+    },
+    "strategy_commit": {
+      "title": "Strategy Commit",
+      "type": "string"
+    },
+    "universe_size": {
+      "minimum": 0,
+      "title": "Universe Size",
+      "type": "integer"
+    },
+    "verify_replay": {
+      "default": false,
+      "title": "Verify Replay",
+      "type": "boolean"
+    },
+    "verify_replay_matched": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Verify Replay Matched"
+    }
+  },
+  "required": [
+    "run_id",
+    "kind",
+    "as_of",
+    "snapshot_id",
+    "strategy_commit",
+    "config_hash",
+    "output_hash",
+    "universe_size",
+    "rows_count",
+    "new_anchor_count",
+    "active_setup_count",
+    "entry_candidate_count",
+    "quality_rejection_count"
+  ],
+  "title": "ScreenRunResult",
+  "type": "object"
+}

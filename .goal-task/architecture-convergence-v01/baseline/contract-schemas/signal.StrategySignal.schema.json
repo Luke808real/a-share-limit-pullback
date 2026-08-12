@@ -1,0 +1,1083 @@
+{
+  "$defs": {
+    "AnchorSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "anchor_date": {
+          "format": "date",
+          "title": "Anchor Date",
+          "type": "string"
+        },
+        "anchor_price": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "gt": "0",
+          "title": "Anchor Price"
+        },
+        "frozen_as_of": {
+          "format": "date",
+          "title": "Frozen As Of",
+          "type": "string"
+        },
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "anchor_date",
+        "anchor_price",
+        "frozen_as_of",
+        "source"
+      ],
+      "title": "AnchorSnapshot",
+      "type": "object"
+    },
+    "B2TriggerSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "eligible_from": {
+          "format": "date",
+          "title": "Eligible From",
+          "type": "string"
+        },
+        "frozen_as_of": {
+          "format": "date",
+          "title": "Frozen As Of",
+          "type": "string"
+        },
+        "sources": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Sources",
+          "type": "array"
+        },
+        "trigger_price": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "gt": "0",
+          "title": "Trigger Price"
+        }
+      },
+      "required": [
+        "trigger_price",
+        "frozen_as_of",
+        "eligible_from",
+        "sources"
+      ],
+      "title": "B2TriggerSnapshot",
+      "type": "object"
+    },
+    "ConditionSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "failed": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Failed",
+          "type": "array"
+        },
+        "matched": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Matched",
+          "type": "array"
+        },
+        "unavailable": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Unavailable",
+          "type": "array"
+        }
+      },
+      "title": "ConditionSnapshot",
+      "type": "object"
+    },
+    "DataQuality": {
+      "enum": [
+        "OK",
+        "PARTIAL",
+        "DEGRADED",
+        "UNUSABLE"
+      ],
+      "title": "DataQuality",
+      "type": "string"
+    },
+    "EntryRoomState": {
+      "enum": [
+        "SUFFICIENT",
+        "THIN",
+        "NONE",
+        "OPEN_SPACE"
+      ],
+      "title": "EntryRoomState",
+      "type": "string"
+    },
+    "EventFlag": {
+      "enum": [
+        "NEAR_S1",
+        "S1_BREAKOUT",
+        "S2_EXHAUSTED",
+        "SUPPORT_WARNING"
+      ],
+      "title": "EventFlag",
+      "type": "string"
+    },
+    "InvalidPriceSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "eligible_from": {
+          "format": "date",
+          "title": "Eligible From",
+          "type": "string"
+        },
+        "frozen_as_of": {
+          "format": "date",
+          "title": "Frozen As Of",
+          "type": "string"
+        },
+        "initial_invalid_price": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "gt": "0",
+          "title": "Initial Invalid Price"
+        },
+        "invalid_price": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "gt": "0",
+          "title": "Invalid Price"
+        }
+      },
+      "required": [
+        "initial_invalid_price",
+        "invalid_price",
+        "frozen_as_of",
+        "eligible_from"
+      ],
+      "title": "InvalidPriceSnapshot",
+      "type": "object"
+    },
+    "PatternType": {
+      "enum": [
+        "AIR_REFUEL",
+        "BEARISH_PULLBACK"
+      ],
+      "title": "PatternType",
+      "type": "string"
+    },
+    "ResistanceCandidateSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "cluster": {
+          "$ref": "#/$defs/ResistanceClusterSnapshot"
+        },
+        "excluded_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Excluded Reason"
+        },
+        "price": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "gt": "0",
+          "title": "Price"
+        },
+        "selected_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Selected Reason"
+        },
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "price",
+        "cluster"
+      ],
+      "title": "ResistanceCandidateSnapshot",
+      "type": "object"
+    },
+    "ResistanceClusterSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "center": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "gt": "0",
+          "title": "Center"
+        },
+        "high": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "gt": "0",
+          "title": "High"
+        },
+        "low": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "gt": "0",
+          "title": "Low"
+        },
+        "sources": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Sources",
+          "type": "array"
+        }
+      },
+      "required": [
+        "low",
+        "high",
+        "center",
+        "sources"
+      ],
+      "title": "ResistanceClusterSnapshot",
+      "type": "object"
+    },
+    "ResistanceSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "eligible_from": {
+          "format": "date",
+          "title": "Eligible From",
+          "type": "string"
+        },
+        "frozen_as_of": {
+          "format": "date",
+          "title": "Frozen As Of",
+          "type": "string"
+        },
+        "resistance_high": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "gt": "0",
+          "title": "Resistance High"
+        },
+        "resistance_low": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "gt": "0",
+          "title": "Resistance Low"
+        },
+        "sources": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Sources",
+          "type": "array"
+        }
+      },
+      "required": [
+        "resistance_low",
+        "resistance_high",
+        "sources",
+        "frozen_as_of",
+        "eligible_from"
+      ],
+      "title": "ResistanceSnapshot",
+      "type": "object"
+    },
+    "ReviewGroup": {
+      "enum": [
+        "STANDARD",
+        "OPEN_SPACE"
+      ],
+      "title": "ReviewGroup",
+      "type": "string"
+    },
+    "S1Snapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "eligible_from": {
+          "format": "date",
+          "title": "Eligible From",
+          "type": "string"
+        },
+        "frozen_as_of": {
+          "format": "date",
+          "title": "Frozen As Of",
+          "type": "string"
+        },
+        "s1_high": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "gt": "0",
+          "title": "S1 High"
+        },
+        "s1_low": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "gt": "0",
+          "title": "S1 Low"
+        },
+        "sources": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Sources",
+          "type": "array"
+        }
+      },
+      "required": [
+        "s1_low",
+        "s1_high",
+        "sources",
+        "frozen_as_of",
+        "eligible_from"
+      ],
+      "title": "S1Snapshot",
+      "type": "object"
+    },
+    "ScoreBreakdown": {
+      "additionalProperties": false,
+      "properties": {
+        "component_max_scores": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              }
+            ],
+            "gt": "0"
+          },
+          "title": "Component Max Scores",
+          "type": "object"
+        },
+        "component_scores": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              }
+            ],
+            "ge": "0"
+          },
+          "title": "Component Scores",
+          "type": "object"
+        },
+        "profile": {
+          "$ref": "#/$defs/ScoreProfile"
+        },
+        "profile_max_score": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "gt": "0",
+          "title": "Profile Max Score"
+        },
+        "quality_flags": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Quality Flags",
+          "type": "array"
+        },
+        "reasons": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Reasons",
+          "type": "object"
+        },
+        "risks": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Risks",
+          "type": "object"
+        },
+        "unavailable_rules": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Unavailable Rules",
+          "type": "array"
+        }
+      },
+      "required": [
+        "profile",
+        "profile_max_score",
+        "component_scores",
+        "component_max_scores"
+      ],
+      "title": "ScoreBreakdown",
+      "type": "object"
+    },
+    "ScoreProfile": {
+      "enum": [
+        "FULL",
+        "PRICE_ONLY"
+      ],
+      "title": "ScoreProfile",
+      "type": "string"
+    },
+    "SetupStage": {
+      "enum": [
+        "NORMAL",
+        "LIMIT_ANCHOR",
+        "WATCH_PULLBACK",
+        "B1_READY",
+        "B2_READY",
+        "B2_CONFIRMED",
+        "INVALID"
+      ],
+      "title": "SetupStage",
+      "type": "string"
+    },
+    "SupportSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "eligible_from": {
+          "format": "date",
+          "title": "Eligible From",
+          "type": "string"
+        },
+        "frozen_as_of": {
+          "format": "date",
+          "title": "Frozen As Of",
+          "type": "string"
+        },
+        "max_above_reference_close": {
+          "anyOf": [
+            {
+              "maximum": 0.005,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "ge": "0",
+          "le": "1",
+          "title": "Max Above Reference Close"
+        },
+        "reference_close": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "gt": "0",
+          "title": "Reference Close"
+        },
+        "reference_low": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                  "type": "string"
+                }
+              ],
+              "gt": "0"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reference Low"
+        },
+        "sources": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Sources",
+          "type": "array"
+        },
+        "support_center": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "gt": "0",
+          "title": "Support Center"
+        },
+        "support_high": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "gt": "0",
+          "title": "Support High"
+        },
+        "support_low": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "gt": "0",
+          "title": "Support Low"
+        }
+      },
+      "required": [
+        "support_low",
+        "support_high",
+        "support_center",
+        "sources",
+        "frozen_as_of",
+        "eligible_from",
+        "reference_close",
+        "max_above_reference_close"
+      ],
+      "title": "SupportSnapshot",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "anchor": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AnchorSnapshot"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "b1_conditions": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ConditionSnapshot"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "b2_conditions": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ConditionSnapshot"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "b2_trigger": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/B2TriggerSnapshot"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "code": {
+      "pattern": "^\\d{6}$",
+      "title": "Code",
+      "type": "string"
+    },
+    "data_quality": {
+      "$ref": "#/$defs/DataQuality"
+    },
+    "entry_headroom_pct": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Entry Headroom Pct"
+    },
+    "entry_quality_score": {
+      "anyOf": [
+        {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "ge": "0",
+          "le": "100"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Entry Quality Score"
+    },
+    "entry_reference_price": {
+      "anyOf": [
+        {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "gt": "0"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Entry Reference Price"
+    },
+    "entry_room_reasons": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Entry Room Reasons",
+      "type": "array"
+    },
+    "entry_room_state": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/EntryRoomState"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "event_flags": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/EventFlag"
+      },
+      "title": "Event Flags",
+      "type": "array",
+      "uniqueItems": true
+    },
+    "event_reasons": {
+      "additionalProperties": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "propertyNames": {
+        "$ref": "#/$defs/EventFlag"
+      },
+      "title": "Event Reasons",
+      "type": "object"
+    },
+    "expected_b2_trigger_price": {
+      "anyOf": [
+        {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "gt": "0"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Expected B2 Trigger Price"
+    },
+    "generated_at": {
+      "format": "date-time",
+      "title": "Generated At",
+      "type": "string"
+    },
+    "immediate_resistance": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ResistanceSnapshot"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "initial_invalid_price": {
+      "anyOf": [
+        {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "gt": "0"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Initial Invalid Price"
+    },
+    "invalid_price": {
+      "anyOf": [
+        {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "gt": "0"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Invalid Price"
+    },
+    "invalid_price_snapshot": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/InvalidPriceSnapshot"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "invalidation_reasons": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Invalidation Reasons",
+      "type": "array"
+    },
+    "matched_patterns": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/PatternType"
+      },
+      "title": "Matched Patterns",
+      "type": "array",
+      "uniqueItems": true
+    },
+    "pattern_conditions": {
+      "additionalProperties": {
+        "$ref": "#/$defs/ConditionSnapshot"
+      },
+      "propertyNames": {
+        "$ref": "#/$defs/PatternType"
+      },
+      "title": "Pattern Conditions",
+      "type": "object"
+    },
+    "pattern_scores": {
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "type": "string"
+          }
+        ]
+      },
+      "propertyNames": {
+        "$ref": "#/$defs/PatternType"
+      },
+      "title": "Pattern Scores",
+      "type": "object"
+    },
+    "primary_pattern": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PatternType"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "primary_pattern_reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Primary Pattern Reason"
+    },
+    "quality_flags": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Quality Flags",
+      "type": "array"
+    },
+    "resistance_candidates": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ResistanceCandidateSnapshot"
+      },
+      "title": "Resistance Candidates",
+      "type": "array"
+    },
+    "review_group": {
+      "$ref": "#/$defs/ReviewGroup",
+      "default": "STANDARD"
+    },
+    "risk_reward_ratio": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Risk Reward Ratio"
+    },
+    "score": {
+      "$ref": "#/$defs/ScoreBreakdown"
+    },
+    "setup_id": {
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9._:-]+$",
+      "title": "Setup Id",
+      "type": "string"
+    },
+    "setup_stage": {
+      "$ref": "#/$defs/SetupStage"
+    },
+    "strategy_version": {
+      "minLength": 1,
+      "title": "Strategy Version",
+      "type": "string"
+    },
+    "support": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SupportSnapshot"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "target_s1": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/S1Snapshot"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "trade_date": {
+      "format": "date",
+      "title": "Trade Date",
+      "type": "string"
+    }
+  },
+  "required": [
+    "strategy_version",
+    "setup_id",
+    "trade_date",
+    "code",
+    "generated_at",
+    "setup_stage",
+    "data_quality",
+    "score"
+  ],
+  "title": "StrategySignal",
+  "type": "object"
+}
