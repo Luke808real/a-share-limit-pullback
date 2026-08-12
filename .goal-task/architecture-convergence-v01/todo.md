@@ -2,19 +2,21 @@
 
 Item state values: `pending`, `in_progress`, `needs_input`, `deferred`, `accepted`.
 
-## REF-R0 — Baseline Freeze (`in_progress`)
+## REF-R0 — Baseline Freeze (`in_progress`, round-2 evidence awaiting re-review)
 
-- Freeze exact Runtime, Brain, and ASL SHAs and repository cleanliness evidence. [done: evidence file section 1]
-- Resolve and record strategy/rule/config versions and hashes, test/golden hashes, reference snapshot/generation/episodes, ASL contract/version, and current authority gates. [done: evidence file section 2]
-- Characterize existing public contracts, state/signal/artifact outputs, PIT prefixes, Runtime performance/RSS/artifact size, and legacy call/dependency inventory. [done: evidence file sections 4-5; PIT prefix tests identified in test_strategy_engine/test_replay]
-- Confirm no frozen artifact was modified and store baseline evidence without raw market data or secrets in Git. [done: evidence file section 6; evidence lives in .goal-task/architecture-convergence-v01/ref-r0-baseline-v01.md]
-- Gate: reproducible, reviewer-approved baseline sufficient to detect semantic, lineage, and performance drift. [pending: three-reader review]
+- Freeze exact Runtime, Brain, and ASL SHAs and repository cleanliness evidence. [done: evidence v02 sections 1,8]
+- Resolve and record strategy/rule/config versions and hashes, TEST_HASH/GOLDEN_HASH, reference snapshot/generation/episodes, ASL contract/version, and current authority gates. [done: evidence v02 sections 2-3; TEST_HASH 9fb950f0..., GOLDEN_HASH 1f215fd4...; authority gates re-attributed to IMPLEMENTATION_LOG.md]
+- Characterize existing public contracts, state/signal/artifact outputs, PIT prefixes, Runtime performance/RSS/artifact size, and legacy call/dependency inventory. [done: evidence v02 sections 5-6; corrected providers=4, StrategySignal=36 fields, lifecycle wording]
+- Confirm no frozen artifact was modified and store baseline evidence without raw market data or secrets in Git. [done: evidence v02 section 8; baseline hash files committed under .goal-task/architecture-convergence-v01/baseline/]
+- Gate: reproducible, reviewer-approved baseline sufficient to detect semantic, lineage, and performance drift. [pending: round-2 three-reader re-review]
 
 Baseline findings to feed later phases:
 
-- F1: pytdx missing from declared extras while default tests import it (packaging gap at 1cb5fb7a).
+- F1 RESOLVED: pytdx re-declared as integration extra `pytdx>=1.7,<2`; fresh-install verification 20/20 passed.
 - F2: chunked `screen --rebuild` without `--start` raises AttributeError instead of a validation error.
 - F3: single full-market run JSON embeds all rows (4.27 GB artifact).
+
+Later-phase hard prerequisites recorded in evidence v02 section 7: Replay(D)=Daily(D) baseline, ASL-vs-Legacy equivalence, 20-stock frozen replay reproduction (needs frozen code list), Runtime/Brain CI gap.
 
 ## REF-R1 — Architecture Constitution (`pending`)
 

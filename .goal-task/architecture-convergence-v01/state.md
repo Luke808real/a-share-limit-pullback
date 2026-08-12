@@ -5,15 +5,17 @@
 - Mode: deep, cross-repository strangler refactor
 - Initialization: complete; implementation has not started
 - Current phase: REF-R0 Baseline Freeze
-- Progress: 0/9 refactor phases accepted (REF-R0 evidence collected, review pending)
-- Next action: three-reader review of ref-r0-baseline-v01.md, then mark REF-R0 accepted and open REF-R1
+- Progress: 0/9 refactor phases accepted (REF-R0 round-2 evidence awaiting re-review)
+- Next action: three-reader re-review of ref-r0-baseline-v02.md, then mark REF-R0 accepted and open REF-R1
 
 ## REF-R0 status
 
-- Evidence file: `.goal-task/architecture-convergence-v01/ref-r0-baseline-v01.md`
+- Evidence file: `.goal-task/architecture-convergence-v01/ref-r0-baseline-v02.md` (v01 retired after round-1 review)
+- TEST_HASH `9fb950f016ab3436c76e90f8a4a80c5b3070c7e20d062818ea6453a396bb2abd`; GOLDEN_HASH `1f215fd416eb8385623d5e4599b7d3873f9edecc9e7d944628a40fb90df977a0`; baseline hash files under `.goal-task/architecture-convergence-v01/baseline/`.
 - Frozen full-market reproduction at clean Runtime HEAD: output_hash `9abb16e4…` equals Brain-recorded `FULL_MARKET_HASH`; 3191 universe, 1,844,543 rows, 269.84s, max RSS 2,386,182,144 bytes, run artifact 4,274,032,081 bytes.
 - Runtime offline validation: 547 passed / 11 skipped / 25 deselected (pytdx pinned separately; see F1). Brain: 47 passed. ASL: 1479 passed full suite (18 network deselected) with local proxy env unset.
-- F1/F2/F3 baseline findings recorded in the evidence file and todo.md; not fixed in R0.
+- F1 RESOLVED via focused pyproject commit; F2/F3 open and scheduled as later-phase prerequisites.
+- Round-1 review disposition: DATA_READER NEEDS_FIX (citation), CODE_READER NEEDS_FIX (counts/lifecycle/hashes), ADVERSARIAL NEEDS_FIX (REF-R0 list gaps, verify-replay, push fact, uv.lock status). All fixes incorporated in v02.
 
 ## Active truth and authority
 
