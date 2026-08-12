@@ -1,0 +1,113 @@
+# Architecture Convergence V01 — Execution State
+
+## Status
+
+- Mode: deep, cross-repository strangler refactor
+- Initialization: complete; implementation has not started
+- Current phase: REF-R0 Baseline Freeze
+- Progress: 0/9 refactor phases accepted (REF-R0 evidence collected, review pending)
+- Next action: three-reader review of ref-r0-baseline-v01.md, then mark REF-R0 accepted and open REF-R1
+
+## REF-R0 status
+
+- Evidence file: `.goal-task/architecture-convergence-v01/ref-r0-baseline-v01.md`
+- Frozen full-market reproduction at clean Runtime HEAD: output_hash `9abb16e4…` equals Brain-recorded `FULL_MARKET_HASH`; 3191 universe, 1,844,543 rows, 269.84s, max RSS 2,386,182,144 bytes, run artifact 4,274,032,081 bytes.
+- Runtime offline validation: 547 passed / 11 skipped / 25 deselected (pytdx pinned separately; see F1). Brain: 47 passed. ASL: 1479 passed full suite (18 network deselected) with local proxy env unset.
+- F1/F2/F3 baseline findings recorded in the evidence file and todo.md; not fixed in R0.
+
+## Active truth and authority
+
+Authority order:
+
+1. Latest explicit user confirmation
+2. Reviewed/frozen Strategy Brain truth
+3. This task's confirmed architecture decisions in `design.md`
+4. Architecture source attachment, SHA-256 `e2b467d89cdecb15c9cb18a74b81429caa66a8b8c602d47525afafd63669d064`
+5. Executable work state in `todo.md` and this file
+
+Truth entrypoints:
+
+- Runtime worktree: `/Users/luke808/AI/V flash-architecture-convergence-v01`
+- Runtime branch/base: `codex/architecture-convergence-v01` from `origin/main@1cb5fb7a1792edccc18c70207340980377cbd4eb`
+- Brain worktree: `/Users/luke808/AI/a-share-strategy-brain-architecture-convergence-v01`
+- Brain branch/base: `codex/architecture-convergence-v01` from `origin/main@2b15b44a4d2b586199e3824b817220f9fdfa281f`
+- ASL worktree: `/Users/luke808/AI/ashare-lake-architecture-convergence-v01`
+- ASL branch/base: `codex/architecture-convergence-v01` from upstream `origin/main@e13a3830d020be555a5c79f3b7f8fc2d4ad9d011`
+- ASL publication remote: user-owned `fork` (`Luke808real/ashare-lake`); upstream `origin` is comparison truth, not a direct-write target
+- Architecture source: `/Users/luke808/.codex/attachments/5d76ed95-8072-4513-9d05-d352668cbb96/pasted-text.txt`
+- Runtime repository rules: `AGENTS.md`, `docs/agent-context.md`, `docs/HANDOFF_TEMPLATE.md`
+- Frozen strategy truth: Brain `01_Strategy/STRATEGY_MASTER.md`, `01_Strategy/RULE_CATALOG.md`, `01_Strategy/BASELINE_MANIFEST.yaml`
+- Phase truth: Brain `05_Codex/CURRENT_PHASE.md`, `exports/LLM_CONTEXT_PACK.md`
+- Work items: `todo.md`
+- Confirmed architecture decisions: `design.md`
+
+The original non-isolated worktrees contain user changes and are evidence sources only. Do not edit, clean, reset, commit, or absorb them.
+
+## Scope and authorization
+
+Authorized:
+
+- Coordinated changes in the three isolated worktrees, limited to architecture convergence.
+- Local milestone commits, pushes of the named `codex/architecture-convergence-v01` branches, and Draft PR creation/update.
+- Read-only comparison against upstream branches and frozen artifacts.
+
+Not authorized:
+
+- Merge, rebase, squash, force-push, release, deployment, production cutover, data publication, Forward/OOS activation, TradePlan activation, or automated trading.
+- Direct pushes to protected `main` or to upstream `rootSunc/ashare-lake`.
+- New strategy factors, thresholds, coefficients, rules, providers, production behavior, or Forward behavior.
+- Rewriting or deleting historical snapshots, generations, episodes, outcomes, receipts, hashes, or forward epochs.
+- Legacy deletion before every REF-R8 retirement gate passes.
+
+## Execution contract
+
+1. Follow REF-R0 through REF-R8 in order. A later phase may be prepared read-only, but implementation starts only after its predecessor gate passes.
+2. Before every phase, record the task ID, exact bases, owning plane/domain, allowed files, change flags, invariant, differential/golden/contract/transition tests, performance expectation, and expected artifact impact in `todo.md`.
+3. Keep one writer. For HIGH_RISK phases use CODE_READER, DATA_READER, and ADVERSARIAL_REVIEWER as independent read-only readers. At every major milestone use exactly three independent read-only reviewers; the writer cannot substitute.
+4. Use adapters and shadow execution. Preserve the old default until the new path passes targeted tests, full applicable validation, golden and differential parity, lineage verification, and performance gates.
+5. Never treat local tests as CI, a Draft PR as review approval, a merged ASL technical change as production cutover, or `SUPPORTED` as `PROMOTED`.
+6. Default validation in Runtime is `pytest -q`, `python -m compileall -q src tests`, and `git diff --check`; add repository-native checks in Brain and ASL after inspecting their current instructions/configuration. Default tests remain offline; real-provider/full-market runs require an explicit phase need, bounded resource plan, and immutable output location.
+7. Full-market acceptance thresholds: runtime and peak RSS no greater than baseline x1.15; artifact bytes no greater than baseline x1.10. Any exceedance is an unmet gate until explained and explicitly accepted.
+8. After validation and review pass, create a focused local milestone commit in each changed repository. Push only the task branch and create/update Draft PRs. Never merge automatically.
+9. Try a failing item at most three times by default. Record evidence, defer it, and continue independent work. Permission or authorization gaps are `needs input`, not automatically `blocked`.
+10. After each productive loop report exactly a gate-based progress line, this-loop/remaining evidence line, and one primary next action. Never report 100% until all applicable gates pass.
+11. At each deep-mode loop end, summarize disproven assumptions and effective recovery here. Create `lessons.md` only if reusable evidence-backed lessons actually emerge.
+
+## Global invariants
+
+- Frozen setup stages, lifecycle, B1/B2, S1/S2, Entry Room, setup/entry scores, R9 coefficients, and thresholds remain unchanged unless a separately approved promotion contract explicitly authorizes a strategy change.
+- `B1_PREP` remains an execution label, not a setup stage. `SECOND_LAUNCH` remains an outcome/event unless a separate ADR changes it.
+- `known_as_of <= T`; every new Support/Invalid/S1/B2 Trigger snapshot has `eligible_from > frozen_as_of` and cannot affect its freeze day.
+- Raw Price and PIT Continuous Price remain distinct.
+- UNKNOWN is not FALSE. Missing, conflicting, ambiguous, or incomplete data and lineage fail closed.
+- Canonical rows have one clear provider lineage; no cross-provider field stitching.
+- Feature describes facts, Policy decides meaning, State owns lifecycle, Selection ranks attention, Runtime orchestrates, Evidence proves results, Brain owns strategy truth, and ASL owns data truth.
+- Replay and Daily share one domain core and must match field-for-field for identical inputs, predecessor, policy, and engine versions.
+- Refactoring creates new evidence; it never mutates frozen historical evidence.
+
+## Completion gates
+
+The goal is complete only when every condition below passes with durable evidence:
+
+1. Runtime consumes one canonical boundary; direct provider calls and ASL-internal schema dependencies in strategy/runtime code are zero.
+2. Each feature has one definition and explicit availability; feature code contains no policy decision.
+3. One setup lifecycle, one state engine, and one snapshot eligibility model remain; state contains no ranking behavior.
+4. R9/selection consumes candidate context only, reads no raw providers/bars or filesystem, and never mutates state.
+5. Replay and Daily use the same core and match field-for-field under identical inputs.
+6. Formal runs emit hashable manifests, provenance, receipts, generations/ledgers, and unambiguous predecessor lineage.
+7. On frozen reference inputs, old versus new has `state diff = 0`, `signal diff = 0`, and `artifact semantic diff = 0`; PIT prefix, transition, contract, golden, fail-closed, and UNKNOWN tests pass.
+8. Runtime, Brain, and ASL repository-native validation passes; performance gates pass or have explicit human acceptance.
+9. Required three-reviewer reviews and re-reviews have no unresolved high-severity finding.
+10. Legacy retirement proves runtime calls = 0, test dependencies = 0, artifact dependencies = 0, migration adapter unnecessary, and differential parity PASS before deletion.
+11. Each changed repository has a focused reviewed commit and Draft PR with exact SHA/evidence. No merge, cutover, Forward, Production, or release is claimed.
+
+## Recovery and blocking
+
+Maintain item-level waiting/deferred state only in `todo.md`. Set the overall goal `blocked` only when bounded recovery, safe alternatives, splitting, reprioritization, and all independent work are exhausted and every meaningful remaining item jointly depends on the same verified logical conflict, safety boundary, or mandatory external dependency.
+
+## Work summary
+
+- Initialized three clean isolated worktrees and matching task branches from verified remote `main` SHAs.
+- Collected and recorded the complete REF-R0 baseline evidence set (SHAs, frozen truth hashes, offline validation baselines, reference generation reproduction, performance and static characterization).
+- Preserved all pre-existing dirty worktrees untouched.
+- No production code, frozen truth, data artifact, remote branch, or PR was changed during initialization.
