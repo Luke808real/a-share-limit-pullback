@@ -245,3 +245,4 @@ P6 artifact-impact contract (declared before implementation):
 - Final closeout: final rebuild a9e617fd38aa at ce175a1 hash 9abb16e4…; receipt fingerprint self-consistent; ALL_IN_REPO_DONE three-reader verdict; goal waits on five human inputs. [done]
 - P6.2 non-chunked receipt wiring done (run 73fbeedf9c7b emitted receipt); 20-stock anchor recovery attempt exhausted (local artifacts lack the frozen code list) — remains human input. [done]
 - Final three-repo state verified and recorded (Runtime 663af40 / Brain 95746b5 / ASL 418053d, all Draft PRs OPEN). P6.3 registered as needs-design (predecessor lineage machinery). [done]
+- Human approval ("全部批准") executed: Runtime #40 merged 8e7affc…; Brain #5 merged 13ec156…; Brain governance #6 merged aa92ade…; ASL #19 needs upstream maintainer; 20-stock anchor exemption granted; R8 re-inventory shows no qualifying deletion set; R9 source not locatable locally. [done]

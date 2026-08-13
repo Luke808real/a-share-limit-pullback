@@ -120,6 +120,18 @@
 - 20-stock anchor recovery attempt: searched the read-only source worktrees for the frozen 11,378-row artifact and `6c2ffc22…` references; not recoverable from local artifacts. Item (4) remains a human input (frozen code list or explicit exemption).
 - Final three-repo state verified 2026-08-13: Runtime branch `codex/architecture-convergence-v01` HEAD `663af4044c8d7a37b878c63212b35aad845b8844` (PR #40 Draft/OPEN/base main); Brain HEAD `95746b598c234ee9bc7c5c2bfb15f7c4ceaa84d1` (PR #5 Draft/OPEN/base main); ASL fork HEAD `418053daca1ec61e7c2fb84d20fa9fe6ce689b08` (upstream PR #19 Draft/OPEN/base main). All heads match their remote branches; no merge performed.
 - P6.3 (incremental-run predecessor lineage in receipts) registered as needs-design: it touches the fragile generation-pointer machinery (PREDECESSOR_RESOLUTION history) and needs its own contract before implementation.
+
+## Human approval received ("全部批准", 2026-08-13)
+
+- Merges executed under explicit user approval:
+  - Runtime PR #40 → main, regular merge commit `8e7affc8380cca0d4818e81240b0a7e216e08ade`.
+  - Brain PR #5 (ADR-007) → main, regular merge commit `13ec1566fb9453f69fe05b3194f5d12c26cfcdeb`.
+  - Brain governance PR #6 (integration records + BASELINE_MANIFEST approved_non_strategy_integrations entry) → main, regular merge commit `aa92ade5b809ed319f7b6d1f2ed478f0e3bcbfdc`.
+  - ASL upstream PR #19: merge attempted; fork has no upstream write permission — remains OPEN awaiting the rootSunc maintainer.
+- 20-stock frozen replay anchor (`6c2ffc22…`): human exemption granted and recorded in Brain IMPLEMENTATION_LOG; local reproduction no longer required.
+- R8 deletions: user approval granted, but the fresh inventory at HEAD 9281de1 shows no retirement set satisfies the zero-dependency gate (acquisition path still live). Deletions remain pending the ASL acquisition retirement, which in turn requires the real ST/provenance closure (②).
+- ST_READY/PROVENANCE_GAP/PRODUCTION_CUTOVER gates: remain NO/OPEN/NO_GO. Closing them is now authorized but requires actual ASL data-governance work (ST backfill + provenance closure), recorded as a follow-up data task, not fabricated here.
+- R9 out-of-repo verification: R9 factor source is not locatable locally (only ledgers under `/Users/luke808/AI/asl-r9-prospective-research-v01/r9/ledgers`); verification deferred until the R9 code module is provided.
 - P5 done (pool-quality placement): `pool_quality` moved verbatim to `data/pool_quality.py` (data-quality classification of pool reconciliation status); `screen/engine.py` re-exports by identity; `data/canonical.py` no longer imports `limit_pullback.screen` at all — the last reverse dependency is removed. Full default suite 597 passed / 11 skipped / 25 deselected; frozen rebuild differential in progress.
 - P6 done (formal-run receipt wiring): `evidence/wire.emit_formal_run_receipt` writes `<run_id>.receipt.json` beside every formal chunked run with fingerprint (runtime commit/strategy version/config hash/ASL contract/snapshot/universe/predecessor/engine versions) and hashable receipt. Additive-only per declared contract. Full default suite 598 passed / 11 skipped / 25 deselected; first real receipt emitted by the in-progress frozen rebuild.
 - P4 (in-repo): record full-market runtime seconds at the latest HEAD (RSS already recorded in-gate).
