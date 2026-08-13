@@ -60,6 +60,12 @@
 - Validation: targeted tests 18 passed; full default suite 579 passed / 11 skipped / 25 deselected; frozen full-market rebuild run `screen-rebuild-2026-07-31-snap-2026-07-1b667e1fd0ca` at HEAD `05f0332` produced output_hash `9abb16e4a5720503e4ffea5462067dc1b476d8022f0593a657c328f9836920ec` — identical to the R0 baseline artifact and Brain `FULL_MARKET_HASH` (1,844,543 rows, 3191 universe).
 - REF-R4.2 accepted: three-reader review all ACCEPT. Remaining feature families intentionally stay in strategy until consumed by REF-R5; REF-R5 start conditions verified (contract declared, evidence backfilled).
 
+## REF-R5 status
+
+- Pre-code artifacts: `.goal-task/architecture-convergence-v01/ref-r5-transition-matrix.md` (transition matrix, PIT invariants, nine golden categories mapped to existing tests) landed before any code edit.
+- Slice 1 (verbatim move): `src/limit_pullback/state/engine_helpers.py` holds setup identity, B1/B2 conditions, invalid reasons, event flags, entry room, risk/reward, and price-quantization helpers byte-identical to `1cb5fb7a`; `strategy/engine.py` imports them back and keeps `evaluate_strategy` orchestration unchanged.
+- Validation: 52 transition/golden targeted tests pass; full default suite 579 passed / 11 skipped / 25 deselected; frozen rebuild differential in progress.
+
 ## Active truth and authority
 
 Authority order:

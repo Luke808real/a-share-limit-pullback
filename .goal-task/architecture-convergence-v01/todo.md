@@ -114,6 +114,11 @@ Phase contract (declared before start, per constitution):
 - PERFORMANCE_DELTA: full-market runtime/RSS <= baseline x1.15; artifact bytes <= baseline x1.10
 - HIGH_RISK rules: three read-only readers (CODE/DATA/ADVERSARIAL) before acceptance; rollback anchor = last accepted commit; do not start before REF-R4.2 gate PASS
 
+- Pre-code transition matrix and golden case list landed (ref-r5-transition-matrix.md). [done]
+- Slice 1: state transition helpers moved verbatim to state/engine_helpers.py; strategy/engine.py imports them back; zero behavior change. [done: targeted 52 passed, full suite 579 passed, rebuild differential pending]
+- Slice 2 (pending): move evaluate_strategy orchestration verbatim to state/engine.py with strategy/engine.py shim; then isolate scoring/ranking touchpoints for REF-R6.
+- Gate: transition matrix complete; nine golden categories; prefix invariance; state diff=0; three-reader adversarial review PASS. [in progress]
+
 - Consolidate one setup lifecycle, state engine, snapshot eligibility model, transition evidence, invalidation priority, supersede, and expiry behavior.
 - Preserve exact frozen stages and PIT timing. Ranking cannot rescue INVALID or affect transitions.
 - Gate: complete transition matrix; corporate action, ST, suspension, B1 first day, trigger freeze, B2 confirmation, invalid, supersede, and expiry golden cases; prefix invariance; state diff zero; three-reader adversarial review PASS.
