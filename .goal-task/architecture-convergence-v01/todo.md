@@ -152,6 +152,7 @@ Phase contract (declared before start, per constitution):
 - FILES_ALLOWED: new `src/limit_pullback/runtime/**`; delegation-only edits to `replay.py` and `screen/runner.py`; `tests/` contract tests
 - BEHAVIOR_CHANGE: NO; STRATEGY_CHANGE: NO; DATA_CHANGE: NO; SCHEMA_CHANGE: NO; ARTIFACT_CHANGE: NO
 - PRECONDITION (pre-code inventory, must land first): Replay vs Daily divergence inventory — indicators preparation, predecessor handling, output assembly, run loop differences between `replay.py` and `screen/engine.py`/`screen/runner.py`
+- PRECONDITION landed: ref-r7-divergence-inventory.md (shared core already unified; four divergence areas and parity anchors recorded). [done]
 - INVARIANT: Replay and Daily share the same feature/state/selection core; `ReplayRuntime(D) == DailyRuntime(D)` field-for-field under identical facts/predecessor/policy/engine versions
 - LIVE: interface reservation only; no intraday behavior, no generic backtester
 - DIFFERENTIAL_TEST: default suite green; frozen full-market rebuild output_hash remains `9abb16e4…`; per-day replay-vs-screen field equality probe on the frozen snapshot
