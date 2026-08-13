@@ -217,6 +217,13 @@ P3 artifact-impact contract (declared before implementation):
 - BEHAVIOR_CHANGE: NO; STRATEGY_CHANGE: NO; DATA_CHANGE: NO; SCHEMA_CHANGE: NO; ARTIFACT_CHANGE: NO
 - INVARIANT: identity re-exports only (same objects); after this slice the screen package has zero `limit_pullback.warehouse` imports; frozen rebuild `output_hash` remains `9abb16e4…`
 
+P5 artifact-impact contract (declared before implementation):
+
+- TASK_ID: REF-P5-POOL-QUALITY-PLACEMENT-V01
+- FILES_ALLOWED: new `src/limit_pullback/data/pool_quality.py`; import-only edits in `screen/engine.py` and `data/canonical.py`; re-export in `data/quality.py`; `tests/` boundary/identity tests
+- BEHAVIOR_CHANGE: NO; STRATEGY_CHANGE: NO; DATA_CHANGE: NO; SCHEMA_CHANGE: NO; ARTIFACT_CHANGE: NO
+- INVARIANT: `pool_quality` moves verbatim (identity preserved via screen re-export); the data layer no longer imports `limit_pullback.screen`; frozen rebuild `output_hash` remains `9abb16e4…`
+
 - Run all completion gates listed in `state.md` against frozen references and current repository-native validators.
 - Reconcile exact commits, Draft PRs, hashes, performance, review findings, known limitations, and unchanged authorization boundaries.
 - Update Brain project truth only with reviewed evidence; do not promote strategy, merge PRs, cut over production, publish data, or activate Forward/Live.
@@ -225,3 +232,4 @@ P3 artifact-impact contract (declared before implementation):
 - P2 evidence protocol (additive): fingerprint + receipt done (tests green; artifact impact per declared contract).
 - P3 warehouse-consumer bridge: data/facade.py identity re-exports; screen warehouse imports zeroed (boundary test). [done: 595 full suite; rebuild differential pending; three-reader review pending]
 - P3.2 read-side tool bridge: execution_reality/outcome/prc_audit/trade_plan/universe zeroed; cli.py acquisition surface exempt and recorded. [done: 596 full suite; rebuild differential pending]
+- P5 pool-quality placement: verbatim move to data/pool_quality.py; screen re-exports by identity; data has zero screen imports. [done: 597 full suite; rebuild differential pending; review pending]

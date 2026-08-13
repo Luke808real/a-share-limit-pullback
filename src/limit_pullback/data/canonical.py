@@ -4,10 +4,6 @@ REF-R3: this module is the verbatim move of the legacy `screen.canonical`
 implementation into the data layer. The screen never contacts a provider:
 daily bars are read from the published canonical snapshot (CONFIRMED rows only)
 and anchor records from the published limit-up pool dataset.
-
-Temporary edge: `CanonicalLimitUpPoolProvider` keeps the lazy
-`screen.engine.pool_quality` import so behavior is byte-identical; the
-pool-quality policy moves out of the engine in REF-R4/R6.
 """
 
 from __future__ import annotations
@@ -19,6 +15,7 @@ from pathlib import Path
 from typing import Any, Iterator, Sequence
 
 from limit_pullback.models.enums import DataQuality
+from limit_pullback.data.pool_quality import pool_quality
 from limit_pullback.models.market import (
     DailyBar,
     DailyBarsRequest,
@@ -107,8 +104,6 @@ class CanonicalLimitUpPoolProvider(LimitUpPoolProvider):
         flags: list[str] = []
         quality = DataQuality.OK
         if records:
-            from limit_pullback.screen.engine import pool_quality
-
             statuses = {
                 self._status_by_key.get((record.code, record.trade_date))
                 for record in records

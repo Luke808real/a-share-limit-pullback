@@ -83,3 +83,10 @@ def test_read_side_tool_modules_have_no_warehouse_imports():
             or name.startswith("limit_pullback.warehouse.")
         }
         assert not hits, f"{filename}: {sorted(hits)}"
+
+
+def test_pool_quality_reexport_is_identity():
+    from limit_pullback.data.pool_quality import pool_quality as data_pool_quality
+    from limit_pullback.screen.engine import pool_quality as screen_pool_quality
+
+    assert screen_pool_quality is data_pool_quality

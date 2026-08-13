@@ -21,29 +21,12 @@ from limit_pullback.strategy.indicators import SequencePrefixView
 from limit_pullback.strategy.math import calculate_indicators
 from limit_pullback.runtime.common import evaluate_day
 
-POOL_STATUS_CONFIRMED = "CONFIRMED"
-POOL_STATUS_SINGLE_SOURCE = "CONFIRMED_SINGLE_SOURCE"
-POOL_STATUS_PROVISIONAL = "PROVISIONAL"
-
-
-def pool_quality(
-    status: str | None,
-    *,
-    pool_mode: str,
-) -> tuple[DataQuality, str | None]:
-    """Quality propagation for anchor pool records.
-
-    Formal mode refuses PROVISIONAL pool records as OK anchor data;
-    debug mode allows them with an explicit warning flag and lower quality.
-    """
-
-    if status in (POOL_STATUS_CONFIRMED, POOL_STATUS_SINGLE_SOURCE):
-        return DataQuality.OK, None
-    if status == POOL_STATUS_PROVISIONAL:
-        if pool_mode == "debug":
-            return DataQuality.DEGRADED, "LIMIT_POOL_PROVISIONAL_WARNING"
-        return DataQuality.UNUSABLE, "LIMIT_POOL_PROVISIONAL"
-    return DataQuality.OK, None
+from limit_pullback.data.pool_quality import (
+    POOL_STATUS_CONFIRMED,
+    POOL_STATUS_PROVISIONAL,
+    POOL_STATUS_SINGLE_SOURCE,
+    pool_quality,
+)
 
 
 def screen_code(

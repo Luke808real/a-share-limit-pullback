@@ -21,6 +21,7 @@ from limit_pullback.data.canonical import (
 from limit_pullback.data.ports import CanonicalDataPort
 from limit_pullback.data.snapshot import SnapshotDataAdapter
 from limit_pullback.data.universe import Phase2d0Universe
+from limit_pullback.data.pool_quality import pool_quality
 
 __all__ = [
     "FIXED_FETCHED_AT",
@@ -34,4 +35,5 @@ __all__ = [
     "iter_canonical_code_bars",
     "load_canonical_market",
     "load_canonical_metadata",
+    "pool_quality",
 ]

@@ -190,9 +190,6 @@ def test_screen_canonical_shim_reexports_data_layer():
 def test_data_layer_import_boundary():
     """Data layer must not depend on strategy/selection/runtime orchestration.
 
-    One recorded temporary edge is allow-listed: the lazy
-    `limit_pullback.screen.engine` import inside the pool provider, kept for
-    byte-identical behavior until pool-quality policy moves in REF-R4/R6.
     """
 
     forbidden_roots = (
@@ -201,7 +198,6 @@ def test_data_layer_import_boundary():
         "limit_pullback.runtime",
         "limit_pullback.screen",
     )
-    allowlisted = {"limit_pullback.screen.engine"}
     offenders: list[str] = []
     for path in sorted((ROOT / "src" / "limit_pullback" / "data").rglob("*.py")):
         names: set[str] = set()
@@ -214,12 +210,11 @@ def test_data_layer_import_boundary():
         hits = {
             name
             for name in names
-            if name in allowlisted
-            or any(
+            if any(
                 name == root or name.startswith(root + ".")
                 for root in forbidden_roots
             )
-        } - allowlisted
+        }
         if hits:
             offenders.append(f"{path.relative_to(ROOT)}: {sorted(hits)}")
     assert not offenders, f"data layer boundary violations: {offenders}"

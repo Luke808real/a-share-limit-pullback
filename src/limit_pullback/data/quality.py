@@ -7,6 +7,7 @@ from limit_pullback.quality import (
     quality_flag_date,
     worst_quality,
 )
+from limit_pullback.data.pool_quality import pool_quality
 
 __all__ = [
     "daily_prefix_quality",
@@ -14,4 +15,5 @@ __all__ = [
     "missing_fields",
     "quality_flag_date",
     "worst_quality",
+    "pool_quality",
 ]
