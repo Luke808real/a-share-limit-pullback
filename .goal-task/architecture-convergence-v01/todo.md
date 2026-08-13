@@ -99,7 +99,7 @@ Phase contract (declared before start, per constitution):
 - Rule/threshold change: ZERO; behavior change: NO; differential: frozen rebuild output_hash remains `9abb16e4…`. [PASS: rebuild run 1b667e1fd0ca output_hash 9abb16e4…]
 - Gate: features consume no policy; three-reader review ACCEPT before REF-R5 starts. [PASS: three-reader review all ACCEPT]
 
-## REF-R5 — State Consolidation (`pending`, HIGH_RISK)
+## REF-R5 — State Consolidation (`accepted`, HIGH_RISK)
 
 Phase contract (declared before start, per constitution):
 
@@ -118,6 +118,22 @@ Phase contract (declared before start, per constitution):
 - Slice 1: state transition helpers moved verbatim to state/engine_helpers.py; strategy/engine.py imports them back; zero behavior change. [done: targeted 52 passed, full suite 579 passed, rebuild differential pending]
 - Slice 2 (deferred with two findings): F5a golden monkeypatch seam on strategy.engine.select_resistance_levels; F5b import cycle between state.engine and strategy/__init__. R5.2 needs an amended scope (patterns/scoring/structure consumption relocation or lazy strategy exports) and its own review round; do not retry without that plan.
 - R5.2: evaluate_strategy relocated verbatim to state/engine.py; strategy/engine.py shim preserves seams (module-level identity re-exports + late-bound select_resistance_levels call + PEP 562 lazy evaluate_strategy); strategy/__init__.py lazy evaluate_strategy export breaks the cycle. [done: 69 targeted + 579 full suite passed; rebuild differential pending; three-reader phase review pending]
+- Gate: transition matrix complete; nine golden categories; prefix invariance; state diff=0; three-reader adversarial review PASS. [PASS: three-reader phase review all ACCEPT; frozen rebuild 1dbf5d5e20f0 output_hash 9abb16e4…]
+
+## REF-R6 — Selection Isolation (`pending`)
+
+Phase contract (declared before start, per constitution):
+
+- TASK_ID: REF-R6-ARCH-SELECTION-V01
+- BASE_SHA: Runtime code base `1cb5fb7a…`; Brain/ASL unchanged
+- ARCHITECTURE_DOMAIN: `selection/` (eligibility/ranking/presentation/policies)
+- FILES_ALLOWED: new `src/limit_pullback/selection/**`; `strategy/scoring.py` delegation-only rewrite (becomes re-export shim); `tests/` contract tests
+- BEHAVIOR_CHANGE: NO; STRATEGY_CHANGE: NO; DATA_CHANGE: NO; SCHEMA_CHANGE: NO; ARTIFACT_CHANGE: NO
+- Coupling points to isolate (recorded from state/engine.py at df7e312): build_score calls in evaluate_strategy (two call sites); _entry_quality_score usage; evaluate_patterns; structure geometry functions
+- INVARIANT: ranking/selection reads no raw provider/bars/filesystem and never mutates state; R9 semantics untouched; cohort membership preserved
+- DIFFERENTIAL_TEST: default suite green; frozen full-market rebuild output_hash remains `9abb16e4…`; zero signal/artifact semantic diff
+- GOLDEN_TEST: golden files unchanged and passing; shim export face kept as test contract (design.md constraint from REF-R5)
+- PERFORMANCE_DELTA: expected 0 (delegation only)
 - Gate: transition matrix complete; nine golden categories; prefix invariance; state diff=0; three-reader adversarial review PASS. [in progress]
 
 - Consolidate one setup lifecycle, state engine, snapshot eligibility model, transition evidence, invalidation priority, supersede, and expiry behavior.

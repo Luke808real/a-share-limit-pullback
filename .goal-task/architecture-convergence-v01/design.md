@@ -64,6 +64,17 @@ Runtime converges on `domain/`, `data/`, `features/`, `state/`, `selection/`, `r
 - A formal Brain-to-Runtime change specifies strategy version, ADR/rule/feature IDs, expected semantic/artifact impact, compatibility, migration, and golden requirements. Runtime returns implementation SHA, tests, differential/golden results, artifact hash, contract version, and review result.
 - `SUPPORTED != PROMOTED`; architecture refactoring is not feature, Forward, Production, TradePlan, Live, or data-cutover authorization.
 
+## Shim export face is a test contract (REF-R5 decision)
+
+- `strategy/engine.py` is a compatibility shim over `state/engine.py`; its
+  module-level identity re-exports (`select_resistance_levels`,
+  `build_score`-related seams as they move, `make_setup_id`, helpers) and the
+  lazy PEP 562 `evaluate_strategy` export are part of the test contract:
+  golden tests monkeypatch these names on the shim module.
+- Any later phase (REF-R6/R7) that relocates a seam function must keep the
+  shim exporting the same object identity or obtain explicit review approval
+  to change the seam; silent seam breaks are forbidden.
+
 ## Migration policy
 
 - Execute REF-R0 through REF-R8 as independently gated milestones.

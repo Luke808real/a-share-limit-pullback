@@ -1,8 +1,8 @@
 """REF-R5 state engine package.
 
-First slice: verbatim move of the strategy engine's state-transition helpers
-into `state/engine_helpers.py`. The orchestration entry `evaluate_strategy`
-stays in `strategy/engine.py` until the next slice.
+Home of the single setup state engine: transition helpers live in
+`state/engine_helpers.py` and the orchestration entry `evaluate_strategy` in
+`state/engine.py`. `strategy/engine.py` remains a compatibility shim.
 """
 
 from limit_pullback.state.engine_helpers import (

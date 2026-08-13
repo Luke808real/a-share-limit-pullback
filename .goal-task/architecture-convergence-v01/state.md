@@ -71,6 +71,8 @@
   - Planned R5.2 resolution (documented, not started): move pattern/scoring/structure consumption out of the engine or introduce lazy strategy package exports, preserving monkeypatch seams; requires an amended file-scope contract and its own three-reader review.
 - R5 slice 1 remains the accepted milestone: transition helpers consolidated in `state/engine_helpers.py` with zero behavior change.
 - R5.2 implemented (seam-preserving engine relocation): `evaluate_strategy` moved verbatim to `state/engine.py`; `strategy/engine.py` is an identity-level re-export shim with module-level structure seams and a lazy PEP 562 `evaluate_strategy`; `strategy/__init__.py` resolves `evaluate_strategy` lazily to break the package cycle; `select_resistance_levels` is called late-bound through the shim so golden monkeypatch tests keep passing. All import paths verified; targeted 69 passed; full suite 579 passed / 11 skipped / 25 deselected; frozen rebuild differential in progress.
+- REF-R5 accepted: three-reader phase review all ACCEPT. Frozen full-market rebuild run `screen-rebuild-2026-07-31-snap-2026-07-1dbf5d5e20f0` at HEAD `df7e312` produced output_hash `9abb16e4a5720503e4ffea5462067dc1b476d8022f0593a657c328f9836920ec` (1,844,543 rows, 3191 universe) — identical to the R0 baseline and Brain `FULL_MARKET_HASH`.
+- Shim contract (recorded in design.md): `strategy/engine.py` re-export face is a test contract; R6/R7 must keep identity-level exports for select_resistance_levels/build_score and the lazy evaluate_strategy seam, or update the contract with explicit review approval first.
 
 ## Active truth and authority
 
