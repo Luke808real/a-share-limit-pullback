@@ -105,6 +105,7 @@
 - P2 (in-repo): adopt evidence protocol end-to-end (provenance block, receipt, seven-item fingerprint, predecessor lineage) into formal runs.
 - P3 (in-repo): zero-behavior migration of the five screen warehouse consumers toward the data layer, accumulating runtime_call=0 evidence for future R8 sets.
 - P4 (in-repo): record full-market runtime seconds at the latest HEAD (RSS already recorded in-gate).
+- P4 done at HEAD 2f2520e: wall 266.99s vs baseline 269.84s (0.989×), max RSS 2,387,361,792 B vs 2,386,182,144 B (1.0005×), artifact 4,274,032,081 B unchanged (1.000×), output_hash `9abb16e4…` — all within the 1.15×/1.10× gates.
 - Human inputs required: R8 per-set deletion approval + rollback authorization; ST_READY/PROVENANCE_GAP/CUTOVER closure by Brain/ASL owners; R9 out-of-repo verification; 20-stock frozen code list or exemption; three-repo PR merge only on explicit instruction.
 
 ## Active truth and authority

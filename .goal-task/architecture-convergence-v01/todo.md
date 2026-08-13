@@ -207,3 +207,4 @@ Preconditions (must land before any deletion):
 - Reconcile exact commits, Draft PRs, hashes, performance, review findings, known limitations, and unchanged authorization boundaries.
 - Update Brain project truth only with reviewed evidence; do not promote strategy, merge PRs, cut over production, publish data, or activate Forward/Live.
 - P1 frozen-reference differential verifier: done (evidence/verification/frozen_differential.py + baseline manifest + tests; e7c55287ff3f diff=0 vs R0 artifact).
+- P4 performance re-test at latest HEAD: done (266.99s / 2.387GB / 4.27GB, all within gates; hash 9abb16e4…).
