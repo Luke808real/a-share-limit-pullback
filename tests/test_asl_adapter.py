@@ -405,11 +405,65 @@ def test_baostock_unexpected_semantics_fails_closed(tmp_path):
     _build_lake(
         tmp_path,
         status_rows=[
-            {"symbol": "000010.SZ", "trade_date": date(2026, 6, 12), "is_trading": True, "status": "normal", "source": "baostock"},
+            {"symbol": "000010.SZ", "trade_date": date(2026, 6, 12), "is_trading": False, "status": "normal", "source": "baostock"},
         ],
     )
     with pytest.raises(AslAdapterError, match="UNEXPECTED_STATUS_SEMANTICS"):
         _load(tmp_path)
+    _build_lake(
+        tmp_path,
+        status_rows=[
+            {"symbol": "000010.SZ", "trade_date": date(2026, 6, 12), "is_trading": True, "status": "suspended", "source": "baostock"},
+        ],
+    )
+    with pytest.raises(AslAdapterError, match="UNEXPECTED_STATUS_SEMANTICS"):
+        _load(tmp_path)
+
+
+def test_baostock_normal_and_suspended_vocabulary_accepted():
+    from limit_pullback.warehouse.asl_adapter import (
+        _classify_status_provenance,
+        _status_mapping,
+    )
+    from datetime import datetime, timezone
+
+    fetched = datetime(2026, 6, 12, 12, 0, tzinfo=timezone.utc)
+    st_trust = _classify_status_provenance(
+        code="000010", day=date(2026, 6, 12), status="st",
+        is_trading=True, source="baostock", fetched_at=fetched,
+    )
+    normal_trust = _classify_status_provenance(
+        code="000010", day=date(2026, 6, 12), status="normal",
+        is_trading=True, source="baostock", fetched_at=fetched,
+    )
+    suspended_trust = _classify_status_provenance(
+        code="000010", day=date(2026, 6, 12), status="suspended",
+        is_trading=False, source="baostock", fetched_at=fetched,
+    )
+    assert st_trust == "BAOSTOCK_ST"
+    assert normal_trust == "BAOSTOCK_NORMAL"
+    assert suspended_trust == "BAOSTOCK_SUSPENDED"
+
+    from limit_pullback.warehouse.asl_adapter import AslStatusRow
+
+    row_st = AslStatusRow(
+        code="000010", trade_date=date(2026, 6, 12), is_trading=True,
+        status="st", source="baostock", data_version="v1",
+        fetched_at=fetched, trust="BAOSTOCK_ST",
+    )
+    row_normal = AslStatusRow(
+        code="000010", trade_date=date(2026, 6, 12), is_trading=True,
+        status="normal", source="baostock", data_version="v1",
+        fetched_at=fetched, trust="BAOSTOCK_NORMAL",
+    )
+    row_suspended = AslStatusRow(
+        code="000010", trade_date=date(2026, 6, 12), is_trading=False,
+        status="suspended", source="baostock", data_version="v1",
+        fetched_at=fetched, trust="BAOSTOCK_SUSPENDED",
+    )
+    assert _status_mapping(row_st, code="000010", day=date(2026, 6, 12), volume=1) == (True, True)
+    assert _status_mapping(row_normal, code="000010", day=date(2026, 6, 12), volume=1) == (True, False)
+    assert _status_mapping(row_suspended, code="000010", day=date(2026, 6, 12), volume=1) == (False, None)
 
 
 def test_derived_gap_unexpected_semantics_fails_closed(tmp_path):

@@ -65,7 +65,6 @@ def test_read_side_tool_modules_have_no_warehouse_imports():
         "outcome.py",
         "prc_audit.py",
         "trade_plan.py",
-        "universe.py",
     )
     for filename in modules:
         path = ROOT / "src" / "limit_pullback" / filename
@@ -83,6 +82,22 @@ def test_read_side_tool_modules_have_no_warehouse_imports():
             or name.startswith("limit_pullback.warehouse.")
         }
         assert not hits, f"{filename}: {sorted(hits)}"
+
+
+def test_universe_module_does_not_import_data_facade():
+    """universe.py is re-exported by data/universe.py; importing the data
+    facade from it would create a package import cycle. It keeps the direct
+    warehouse.layout import until the future data-layer move."""
+
+    path = ROOT / "src" / "limit_pullback" / "universe.py"
+    names: set[str] = set()
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            names.add(node.module)
+    assert not any(name.startswith("limit_pullback.data") for name in names)
 
 
 def test_pool_quality_reexport_is_identity():

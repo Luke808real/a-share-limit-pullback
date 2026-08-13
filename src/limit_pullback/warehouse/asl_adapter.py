@@ -119,7 +119,13 @@ DAILY_STATUS_SOURCES = frozenset({"eastmoney", "tdx_protocol"})
 SHANGHAI_TZ = timezone(timedelta(hours=8))
 
 TRUSTED_STATUS_KINDS = frozenset(
-    {"BAOSTOCK_ST", "DERIVED_GAP_SUSPENDED", "EASTMONEY_SAME_DAY"}
+    {
+        "BAOSTOCK_ST",
+        "BAOSTOCK_NORMAL",
+        "BAOSTOCK_SUSPENDED",
+        "DERIVED_GAP_SUSPENDED",
+        "EASTMONEY_SAME_DAY",
+    }
 )
 
 RowStatus = Literal[
@@ -271,7 +277,8 @@ class AslStatusRow:
     source: str
     data_version: str
     fetched_at: datetime
-    #: BAOSTOCK_ST | DERIVED_GAP_SUSPENDED | EASTMONEY_SAME_DAY |
+    #: BAOSTOCK_ST | BAOSTOCK_NORMAL | BAOSTOCK_SUSPENDED |
+    #: DERIVED_GAP_SUSPENDED | EASTMONEY_SAME_DAY |
     #: NON_PIT_EASTMONEY | UNKNOWN_STATUS
     trust: str
 
@@ -577,12 +584,21 @@ def _classify_status_provenance(
     """
 
     if source == BAOSTOCK_STATUS_SOURCE:
-        if status not in {"st", "*st"} or not is_trading:
+        if is_trading:
+            if status in {"st", "*st"}:
+                return "BAOSTOCK_ST"
+            if status == "normal":
+                return "BAOSTOCK_NORMAL"
             raise AslAdapterError(
                 f"UNEXPECTED_STATUS_SEMANTICS:{code}:{day}:"
                 f"source=baostock status={status!r} is_trading={is_trading}"
             )
-        return "BAOSTOCK_ST"
+        if status == "suspended":
+            return "BAOSTOCK_SUSPENDED"
+        raise AslAdapterError(
+            f"UNEXPECTED_STATUS_SEMANTICS:{code}:{day}:"
+            f"source=baostock status={status!r} is_trading={is_trading}"
+        )
     if source == DERIVED_BAR_GAP_STATUS_SOURCE:
         if status != "suspended" or is_trading:
             raise AslAdapterError(
@@ -758,6 +774,10 @@ def _status_mapping(
         return True, None  # positive bar, ST unknown: never claim normal
     if status_row.trust == "BAOSTOCK_ST":
         return True, True
+    if status_row.trust == "BAOSTOCK_NORMAL":
+        return True, False
+    if status_row.trust == "BAOSTOCK_SUSPENDED":
+        return False, None
     if status_row.trust == "DERIVED_GAP_SUSPENDED":
         return False, None
     # EASTMONEY_SAME_DAY
@@ -901,7 +921,10 @@ def load_asl_daily_slice(
         sessions_without_status_row=sessions_without_status,
         mode="PIT_PROVENANCE_CLASSIFIED",
         trusted_baostock_n=sum(
-            1 for row in status_rows.values() if row.trust == "BAOSTOCK_ST"
+            1
+            for row in status_rows.values()
+            if row.trust
+            in {"BAOSTOCK_ST", "BAOSTOCK_NORMAL", "BAOSTOCK_SUSPENDED"}
         ),
         trusted_derived_gap_n=sum(
             1 for row in status_rows.values() if row.trust == "DERIVED_GAP_SUSPENDED"
@@ -957,7 +980,8 @@ def load_asl_daily_slice(
                     else None
                 )
                 if trusted is not None and (
-                    trusted.trust == "DERIVED_GAP_SUSPENDED"
+                    trusted.trust
+                    in ("DERIVED_GAP_SUSPENDED", "BAOSTOCK_SUSPENDED")
                     or (
                         trusted.trust == "EASTMONEY_SAME_DAY"
                         and (not trusted.is_trading or trusted.status == "suspended")

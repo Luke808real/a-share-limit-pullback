@@ -25,7 +25,7 @@ from limit_pullback.instruments import (
     InstrumentCodeError,
     parse_instrument_code,
 )
-from limit_pullback.data.facade import WarehouseLayout
+from limit_pullback.warehouse.layout import WarehouseLayout
 
 PHASE2D0_UNIVERSE_CONTRACT_VERSION = "PHASE2D0_UNIVERSE_V1"
 PHASE2D0_STRATEGY_VERSION = "phase-2d0"

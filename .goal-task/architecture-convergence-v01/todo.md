@@ -203,6 +203,20 @@ Preconditions (must land before any deletion):
 
 ## Final convergence closeout (`pending`)
 
+P7 artifact-impact contract (declared before implementation):
+
+- TASK_ID: REF-P7-ASL-STATUS-ALIGN-V01
+- FILES_ALLOWED: `src/limit_pullback/warehouse/asl_adapter.py` and
+  `src/limit_pullback/warehouse/asl_query_adapter.py` status-vocabulary edits;
+  `tests/test_asl_adapter.py` / `tests/test_asl_query_adapter.py` updates
+- BEHAVIOR_CHANGE: NO (strategy untouched); DATA_CHANGE: NO; SCHEMA_CHANGE: NO;
+  ARTIFACT_CHANGE: NO (adapter acceptance only)
+- INVARIANT: fail-closed preserved — genuinely unexpected baostock combinations
+  still raise `UNEXPECTED_STATUS_SEMANTICS`; align the accepted baostock
+  vocabulary with the user's production ASL contract (commit 6e8caba):
+  trading+st/*st → BAOSTOCK_ST; trading+normal → BAOSTOCK_NORMAL (non-ST);
+  non-trading+suspended → BAOSTOCK_SUSPENDED
+
 P2 artifact-impact contract (declared before implementation):
 
 - TASK_ID: REF-P2-EVIDENCE-PROTOCOL-V01
