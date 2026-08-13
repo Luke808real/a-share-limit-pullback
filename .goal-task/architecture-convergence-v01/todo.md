@@ -206,3 +206,4 @@ Preconditions (must land before any deletion):
 - Run all completion gates listed in `state.md` against frozen references and current repository-native validators.
 - Reconcile exact commits, Draft PRs, hashes, performance, review findings, known limitations, and unchanged authorization boundaries.
 - Update Brain project truth only with reviewed evidence; do not promote strategy, merge PRs, cut over production, publish data, or activate Forward/Live.
+- P1 frozen-reference differential verifier: done (evidence/verification/frozen_differential.py + baseline manifest + tests; e7c55287ff3f diff=0 vs R0 artifact).

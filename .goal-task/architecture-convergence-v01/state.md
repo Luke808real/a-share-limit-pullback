@@ -101,7 +101,7 @@
 
 ## Handoff next actions (from final convergence audit)
 
-- P1 (in-repo): build an explicit frozen-reference state/signal diff=0 verifier (new vs old engine on the frozen snapshot).
+- P1 done: `evidence/verification/frozen_differential.py` extracts bounded summaries from 4+ GB run artifacts (never fully materialized) and verifies output_hash/rows/universe/status_counts (plus per-chunk hashes when present) against the frozen reference manifest `baseline/frozen-rebuild-summary-v01.json`. Latest rebuild `e7c55287ff3f` verified diff=0 against the R0 baseline artifact. Full default suite 591 passed / 11 skipped / 25 deselected.
 - P2 (in-repo): adopt evidence protocol end-to-end (provenance block, receipt, seven-item fingerprint, predecessor lineage) into formal runs.
 - P3 (in-repo): zero-behavior migration of the five screen warehouse consumers toward the data layer, accumulating runtime_call=0 evidence for future R8 sets.
 - P4 (in-repo): record full-market runtime seconds at the latest HEAD (RSS already recorded in-gate).

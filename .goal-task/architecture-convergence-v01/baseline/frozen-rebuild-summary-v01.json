@@ -1,0 +1,15 @@
+{
+  "chunk_runtimes": null,
+  "output_hash": "9abb16e4a5720503e4ffea5462067dc1b476d8022f0593a657c328f9836920ec",
+  "rows_count": 1844543,
+  "status_counts": {
+    "B1_READY": 17689,
+    "B2_CONFIRMED": 4433,
+    "B2_READY": 39949,
+    "INVALID": 67646,
+    "NEW_ANCHOR": 22393,
+    "NORMAL": 1681515,
+    "WATCH_PULLBACK": 10918
+  },
+  "universe_size": 3191
+}
