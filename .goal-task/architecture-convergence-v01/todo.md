@@ -159,6 +159,11 @@ Phase contract (declared before start, per constitution):
 - GOLDEN_TEST: golden files unchanged and passing
 - PERFORMANCE_DELTA: full-market runtime/RSS ≤ baseline × 1.15; artifact bytes ≤ baseline × 1.10
 - HIGH_RISK rules: three read-only readers before acceptance; shim export-face test contract from REF-R5 continues to bind
+
+- Shared per-day evaluation seam: runtime/common.evaluate_day created; replay.py and screen/engine.py delegate with identical kwargs. [done]
+- runtime/replay and runtime/daily identity re-exports; runtime/live interface reservation only. [done]
+- Per-day parity probe on frozen snapshot (precomputed vs recompute mode field equality). [done: test passed]
+- Gate: default suite green (588 passed); frozen rebuild output_hash 9abb16e4…; three-reader review. [in progress: rebuild differential pending; review pending]
 - Gate: transition matrix complete; nine golden categories; prefix invariance; state diff=0; three-reader adversarial review PASS. [in progress]
 
 - Consolidate one setup lifecycle, state engine, snapshot eligibility model, transition evidence, invalidation priority, supersede, and expiry behavior.

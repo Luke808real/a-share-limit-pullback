@@ -17,9 +17,9 @@ from limit_pullback.models.market import DailyBar, LimitUpRecord
 from limit_pullback.models.replay import ReplayTimelineItem
 from limit_pullback.models.signal import StrategySignal
 from limit_pullback.quality import merge_signal_quality, timeline_item
-from limit_pullback.strategy.engine import evaluate_strategy
 from limit_pullback.strategy.indicators import SequencePrefixView
 from limit_pullback.strategy.math import calculate_indicators
+from limit_pullback.runtime.common import evaluate_day
 
 POOL_STATUS_CONFIRMED = "CONFIRMED"
 POOL_STATUS_SINGLE_SOURCE = "CONFIRMED_SINGLE_SOURCE"
@@ -88,14 +88,14 @@ def screen_code(
             for record in code_pool
             if record.trade_date <= current.trade_date
         )
-        signal = evaluate_strategy(
+        signal = evaluate_day(
             bars=bars_up_to_date,
             as_of=current.trade_date,
             config=config,
             generated_at=generated_at,
             limit_pool=pool_up_to_date,
             previous_signal=previous,
-            precomputed_indicators=full_indicators,
+            full_indicators=full_indicators,
             indicator_end_index=index + 1,
         )
         signal = merge_signal_quality(

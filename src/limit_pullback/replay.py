@@ -38,9 +38,9 @@ from limit_pullback.quality import (
     timeline_item as _timeline_item,
     worst_quality as _worst_quality,
 )
-from limit_pullback.strategy.engine import evaluate_strategy
 from limit_pullback.strategy.indicators import SequencePrefixView
 from limit_pullback.strategy.math import calculate_indicators
+from limit_pullback.runtime.common import evaluate_day
 from limit_pullback.strategy.structure import is_limit_close
 
 
@@ -272,14 +272,14 @@ def replay_stock(
             for record in pool_records
             if record.trade_date <= current.trade_date
         )
-        signal = evaluate_strategy(
+        signal = evaluate_day(
             bars=bars_up_to_trade_date,
             as_of=current.trade_date,
             config=config,
             generated_at=clock(),
             limit_pool=pool_up_to_trade_date,
             previous_signal=previous_signal,
-            precomputed_indicators=full_indicators,
+            full_indicators=full_indicators,
             indicator_end_index=index + 1,
         )
         daily_prefix_flags = tuple(

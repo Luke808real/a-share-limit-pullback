@@ -83,6 +83,13 @@
 - REF-R6 accepted: three-reader review all ACCEPT. Frozen full-market rebuild run `screen-rebuild-2026-07-31-snap-2026-07-e07ab746778a` at HEAD `88a0a75` produced output_hash `9abb16e4a5720503e4ffea5462067dc1b476d8022f0593a657c328f9836920ec` (1,844,543 rows, 3191 universe) — identical to the R0 baseline and Brain `FULL_MARKET_HASH`.
 - R9 external contract recorded as pending: "R9 consumes candidate context only" applies to the separate research worktrees; Runtime registers the `selection/policies/r9` slot and does not claim the out-of-repo R9 behavior is verified here.
 
+## REF-R7 status
+
+- Pre-code divergence inventory landed (ref-r7-divergence-inventory.md).
+- Implementation: `runtime/` package with `common.evaluate_day` (single per-day evaluation seam over the shared state engine), `replay.py`/`daily.py` identity re-exports of the existing orchestration entries, and `live.py` interface reservation only. `replay.py` and `screen/engine.py` now delegate both per-day loops to `evaluate_day` (kwargs identical; unused direct engine imports removed).
+- Parity probe: on the frozen snapshot, precomputed-indicator mode and recompute mode produce field-identical per-day signals for a sampled code (test_runtime_common).
+- Validation: targeted 29 passed; full default suite 588 passed / 11 skipped / 25 deselected; frozen rebuild differential in progress.
+
 ## Active truth and authority
 
 Authority order:
