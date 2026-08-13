@@ -80,6 +80,8 @@
 - `strategy/scoring.py` is now an identity re-export shim; `state/engine.py` imports `build_score` from `selection.ranking` (transitional state→selection coupling recorded; composition-based inversion is a later slice).
 - Tests: `tests/test_selection_isolation.py` (shim identity, selection layer boundary incl. no providers/filesystem, ScoreBreakdown frozen). Targeted 52 passed; full default suite 582 passed / 11 skipped / 25 deselected; frozen rebuild differential in progress.
 - R6.2 implemented: state engine no longer imports selection at module level; ranking is resolved lazily and is injectable via `ranking_fn` (composition-ready, default behavior identical); eligibility/presentation target mapping registered in selection/__init__; strengthened "does not mutate state" test (frozen input snapshot + determinism). Full default suite 585 passed / 11 skipped / 25 deselected; frozen rebuild differential in progress.
+- REF-R6 accepted: three-reader review all ACCEPT. Frozen full-market rebuild run `screen-rebuild-2026-07-31-snap-2026-07-e07ab746778a` at HEAD `88a0a75` produced output_hash `9abb16e4a5720503e4ffea5462067dc1b476d8022f0593a657c328f9836920ec` (1,844,543 rows, 3191 universe) — identical to the R0 baseline and Brain `FULL_MARKET_HASH`.
+- R9 external contract recorded as pending: "R9 consumes candidate context only" applies to the separate research worktrees; Runtime registers the `selection/policies/r9` slot and does not claim the out-of-repo R9 behavior is verified here.
 
 ## Active truth and authority
 

@@ -120,7 +120,7 @@ Phase contract (declared before start, per constitution):
 - R5.2: evaluate_strategy relocated verbatim to state/engine.py; strategy/engine.py shim preserves seams (module-level identity re-exports + late-bound select_resistance_levels call + PEP 562 lazy evaluate_strategy); strategy/__init__.py lazy evaluate_strategy export breaks the cycle. [done: 69 targeted + 579 full suite passed; rebuild differential pending; three-reader phase review pending]
 - Gate: transition matrix complete; nine golden categories; prefix invariance; state diff=0; three-reader adversarial review PASS. [PASS: three-reader phase review all ACCEPT; frozen rebuild 1dbf5d5e20f0 output_hash 9abb16e4…]
 
-## REF-R6 — Selection Isolation (`pending`)
+## REF-R6 — Selection Isolation (`accepted`)
 
 Phase contract (declared before start, per constitution):
 
@@ -140,6 +140,24 @@ Phase contract (declared before start, per constitution):
 - Preserve cohort membership and ranking semantics; do not introduce R10, new coefficients, factors, thresholds, or state behavior. [held]
 - Gate: selection reads no raw provider/bars/filesystem, does not mutate state, and produces zero signal/artifact semantic diff. [in progress: boundary test green; full suite 582 passed; rebuild differential pending; three-reader review pending]
 - R6.2: ranking injection (`ranking_fn` lazy default, no module-level state→selection import); eligibility/presentation mapping registered; state-mutation test strengthened (frozen inputs + determinism). [done: 55 targeted / 585 full suite passed; rebuild differential pending; three-reader review pending]
+- Gate: selection reads no raw provider/bars/filesystem, does not mutate state, and produces zero signal/artifact semantic diff. [PASS: three-reader ACCEPT; frozen rebuild e07ab746778a output_hash 9abb16e4…; R9 external contract recorded as pending]
+
+## REF-R7 — Runtime Unification (`pending`, HIGH_RISK)
+
+Phase contract (declared before start, per constitution):
+
+- TASK_ID: REF-R7-ARCH-RUNTIME-V01
+- BASE_SHA: Runtime code base `1cb5fb7a…`; Brain/ASL unchanged
+- ARCHITECTURE_DOMAIN: `runtime/` (common/replay/daily/live interface-only)
+- FILES_ALLOWED: new `src/limit_pullback/runtime/**`; delegation-only edits to `replay.py` and `screen/runner.py`; `tests/` contract tests
+- BEHAVIOR_CHANGE: NO; STRATEGY_CHANGE: NO; DATA_CHANGE: NO; SCHEMA_CHANGE: NO; ARTIFACT_CHANGE: NO
+- PRECONDITION (pre-code inventory, must land first): Replay vs Daily divergence inventory — indicators preparation, predecessor handling, output assembly, run loop differences between `replay.py` and `screen/engine.py`/`screen/runner.py`
+- INVARIANT: Replay and Daily share the same feature/state/selection core; `ReplayRuntime(D) == DailyRuntime(D)` field-for-field under identical facts/predecessor/policy/engine versions
+- LIVE: interface reservation only; no intraday behavior, no generic backtester
+- DIFFERENTIAL_TEST: default suite green; frozen full-market rebuild output_hash remains `9abb16e4…`; per-day replay-vs-screen field equality probe on the frozen snapshot
+- GOLDEN_TEST: golden files unchanged and passing
+- PERFORMANCE_DELTA: full-market runtime/RSS ≤ baseline × 1.15; artifact bytes ≤ baseline × 1.10
+- HIGH_RISK rules: three read-only readers before acceptance; shim export-face test contract from REF-R5 continues to bind
 - Gate: transition matrix complete; nine golden categories; prefix invariance; state diff=0; three-reader adversarial review PASS. [in progress]
 
 - Consolidate one setup lifecycle, state engine, snapshot eligibility model, transition evidence, invalidation priority, supersede, and expiry behavior.
