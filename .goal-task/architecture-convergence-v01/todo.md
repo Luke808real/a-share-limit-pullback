@@ -142,7 +142,7 @@ Phase contract (declared before start, per constitution):
 - R6.2: ranking injection (`ranking_fn` lazy default, no module-level state→selection import); eligibility/presentation mapping registered; state-mutation test strengthened (frozen inputs + determinism). [done: 55 targeted / 585 full suite passed; rebuild differential pending; three-reader review pending]
 - Gate: selection reads no raw provider/bars/filesystem, does not mutate state, and produces zero signal/artifact semantic diff. [PASS: three-reader ACCEPT; frozen rebuild e07ab746778a output_hash 9abb16e4…; R9 external contract recorded as pending]
 
-## REF-R7 — Runtime Unification (`pending`, HIGH_RISK)
+## REF-R7 — Runtime Unification (`accepted`, HIGH_RISK)
 
 Phase contract (declared before start, per constitution):
 
@@ -166,6 +166,15 @@ Phase contract (declared before start, per constitution):
 - Orchestration-level parity: replay_stock vs screen_code field-identical timelines on frozen snapshot for 3 codes. [done per review follow-up]
 - Probe strengthened with real pool records: 603221/603580 exercise anchor/transition paths; 603221 asserts non-NORMAL stages. [done]
 - Gate: default suite green (589 passed); frozen rebuild output_hash 9abb16e4…; three-reader review. [in progress: round-3 DATA_READER confirmation pending]
+- Gate: default suite green (589 passed); frozen rebuild output_hash 9abb16e4…; three-reader review. [PASS: three-reader ACCEPT; rebuild e7c55287ff3f; 20-stock anchor 6c2ffc22… recorded as library-external, not locally reproduced]
+
+## REF-R8 — Legacy Retirement (`pending`, destructive gate)
+
+Preconditions (must land before any deletion):
+
+- Legacy total inventory: screen/chunks, chunk_child, generation, runner, state direct warehouse imports; data/canonical lazy screen.engine.pool_quality; asl_adapter LEGACY_MIGRATION_FALLBACK; pytdx/akshare/baostock/tushare usage points and their tests.
+- Per deletion set: runtime call count = 0 (static + runtime evidence), test dependency = 0, artifact dependency = 0, adapter unnecessary, full differential parity PASS, rollback evidence recorded.
+- Every destructive step requires explicit human approval; no automatic deletion and no merge.
 - Gate: transition matrix complete; nine golden categories; prefix invariance; state diff=0; three-reader adversarial review PASS. [in progress]
 
 - Consolidate one setup lifecycle, state engine, snapshot eligibility model, transition evidence, invalidation priority, supersede, and expiry behavior.

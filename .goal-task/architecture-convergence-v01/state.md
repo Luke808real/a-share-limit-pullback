@@ -92,6 +92,7 @@
 - Orchestration-level parity probe added per review: on the frozen snapshot, `replay_stock` (canonical provider injected, offline) vs `screen_code` produce field-identical `ReplayTimelineItem` sequences for three codes (000001/000002/600000) over the same window. Full default suite 589 passed / 11 skipped / 25 deselected; HEAD-level rebuild differential in progress.
 - Probe strengthened per DATA_READER: codes 603221/603580 now carry real frozen pool records, and 603221 asserts non-NORMAL stages — anchor/state-transition paths are exercised, not just NORMAL days. Full default suite 589 passed / 11 skipped / 25 deselected; HEAD-level rebuild differential complete below.
 - REF-R7 frozen rebuild at final parity-probe HEAD: output_hash `9abb16e4a5720503e4ffea5462067dc1b476d8022f0593a657c328f9836920ec` (1,844,543 rows, 3191 universe).
+- REF-R7 accepted: three-reader review all ACCEPT (round 3). Frozen rebuild run `screen-rebuild-2026-07-31-snap-2026-07-e7c55287ff3f` at HEAD `3114aad`; parent RSS 158.7MB / max child 2.387GB within the 1.15×/1.10× gates. Outstanding external anchor: the 20-stock frozen replay hash `6c2ffc22…` remains library-external and is recorded as not locally reproduced (frozen code list missing).
 
 ## Active truth and authority
 
