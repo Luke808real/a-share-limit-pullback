@@ -69,6 +69,7 @@ def test_in_memory_adapter_daily_universe_status():
         _bar("600000", "2026-07-31", is_st=True),
         _bar("000001", "2026-07-31"),
         _bar("000002", "2026-07-31", trade_status=False),
+        _bar("000003", "2026-07-31", is_st=None),
     )
     adapter = InMemoryCanonicalAdapter(bars=bars, provenance=_provenance())
 
@@ -80,11 +81,13 @@ def test_in_memory_adapter_daily_universe_status():
     assert adapter.get_daily_universe(date(2026, 7, 31)) == (
         "000001",
         "000002",
+        "000003",
         "600000",
     )
     assert adapter.get_trading_status("600000", date(2026, 7, 31)) == "ST"
     assert adapter.get_trading_status("000001", date(2026, 7, 31)) == "NORMAL"
     assert adapter.get_trading_status("000002", date(2026, 7, 31)) == "NO_TRADE"
+    assert adapter.get_trading_status("000003", date(2026, 7, 31)) == "UNKNOWN"
     assert adapter.get_trading_status("999999", date(2026, 7, 31)) is None
     assert adapter.get_data_provenance().data_provider_system == "fixture"
     with pytest.raises(NotImplementedError):

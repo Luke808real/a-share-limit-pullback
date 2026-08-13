@@ -51,7 +51,7 @@ vocabulary re-export (DailyBar/LimitUpRecord). The single-provider-lineage
 canonical data contract behind CanonicalDataPort; this deferral is intentional
 to keep the domain layer free of data-layer imports.
 
-## REF-R3 — Data Boundary (`pending`)
+## REF-R3 — Data Boundary (`accepted`)
 
 Phase contract (declared before start, per constitution):
 
@@ -70,12 +70,23 @@ Phase contract (declared before start, per constitution):
 - Do not cut over while ST readiness or provenance remains open; do not add a new provider under this refactor. [held]
 - Gate: canonical schema/provenance/quality/universe/snapshot contracts, provider-row lineage, fail-closed missing/conflict behavior, ASL-vs-legacy parity, and bounded resource acceptance PASS. [in progress: port tests green; full-market frozen rebuild differential pending; ASL-vs-legacy parity recorded as still-blocked authority gate]
 
-## REF-R3 — Data Boundary (`pending`)
+- Gate: canonical schema/provenance/quality/universe/snapshot contracts, provider-row lineage, fail-closed missing/conflict behavior, ASL-vs-legacy parity, and bounded resource acceptance PASS. [PASS: three-reader ACCEPT; frozen rebuild differential output_hash 9abb16e4…; ASL-vs-legacy parity recorded as authority-gated, not proven]
 
-- Establish the canonical data port and fixture/ASL/legacy adapters without exposing provider or ASL internals to Runtime domain logic.
-- Keep legacy warehouse/providers in shadow mode until ASL equivalence and authority gates pass.
-- Do not cut over while ST readiness or provenance remains open; do not add a new provider under this refactor.
-- Gate: canonical schema/provenance/quality/universe/snapshot contracts, provider-row lineage, fail-closed missing/conflict behavior, ASL-vs-legacy parity, and bounded resource acceptance PASS.
+Remaining boundary debt (for REF-R4/R6/R7): screen/chunk_child.py, screen/chunks.py, screen/generation.py, screen/runner.py, screen/state.py direct warehouse imports; data/canonical.py lazy screen.engine.pool_quality import.
+
+## REF-R4 — Feature Extraction (`pending`)
+
+Phase contract (declared before start, per constitution):
+
+- TASK_ID: REF-R4-ARCH-FEATURE-V01
+- BASE_SHA: Runtime code base `1cb5fb7a…`; Brain/ASL unchanged
+- ARCHITECTURE_DOMAIN: `features/` (anchor/pullback/structure/launch/context/common)
+- FILES_ALLOWED: new `src/limit_pullback/features/**`; `strategy/` delegation-only edits where a pure-feature function moves verbatim; `tests/` unit/contract tests
+- BEHAVIOR_CHANGE: NO; STRATEGY_CHANGE: NO; RULE/THRESHOLD_CHANGE: ZERO; DATA_CHANGE: NO; SCHEMA_CHANGE: NO; ARTIFACT_CHANGE: NO
+- INVARIANT: extracted features are pure calculations with explicit availability; policy thresholds and state/ranking mutations stay out of feature code
+- DIFFERENTIAL_TEST: default suite green; frozen full-market rebuild output_hash remains `9abb16e4…`
+- GOLDEN_TEST: golden files unchanged and passing
+- PERFORMANCE_DELTA: pure-function delegation only; expected 0
 
 ## REF-R4 — Feature Extraction (`pending`)
 

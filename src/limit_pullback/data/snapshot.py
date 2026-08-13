@@ -129,6 +129,8 @@ class SnapshotDataAdapter:
         if not rows:
             return None
         row = rows[0]
+        if row.is_st is None:
+            return "UNKNOWN"
         if row.is_st is True:
             return "ST"
         if row.trade_status is False:

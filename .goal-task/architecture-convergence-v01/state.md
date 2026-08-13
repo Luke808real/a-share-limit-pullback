@@ -40,7 +40,9 @@
 - Phase contract declared in todo.md (TASK_ID REF-R3-ARCH-DATA-BOUNDARY-V01; FILES_ALLOWED amended to include the screen/canonical delegation-only rewrite).
 - Implementation: `src/limit_pullback/data/` package with `CanonicalDataPort` (concept contract; minute/corporate-action are future interfaces), `SnapshotDataAdapter` (fail-closed snapshot resolution, memory-bounded canonical row stream, single-provider lineage), `InMemoryCanonicalAdapter` fixture, universe/quality re-exports; `screen/canonical.py` is now a re-export shim over the verbatim-moved `data/canonical.py`.
 - Known temporary edge: pool provider keeps the lazy `screen.engine.pool_quality` import for byte-identical behavior (recorded for REF-R4/R6).
-- Validation: data-port tests 7 passed (incl. per-field parity vs legacy reader and manifest-hash provenance); full default suite 573 passed / 11 skipped / 25 deselected; full-market frozen rebuild differential in progress (expected `9abb16e4…`).
+- Validation: data-port tests 7 passed (incl. per-field parity vs legacy reader and manifest-hash provenance); full default suite 573 passed / 11 skipped / 25 deselected; full-market frozen rebuild run `screen-rebuild-2026-07-31-snap-2026-07-5398b8e47d8f` produced output_hash `9abb16e4a5720503e4ffea5462067dc1b476d8022f0593a657c328f9836920ec` — identical to the R0 baseline artifact and Brain `FULL_MARKET_HASH` (1,844,543 rows, 3191 universe).
+- REF-R3 accepted: three-reader review all ACCEPT. Review follow-ups applied: trading status returns UNKNOWN when is_st is unknown (never infers NORMAL from absence); remaining boundary debt registered below.
+- Remaining data-boundary debt (not claimed as done): screen/chunk_child.py, screen/chunks.py, screen/generation.py, screen/runner.py, screen/state.py still import warehouse directly; data/canonical.py keeps the lazy screen.engine.pool_quality import. These are scheduled for REF-R4/R6/R7.
 
 ## Active truth and authority
 
