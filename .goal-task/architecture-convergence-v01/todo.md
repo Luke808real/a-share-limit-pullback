@@ -25,7 +25,7 @@ Later-phase hard prerequisites recorded in evidence v03 section 7: Replay(D)=Dai
 - Behavior/strategy/data/schema/artifact change: NO. [verified: Runtime src/ zero diff vs 1cb5fb7a; three-repo docs/tests only]
 - Gate: documentation and contract checks agree across Runtime, Brain, and ASL; zero runtime behavior diff on the frozen reference. [PASS: round-2 three-reader re-review, all ACCEPT; Draft PRs Runtime#40, Brain#5, ASL upstream#19]
 
-## REF-R2 — Domain Extraction (`in_progress`)
+## REF-R2 — Domain Extraction (`accepted`)
 
 Phase contract (declared before start, per constitution):
 
@@ -68,13 +68,11 @@ Phase contract (declared before start, per constitution):
 - Establish the canonical data port and fixture/ASL/legacy adapters without exposing provider or ASL internals to Runtime domain logic. [done: CanonicalDataPort + SnapshotDataAdapter + InMemoryCanonicalAdapter + universe/quality re-exports; screen/canonical shim delegates to data/canonical]
 - Keep legacy warehouse/providers in shadow mode until ASL equivalence and authority gates pass. [done: legacy path is still the default via the shim; ASL parity remains gated by ST/PROVENANCE/CUTOVER]
 - Do not cut over while ST readiness or provenance remains open; do not add a new provider under this refactor. [held]
-- Gate: canonical schema/provenance/quality/universe/snapshot contracts, provider-row lineage, fail-closed missing/conflict behavior, ASL-vs-legacy parity, and bounded resource acceptance PASS. [in progress: port tests green; full-market frozen rebuild differential pending; ASL-vs-legacy parity recorded as still-blocked authority gate]
-
 - Gate: canonical schema/provenance/quality/universe/snapshot contracts, provider-row lineage, fail-closed missing/conflict behavior, ASL-vs-legacy parity, and bounded resource acceptance PASS. [PASS: three-reader ACCEPT; frozen rebuild differential output_hash 9abb16e4…; ASL-vs-legacy parity recorded as authority-gated, not proven]
 
 Remaining boundary debt (for REF-R4/R6/R7): screen/chunk_child.py, screen/chunks.py, screen/generation.py, screen/runner.py, screen/state.py direct warehouse imports; data/canonical.py lazy screen.engine.pool_quality import.
 
-## REF-R4 — Feature Extraction (`in_progress`)
+## REF-R4 — Feature Extraction (`accepted`)
 
 Phase contract (declared before start, per constitution):
 
@@ -91,16 +89,29 @@ Phase contract (declared before start, per constitution):
 - Extract pure anchor, pullback, structure, launch, context, and common math features with explicit availability and lineage. [partial: common math/views extracted verbatim; anchor/pullback/structure/launch/context feature families remain in strategy/patterns+structure for later slices]
 - Remove policy thresholds and state/ranking mutations from feature calculations. [held: kline flags remain threshold-coupled by design; recorded, no new coupling]
 - Rule/threshold/strategy change: ZERO. [held]
-- Gate: pure unit tests plus old/new feature and downstream semantic differential parity PASS. [in progress: full suite 576 passed; frozen rebuild differential pending; three-reader review pending]
+- Gate: pure unit tests plus old/new feature and downstream semantic differential parity PASS. [PASS: three-reader ACCEPT; full suite 576 passed; frozen rebuild run d10ee308b702 output_hash 9abb16e4…]
 
-## REF-R4 — Feature Extraction (`pending`)
+## REF-R4.2 — Remaining Feature Families and Kline-Policy Extraction (`pending`, R5 prerequisite)
 
-- Extract pure anchor, pullback, structure, launch, context, and common math features with explicit availability and lineage.
-- Remove policy thresholds and state/ranking mutations from feature calculations.
-- Rule/threshold/strategy change: ZERO.
-- Gate: pure unit tests plus old/new feature and downstream semantic differential parity PASS.
+- Extract anchor/pullback/structure/launch/context feature families from strategy/patterns.py (260 LOC) and strategy/structure.py (504 LOC) as pure calculations.
+- Split threshold-coupled kline classification flags from the pure kline ratio facts (policy stays in a strategy policy module; features stay policy-free).
+- Rule/threshold change: ZERO; behavior change: NO; differential: frozen rebuild output_hash remains `9abb16e4…`.
+- Gate: features consume no policy; three-reader review ACCEPT before REF-R5 starts.
 
 ## REF-R5 — State Consolidation (`pending`, HIGH_RISK)
+
+Phase contract (declared before start, per constitution):
+
+- TASK_ID: REF-R5-ARCH-STATE-V01
+- BASE_SHA: Runtime code base `1cb5fb7a…`; Brain/ASL unchanged
+- ARCHITECTURE_DOMAIN: `state/` (engine/lifecycle/transitions/snapshots/invalidation)
+- FILES_ALLOWED: new `src/limit_pullback/state/**`; `strategy/engine.py` and `screen/state.py` delegation-only edits where the state logic moves verbatim; `tests/` transition/golden tests
+- BEHAVIOR_CHANGE: NO; STRATEGY_CHANGE: NO; DATA_CHANGE: NO; SCHEMA_CHANGE: NO; ARTIFACT_CHANGE: NO
+- INVARIANT: exact frozen stages and PIT timing; INVALID beats ranking; new anchor supersedes with new setup_id; invalid price never loosens; prefix invariance holds
+- DIFFERENTIAL_TEST: frozen full-market rebuild output_hash remains `9abb16e4…`; state diff = 0 on frozen reference; transition matrix complete
+- GOLDEN_TEST: corporate action, ST, suspension, B1 first day, trigger freeze, B2 confirm, invalid, supersede, expire cases pass unchanged
+- PERFORMANCE_DELTA: full-market runtime/RSS <= baseline x1.15; artifact bytes <= baseline x1.10
+- HIGH_RISK rules: three read-only readers (CODE/DATA/ADVERSARIAL) before acceptance; rollback anchor = last accepted commit; do not start before REF-R4.2 gate PASS
 
 - Consolidate one setup lifecycle, state engine, snapshot eligibility model, transition evidence, invalidation priority, supersede, and expiry behavior.
 - Preserve exact frozen stages and PIT timing. Ranking cannot rescue INVALID or affect transitions.

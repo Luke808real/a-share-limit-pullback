@@ -49,7 +49,8 @@
 - Phase contract declared in todo.md (TASK_ID REF-R4-ARCH-FEATURE-V01; rule/threshold change ZERO; differential = frozen rebuild hash unchanged).
 - Implementation: `src/limit_pullback/features/` with `common/math.py` (continuous prices, kline metrics, indicators) and `common/views.py` (zero-copy prefix views) moved verbatim from `strategy/math.py`/`strategy/indicators.py`; legacy strategy modules are now re-export shims.
 - Recorded coupling: kline classification flags stay threshold-coupled (frozen config) and are scheduled for policy extraction later; no threshold or rule changed.
-- Validation: feature tests green (identity + layer boundary + PIT prefix invariance); full default suite 576 passed / 11 skipped / 25 deselected; frozen full-market rebuild differential in progress (expected `9abb16e4…`).
+- Validation: feature tests green (identity + layer boundary + PIT prefix invariance); full default suite 576 passed / 11 skipped / 25 deselected; frozen full-market rebuild run `screen-rebuild-2026-07-31-snap-2026-07-d10ee308b702` at HEAD `0fef278` produced output_hash `9abb16e4a5720503e4ffea5462067dc1b476d8022f0593a657c328f9836920ec` — identical to the R0 baseline artifact and Brain `FULL_MARKET_HASH` (1,844,543 rows, 3191 universe).
+- REF-R4 accepted: three-reader review all ACCEPT. Follow-up: remaining feature families and kline-policy extraction are now REF-R4.2 (R5 prerequisite) with its own gate.
 
 ## Active truth and authority
 
