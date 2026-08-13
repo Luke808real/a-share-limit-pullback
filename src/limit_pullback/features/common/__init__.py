@@ -1,16 +1,18 @@
-"""Compatibility shim for the math features moved to features/common (REF-R4)."""
+"""Common feature math and views (REF-R4)."""
 
 from limit_pullback.features.common.math import (
-    ZERO,
-    ONE,
     build_continuous_prices,
     calculate_indicators,
     calculate_kline_metrics,
 )
+from limit_pullback.features.common.views import (
+    IndicatorPrefixView,
+    SequencePrefixView,
+)
 
 __all__ = [
-    "ONE",
-    "ZERO",
+    "IndicatorPrefixView",
+    "SequencePrefixView",
     "build_continuous_prices",
     "calculate_indicators",
     "calculate_kline_metrics",

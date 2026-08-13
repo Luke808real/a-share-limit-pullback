@@ -74,7 +74,7 @@ Phase contract (declared before start, per constitution):
 
 Remaining boundary debt (for REF-R4/R6/R7): screen/chunk_child.py, screen/chunks.py, screen/generation.py, screen/runner.py, screen/state.py direct warehouse imports; data/canonical.py lazy screen.engine.pool_quality import.
 
-## REF-R4 — Feature Extraction (`pending`)
+## REF-R4 — Feature Extraction (`in_progress`)
 
 Phase contract (declared before start, per constitution):
 
@@ -87,6 +87,11 @@ Phase contract (declared before start, per constitution):
 - DIFFERENTIAL_TEST: default suite green; frozen full-market rebuild output_hash remains `9abb16e4…`
 - GOLDEN_TEST: golden files unchanged and passing
 - PERFORMANCE_DELTA: pure-function delegation only; expected 0
+
+- Extract pure anchor, pullback, structure, launch, context, and common math features with explicit availability and lineage. [partial: common math/views extracted verbatim; anchor/pullback/structure/launch/context feature families remain in strategy/patterns+structure for later slices]
+- Remove policy thresholds and state/ranking mutations from feature calculations. [held: kline flags remain threshold-coupled by design; recorded, no new coupling]
+- Rule/threshold/strategy change: ZERO. [held]
+- Gate: pure unit tests plus old/new feature and downstream semantic differential parity PASS. [in progress: full suite 576 passed; frozen rebuild differential pending; three-reader review pending]
 
 ## REF-R4 — Feature Extraction (`pending`)
 

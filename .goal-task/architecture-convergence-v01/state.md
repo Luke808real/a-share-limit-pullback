@@ -44,6 +44,13 @@
 - REF-R3 accepted: three-reader review all ACCEPT. Review follow-ups applied: trading status returns UNKNOWN when is_st is unknown (never infers NORMAL from absence); remaining boundary debt registered below.
 - Remaining data-boundary debt (not claimed as done): screen/chunk_child.py, screen/chunks.py, screen/generation.py, screen/runner.py, screen/state.py still import warehouse directly; data/canonical.py keeps the lazy screen.engine.pool_quality import. These are scheduled for REF-R4/R6/R7.
 
+## REF-R4 status
+
+- Phase contract declared in todo.md (TASK_ID REF-R4-ARCH-FEATURE-V01; rule/threshold change ZERO; differential = frozen rebuild hash unchanged).
+- Implementation: `src/limit_pullback/features/` with `common/math.py` (continuous prices, kline metrics, indicators) and `common/views.py` (zero-copy prefix views) moved verbatim from `strategy/math.py`/`strategy/indicators.py`; legacy strategy modules are now re-export shims.
+- Recorded coupling: kline classification flags stay threshold-coupled (frozen config) and are scheduled for policy extraction later; no threshold or rule changed.
+- Validation: feature tests green (identity + layer boundary + PIT prefix invariance); full default suite 576 passed / 11 skipped / 25 deselected; frozen full-market rebuild differential in progress (expected `9abb16e4…`).
+
 ## Active truth and authority
 
 Authority order:
