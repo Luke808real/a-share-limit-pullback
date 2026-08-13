@@ -94,6 +94,11 @@
 - REF-R7 frozen rebuild at final parity-probe HEAD: output_hash `9abb16e4a5720503e4ffea5462067dc1b476d8022f0593a657c328f9836920ec` (1,844,543 rows, 3191 universe).
 - REF-R7 accepted: three-reader review all ACCEPT (round 3). Frozen rebuild run `screen-rebuild-2026-07-31-snap-2026-07-e7c55287ff3f` at HEAD `3114aad`; parent RSS 158.7MB / max child 2.387GB within the 1.15×/1.10× gates. Outstanding external anchor: the 20-stock frozen replay hash `6c2ffc22…` remains library-external and is recorded as not locally reproduced (frozen code list missing).
 
+## REF-R8 status
+
+- Read-only inventory landed: ref-r8-legacy-inventory.md. No retirement set currently satisfies the deletion gate (every provider module still has runtime or test references).
+- Authority blockers recorded: `ST_READY=NO`, `PROVENANCE_GAP=OPEN`, `PRODUCTION_CUTOVER=NO_GO` are Brain/ASL data-governance gates this task cannot flip; REF-R8 stays `needs_input` for human-approved retirement sets and rollback evidence.
+
 ## Active truth and authority
 
 Authority order:

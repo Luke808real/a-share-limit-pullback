@@ -175,6 +175,8 @@ Preconditions (must land before any deletion):
 - Legacy total inventory: screen/chunks, chunk_child, generation, runner, state direct warehouse imports; data/canonical lazy screen.engine.pool_quality; asl_adapter LEGACY_MIGRATION_FALLBACK; pytdx/akshare/baostock/tushare usage points and their tests.
 - Per deletion set: runtime call count = 0 (static + runtime evidence), test dependency = 0, artifact dependency = 0, adapter unnecessary, full differential parity PASS, rollback evidence recorded.
 - Every destructive step requires explicit human approval; no automatic deletion and no merge.
+- Inventory landed (ref-r8-legacy-inventory.md): no deletion candidate currently satisfies the gate; authority blockers ST_READY/PROVENANCE_GAP/CUTOVER recorded. [done: read-only]
+- Deletion sets: `needs_input` — await Brain/ASL authority-gate closure plus per-set human approval with rollback evidence. [blocked externally, not started]
 - Gate: transition matrix complete; nine golden categories; prefix invariance; state diff=0; three-reader adversarial review PASS. [in progress]
 
 - Consolidate one setup lifecycle, state engine, snapshot eligibility model, transition evidence, invalidation priority, supersede, and expiry behavior.
