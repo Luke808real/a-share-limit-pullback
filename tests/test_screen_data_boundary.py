@@ -50,3 +50,36 @@ def test_facade_reexports_are_identity():
     assert WarehouseLayout is WarehouseWarehouseLayout
     assert WarehouseMetadata is WarehouseWarehouseMetadata
     assert sha256_file is warehouse_sha256_file
+
+
+def test_read_side_tool_modules_have_no_warehouse_imports():
+    """Read-side tool modules depend on the data layer, not warehouse internals.
+
+    cli.py is deliberately exempt: its bootstrap/update/probe/status/validate/
+    asl-snapshot commands are the warehouse acquisition surface itself and stay
+    warehouse-owned until retirement.
+    """
+
+    modules = (
+        "execution_reality.py",
+        "outcome.py",
+        "prc_audit.py",
+        "trade_plan.py",
+        "universe.py",
+    )
+    for filename in modules:
+        path = ROOT / "src" / "limit_pullback" / filename
+        names: set[str] = set()
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                names.update(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                names.add(node.module)
+        hits = {
+            name
+            for name in names
+            if name == "limit_pullback.warehouse"
+            or name.startswith("limit_pullback.warehouse.")
+        }
+        assert not hits, f"{filename}: {sorted(hits)}"

@@ -50,11 +50,13 @@ from limit_pullback.resources import peak_rss_bytes
 from limit_pullback.screen.canonical import FIXED_FETCHED_AT
 from limit_pullback.strategy.engine import evaluate_strategy
 from limit_pullback.trade_plan import build_trade_plan
-from limit_pullback.warehouse.layout import WarehouseLayout
-from limit_pullback.warehouse.metadata import WarehouseMetadata
-from limit_pullback.warehouse.snapshot import require_formally_usable_snapshot
-from limit_pullback.warehouse.models import SnapshotRecord
-from limit_pullback.warehouse.parquet import sha256_file
+from limit_pullback.data.facade import (
+    SnapshotRecord,
+    WarehouseLayout,
+    WarehouseMetadata,
+    require_formally_usable_snapshot,
+    sha256_file,
+)
 
 
 ZERO = Decimal("0")

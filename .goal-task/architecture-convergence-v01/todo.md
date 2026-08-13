@@ -224,3 +224,4 @@ P3 artifact-impact contract (declared before implementation):
 - P4 performance re-test at latest HEAD: done (266.99s / 2.387GB / 4.27GB, all within gates; hash 9abb16e4…).
 - P2 evidence protocol (additive): fingerprint + receipt done (tests green; artifact impact per declared contract).
 - P3 warehouse-consumer bridge: data/facade.py identity re-exports; screen warehouse imports zeroed (boundary test). [done: 595 full suite; rebuild differential pending; three-reader review pending]
+- P3.2 read-side tool bridge: execution_reality/outcome/prc_audit/trade_plan/universe zeroed; cli.py acquisition surface exempt and recorded. [done: 596 full suite; rebuild differential pending]
