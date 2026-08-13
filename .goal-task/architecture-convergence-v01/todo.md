@@ -230,6 +230,7 @@ P6 artifact-impact contract (declared before implementation):
 - FILES_ALLOWED: new `src/limit_pullback/evidence/wire.py`; `screen/chunks.py` additive completion wiring; `data/facade.py` two identity re-exports; `tests/` contract test
 - BEHAVIOR_CHANGE: NO; STRATEGY_CHANGE: NO; DATA_CHANGE: NO; SCHEMA_CHANGE: NO; ARTIFACT_CHANGE: additive-only — a `<run_id>.receipt.json` file is written beside each formal chunked run; run rows and `output_hash` unchanged
 - INVARIANT: frozen rebuild `output_hash` remains `9abb16e4…`
+- P6.2 extension: the non-chunked `run_screen` path emits the same additive receipt (contract unchanged; predecessor/universe_hash remain explicit None there as well)
 
 - Run all completion gates listed in `state.md` against frozen references and current repository-native validators.
 - Reconcile exact commits, Draft PRs, hashes, performance, review findings, known limitations, and unchanged authorization boundaries.

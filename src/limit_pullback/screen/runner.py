@@ -1033,6 +1033,21 @@ def run_screen(
             spool_path=spool_path,
             output_path=output_path,
         )
+    from limit_pullback.data.facade import ASL_CONTRACT_VERSION
+    from limit_pullback.evidence.wire import emit_formal_run_receipt
+
+    emit_formal_run_receipt(
+        artifact_path=output_path,
+        reference=None,
+        runtime_commit=commit,
+        strategy_version=config.strategy_version,
+        config_hash=config_hash,
+        asl_version=ASL_CONTRACT_VERSION,
+        data_snapshot_id=resolved_snapshot_id,
+        universe_id="phase-2d0",
+        predecessor_generation_id=None,
+        engine_versions={"runtime": "single-process-v1"},
+    )
     spool_path.unlink(missing_ok=True)
     return ScreenRunResult(
         run_id=run_id,
