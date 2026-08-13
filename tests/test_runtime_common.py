@@ -131,3 +131,91 @@ def test_per_day_parity_between_replay_and_screen_modes():
         assert precomputed == recomputed, f"parity broken on {day}"
         previous = precomputed
         previous_recompute = recomputed
+
+
+@pytest.mark.skipif(
+    not ISOLATED_DATA.exists(),
+    reason="frozen snapshot data dir not present in this checkout",
+)
+def test_orchestration_parity_replay_vs_screen():
+    """Orchestration-level parity: replay_stock vs screen_code, same facts."""
+
+    from datetime import timedelta
+
+    from limit_pullback.config import load_strategy_config
+    from limit_pullback.data import SnapshotDataAdapter
+    from limit_pullback.data.canonical import (
+        FIXED_FETCHED_AT,
+        CanonicalDailyBarProvider,
+        CanonicalLimitUpPoolProvider,
+    )
+    from limit_pullback.models.market import DailyBar
+    from limit_pullback.replay import replay_stock
+    from limit_pullback.screen.engine import screen_code
+    from limit_pullback.warehouse.layout import WarehouseLayout
+
+    config = load_strategy_config(ROOT / "config" / "strategy.yaml")
+    adapter = SnapshotDataAdapter(
+        WarehouseLayout(ROOT / "data"),
+        snapshot_id="snap-2026-07-31-b5f84004de8a",
+    )
+    start = date(2026, 7, 1)
+    as_of = date(2026, 7, 31)
+
+    def load_bars(code: str) -> tuple[DailyBar, ...]:
+        canonical = adapter.get_daily(code, date(2026, 5, 1), as_of)
+        return tuple(
+            DailyBar(
+                trade_date=bar.trade_date,
+                code=bar.code,
+                open=bar.open,
+                high=bar.high,
+                low=bar.low,
+                close=bar.close,
+                preclose=bar.preclose,
+                volume=bar.volume,
+                amount=bar.amount,
+                turnover_rate=bar.turnover_rate,
+                pct_change=bar.pct_change,
+                trade_status=bar.trade_status,
+                is_st=bar.is_st,
+                source="CANONICAL_PARITY",
+                fetched_at=FIXED_FETCHED_AT,
+            )
+            for bar in canonical
+        )
+
+    for code in ("000001", "000002", "600000"):
+        bars = load_bars(code)
+        replay_output = replay_stock(
+            code=code,
+            start=start,
+            as_of=as_of,
+            lookback_calendar_days=400,
+            config=config,
+            daily_provider=CanonicalDailyBarProvider(
+                {code: bars},
+                fetched_at=FIXED_FETCHED_AT,
+            ),
+            limit_pool_provider=CanonicalLimitUpPoolProvider(
+                {},
+                pool_mode="formal",
+                fetched_at=FIXED_FETCHED_AT,
+            ),
+        )
+        screen_rows, _ = screen_code(
+            code=code,
+            bars=bars,
+            pool_records=(),
+            config=config,
+            start_date=start,
+            as_of=as_of,
+            generated_at=FIXED_FETCHED_AT + timedelta(seconds=1),
+            previous_signal=None,
+            last_processed=None,
+            pool_status={},
+            pool_mode="formal",
+        )
+        assert replay_output.timeline == screen_rows, (
+            f"orchestration parity broken for {code}"
+        )
