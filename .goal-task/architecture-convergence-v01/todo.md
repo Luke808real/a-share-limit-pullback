@@ -25,7 +25,7 @@ Later-phase hard prerequisites recorded in evidence v03 section 7: Replay(D)=Dai
 - Behavior/strategy/data/schema/artifact change: NO. [verified: Runtime src/ zero diff vs 1cb5fb7a; three-repo docs/tests only]
 - Gate: documentation and contract checks agree across Runtime, Brain, and ASL; zero runtime behavior diff on the frozen reference. [PASS: round-2 three-reader re-review, all ACCEPT; Draft PRs Runtime#40, Brain#5, ASL upstream#19]
 
-## REF-R2 — Domain Extraction (`pending`)
+## REF-R2 — Domain Extraction (`in_progress`)
 
 Phase contract (declared before start, per constitution):
 
@@ -40,10 +40,10 @@ Phase contract (declared before start, per constitution):
 - PERFORMANCE_DELTA: no runtime path change; expected 0
 - FILES_CHANGED/HEAD_SHA: recorded at phase close
 
-- Extract canonical market facts, instrument/session/status, setup identity/stage/lifecycle, frozen snapshots, feature record/availability, run context, and provenance domain types.
+- Extract canonical market facts, setup identity/stage/lifecycle, frozen snapshots, feature record/availability, run context, and provenance domain types. [done: domain/ package created; market/state re-exports, SetupIdentity, Lifecycle alias, FeatureRecord/FeatureAvailability, RunContext, DataProvenance]
 - Keep old APIs operational through compatibility adapters.
 - Behavior/strategy change: NO.
-- Gate: serialization/contract compatibility, transition/golden tests, and differential parity PASS.
+- Gate: serialization/contract compatibility, transition/golden tests, and differential parity PASS. [in progress: existing 13 schemas verified unchanged; full suite running; three-reader review pending]
 
 ## REF-R3 — Data Boundary (`pending`)
 

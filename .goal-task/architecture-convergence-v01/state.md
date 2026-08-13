@@ -4,9 +4,9 @@
 
 - Mode: deep, cross-repository strangler refactor
 - Initialization: complete; implementation has not started
-- Current phase: REF-R1 Architecture Constitution
-- Progress: 1/9 refactor phases accepted (REF-R0 accepted 2026-08-13, three-reader round-3 ACCEPT)
-- Next action: draft and publish the three-plane/seven-domain constitution across Runtime, Brain, and ASL with zero behavior change, then three-reader review
+- Current phase: REF-R2 Domain Extraction
+- Progress: 2/9 refactor phases accepted (REF-R0 and REF-R1 accepted with three-reader reviews; Draft PRs Runtime#40, Brain#5, ASL upstream#19)
+- Next action: validate the new `domain/` package against the full default suite, then three-reader review and commit
 
 ## REF-R0 status
 
@@ -26,6 +26,13 @@
 - Brain artifact: `03_Decisions/ADR-007-architecture-convergence-constitution.md` (PROPOSED; decision_date records proposal date until human decision). Branch pushed.
 - ASL artifact: `docs/architecture/plane-boundary.md` plus `docs/architecture/overview.md` link (Data Plane owns data truth, no strategy semantics). Branch pushed to fork.
 - Zero behavior change evidence: Runtime `src/` has zero diff versus code base `1cb5fb7a…`; the only non-doc/test task-branch change is the `pyproject.toml` `pytdx` extra line (R0-F1 environment pin, packaging metadata only). Targeted semantic tests and new constitution tests pass; Brain 47/47 and ASL 1473 unit tests pass with the new docs.
+- REF-R1 accepted: round-2 three-reader review all ACCEPT. Draft PRs opened: Runtime `Luke808real/a-share-limit-pullback#40`, Brain `Luke808real/a-share-strategy-brain#5`, ASL `rootSunc/ashare-lake#19` (all Draft, base main, no merge/cutover language).
+
+## REF-R2 status
+
+- Phase contract declared in todo.md (TASK_ID REF-R2-ARCH-DOMAIN-V01; behavior/strategy/data/schema/artifact change all NO).
+- Implementation: new `src/limit_pullback/domain/` package (market/setup/state/features/run/provenance) that only re-exports from `limit_pullback.models.*` plus additive documentation-grade contracts (SetupIdentity, FeatureRecord, FeatureAvailability, RunContext, DataProvenance, Lifecycle alias). No warehouse/provider import in the domain layer.
+- Tests: `tests/test_domain_contracts.py` (12 tests incl. domain import boundary and unchanged existing schemas). Targeted run 18 passed (12 domain + 6 constitution). Full default suite run in progress.
 
 ## Active truth and authority
 
