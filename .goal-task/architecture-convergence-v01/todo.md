@@ -58,12 +58,17 @@ Phase contract (declared before start, per constitution):
 - TASK_ID: REF-R3-ARCH-DATA-BOUNDARY-V01
 - BASE_SHA: Runtime code base `1cb5fb7a…`; Brain/ASL unchanged in this phase
 - ARCHITECTURE_DOMAIN: `data/` (ports/canonical/asl/snapshot/universe/quality) target; incremental only, legacy stays default
-- FILES_ALLOWED: new `src/limit_pullback/data/**`; small adapter re-exports; `tests/` contract tests
+- FILES_ALLOWED: new `src/limit_pullback/data/**`; `src/limit_pullback/screen/canonical.py` delegation-only rewrite (becomes a re-export shim, bodies move verbatim to `data/canonical.py`); `.gitignore` root-anchor fix (`data/` -> `/data/` so the target `src/limit_pullback/data/` package is trackable); `tests/` contract tests
 - BEHAVIOR_CHANGE: NO; STRATEGY_CHANGE: NO; DATA_CHANGE: NO; SCHEMA_CHANGE: NO (new port is additive); ARTIFACT_CHANGE: NO
 - INVARIANT: legacy warehouse/providers remain default until ASL==Legacy equivalence evidence; ST_READY/PROVENANCE_GAP/PRODUCTION_CUTOVER stay blocking; no new provider; canonical rows keep single-provider lineage
 - DIFFERENTIAL_TEST: default suite green; existing canonical reader behavior unchanged; ASL-vs-Legacy parity probe recorded as pending until authority gates allow
 - GOLDEN_TEST: golden files unchanged and passing
 - PERFORMANCE_DELTA: additive import-only path; expected 0
+
+- Establish the canonical data port and fixture/ASL/legacy adapters without exposing provider or ASL internals to Runtime domain logic. [done: CanonicalDataPort + SnapshotDataAdapter + InMemoryCanonicalAdapter + universe/quality re-exports; screen/canonical shim delegates to data/canonical]
+- Keep legacy warehouse/providers in shadow mode until ASL equivalence and authority gates pass. [done: legacy path is still the default via the shim; ASL parity remains gated by ST/PROVENANCE/CUTOVER]
+- Do not cut over while ST readiness or provenance remains open; do not add a new provider under this refactor. [held]
+- Gate: canonical schema/provenance/quality/universe/snapshot contracts, provider-row lineage, fail-closed missing/conflict behavior, ASL-vs-legacy parity, and bounded resource acceptance PASS. [in progress: port tests green; full-market frozen rebuild differential pending; ASL-vs-legacy parity recorded as still-blocked authority gate]
 
 ## REF-R3 — Data Boundary (`pending`)
 

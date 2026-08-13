@@ -35,6 +35,13 @@
 - Tests: `tests/test_domain_contracts.py` (12 tests incl. domain import boundary and unchanged existing schemas). Targeted run 18 passed (12 domain + 6 constitution). Full default suite run in progress.
 - REF-R2 accepted: three-reader review all ACCEPT (recorded follow-ups applied: FeatureRecord missing-value explicitness; CanonicalDailyBar deferral to REF-R3 documented; R3 contract declared).
 
+## REF-R3 status
+
+- Phase contract declared in todo.md (TASK_ID REF-R3-ARCH-DATA-BOUNDARY-V01; FILES_ALLOWED amended to include the screen/canonical delegation-only rewrite).
+- Implementation: `src/limit_pullback/data/` package with `CanonicalDataPort` (concept contract; minute/corporate-action are future interfaces), `SnapshotDataAdapter` (fail-closed snapshot resolution, memory-bounded canonical row stream, single-provider lineage), `InMemoryCanonicalAdapter` fixture, universe/quality re-exports; `screen/canonical.py` is now a re-export shim over the verbatim-moved `data/canonical.py`.
+- Known temporary edge: pool provider keeps the lazy `screen.engine.pool_quality` import for byte-identical behavior (recorded for REF-R4/R6).
+- Validation: data-port tests 7 passed (incl. per-field parity vs legacy reader and manifest-hash provenance); full default suite 573 passed / 11 skipped / 25 deselected; full-market frozen rebuild differential in progress (expected `9abb16e4…`).
+
 ## Active truth and authority
 
 Authority order:

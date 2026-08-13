@@ -30,4 +30,4 @@ dist/
 !.codex/skills/**
 
 # Phase 2C.2A local market-data warehouse (real data never committed).
-data/
+/data/
