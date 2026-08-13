@@ -106,7 +106,7 @@ Phase contract (declared before start, per constitution):
 - TASK_ID: REF-R5-ARCH-STATE-V01
 - BASE_SHA: Runtime code base `1cb5fb7a…`; Brain/ASL unchanged
 - ARCHITECTURE_DOMAIN: `state/` (engine/lifecycle/transitions/snapshots/invalidation)
-- FILES_ALLOWED: new `src/limit_pullback/state/**`; `strategy/engine.py` and `screen/state.py` delegation-only edits where the state logic moves verbatim; `tests/` transition/golden tests
+- FILES_ALLOWED: new `src/limit_pullback/state/**`; `strategy/engine.py`, `strategy/__init__.py` (lazy evaluate_strategy export), and `screen/state.py` delegation-only edits where the state logic moves verbatim; `tests/` transition/golden tests
 - BEHAVIOR_CHANGE: NO; STRATEGY_CHANGE: NO; DATA_CHANGE: NO; SCHEMA_CHANGE: NO; ARTIFACT_CHANGE: NO
 - INVARIANT: exact frozen stages and PIT timing; INVALID beats ranking; new anchor supersedes with new setup_id; invalid price never loosens; prefix invariance holds
 - DIFFERENTIAL_TEST: frozen full-market rebuild output_hash remains `9abb16e4…`; state diff = 0 on frozen reference; transition matrix complete
@@ -117,6 +117,7 @@ Phase contract (declared before start, per constitution):
 - Pre-code transition matrix and golden case list landed (ref-r5-transition-matrix.md). [done]
 - Slice 1: state transition helpers moved verbatim to state/engine_helpers.py; strategy/engine.py imports them back; zero behavior change. [done: targeted 52 passed, full suite 579 passed, rebuild differential pending]
 - Slice 2 (deferred with two findings): F5a golden monkeypatch seam on strategy.engine.select_resistance_levels; F5b import cycle between state.engine and strategy/__init__. R5.2 needs an amended scope (patterns/scoring/structure consumption relocation or lazy strategy exports) and its own review round; do not retry without that plan.
+- R5.2: evaluate_strategy relocated verbatim to state/engine.py; strategy/engine.py shim preserves seams (module-level identity re-exports + late-bound select_resistance_levels call + PEP 562 lazy evaluate_strategy); strategy/__init__.py lazy evaluate_strategy export breaks the cycle. [done: 69 targeted + 579 full suite passed; rebuild differential pending; three-reader phase review pending]
 - Gate: transition matrix complete; nine golden categories; prefix invariance; state diff=0; three-reader adversarial review PASS. [in progress]
 
 - Consolidate one setup lifecycle, state engine, snapshot eligibility model, transition evidence, invalidation priority, supersede, and expiry behavior.

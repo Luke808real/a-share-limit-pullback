@@ -70,6 +70,7 @@
   - F5b (package-init cycle): `state.engine` importing `strategy.*` submodules while `strategy/__init__` imports `strategy.engine` creates an import cycle once the engine leaves the strategy package.
   - Planned R5.2 resolution (documented, not started): move pattern/scoring/structure consumption out of the engine or introduce lazy strategy package exports, preserving monkeypatch seams; requires an amended file-scope contract and its own three-reader review.
 - R5 slice 1 remains the accepted milestone: transition helpers consolidated in `state/engine_helpers.py` with zero behavior change.
+- R5.2 implemented (seam-preserving engine relocation): `evaluate_strategy` moved verbatim to `state/engine.py`; `strategy/engine.py` is an identity-level re-export shim with module-level structure seams and a lazy PEP 562 `evaluate_strategy`; `strategy/__init__.py` resolves `evaluate_strategy` lazily to break the package cycle; `select_resistance_levels` is called late-bound through the shim so golden monkeypatch tests keep passing. All import paths verified; targeted 69 passed; full suite 579 passed / 11 skipped / 25 deselected; frozen rebuild differential in progress.
 
 ## Active truth and authority
 
