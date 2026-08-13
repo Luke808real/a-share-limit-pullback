@@ -45,9 +45,10 @@ PIT status provenance contract (review round 3):
   backfill; historical suspension comes from ``derived_bar_gap``.
 * Every ``trading_status`` row is read WITH provenance (``source``,
   ``data_version``, ``fetched_at``) and classified before use:
-  - ``source == "baostock"``: trusted historical ST; accepted ONLY as
-    ``status in {st, *st}`` with ``is_trading == True``; any other
-    combination raises.
+  - ``source == "baostock"``: trusted historical evidence; accepted ONLY as
+    ``status in {st, *st, normal}`` with ``is_trading == True``; any other
+    combination raises. ``normal`` maps to explicit ``is_st=false`` (the
+    historical negative evidence from the bounded ST backfill).
   - ``source == "derived_bar_gap"``: trusted historical suspension; accepted
     ONLY as ``status == "suspended"`` with ``is_trading == False``; any other
     combination raises.
@@ -119,7 +120,7 @@ DAILY_STATUS_SOURCES = frozenset({"eastmoney", "tdx_protocol"})
 SHANGHAI_TZ = timezone(timedelta(hours=8))
 
 TRUSTED_STATUS_KINDS = frozenset(
-    {"BAOSTOCK_ST", "DERIVED_GAP_SUSPENDED", "EASTMONEY_SAME_DAY"}
+    {"BAOSTOCK_ST", "BAOSTOCK_NORMAL", "DERIVED_GAP_SUSPENDED", "EASTMONEY_SAME_DAY"}
 )
 
 RowStatus = Literal[
@@ -234,7 +235,8 @@ class AslDailyBarRow:
     asl_data_version: str | None
     asl_fetched_at: datetime | None
     #: Trust class of the status row that produced is_st/trade_status
-    #: (BAOSTOCK_ST | DERIVED_GAP_SUSPENDED | EASTMONEY_SAME_DAY), or None
+    #: (BAOSTOCK_ST | BAOSTOCK_NORMAL | DERIVED_GAP_SUSPENDED |
+    #: EASTMONEY_SAME_DAY), or None
     #: when no trusted status row exists (is_st=None semantics).  Evidence
     #: only; does not change PIT behavior.
     asl_status_trust: str | None = None
@@ -271,8 +273,8 @@ class AslStatusRow:
     source: str
     data_version: str
     fetched_at: datetime
-    #: BAOSTOCK_ST | DERIVED_GAP_SUSPENDED | EASTMONEY_SAME_DAY |
-    #: NON_PIT_EASTMONEY | UNKNOWN_STATUS
+    #: BAOSTOCK_ST | BAOSTOCK_NORMAL | DERIVED_GAP_SUSPENDED |
+    #: EASTMONEY_SAME_DAY | NON_PIT_EASTMONEY | UNKNOWN_STATUS
     trust: str
 
 
@@ -577,12 +579,12 @@ def _classify_status_provenance(
     """
 
     if source == BAOSTOCK_STATUS_SOURCE:
-        if status not in {"st", "*st"} or not is_trading:
+        if status not in {"st", "*st", "normal"} or not is_trading:
             raise AslAdapterError(
                 f"UNEXPECTED_STATUS_SEMANTICS:{code}:{day}:"
                 f"source=baostock status={status!r} is_trading={is_trading}"
             )
-        return "BAOSTOCK_ST"
+        return "BAOSTOCK_ST" if status in {"st", "*st"} else "BAOSTOCK_NORMAL"
     if source == DERIVED_BAR_GAP_STATUS_SOURCE:
         if status != "suspended" or is_trading:
             raise AslAdapterError(
@@ -758,6 +760,8 @@ def _status_mapping(
         return True, None  # positive bar, ST unknown: never claim normal
     if status_row.trust == "BAOSTOCK_ST":
         return True, True
+    if status_row.trust == "BAOSTOCK_NORMAL":
+        return True, False
     if status_row.trust == "DERIVED_GAP_SUSPENDED":
         return False, None
     # EASTMONEY_SAME_DAY
@@ -901,7 +905,9 @@ def load_asl_daily_slice(
         sessions_without_status_row=sessions_without_status,
         mode="PIT_PROVENANCE_CLASSIFIED",
         trusted_baostock_n=sum(
-            1 for row in status_rows.values() if row.trust == "BAOSTOCK_ST"
+            1
+            for row in status_rows.values()
+            if row.trust in ("BAOSTOCK_ST", "BAOSTOCK_NORMAL")
         ),
         trusted_derived_gap_n=sum(
             1 for row in status_rows.values() if row.trust == "DERIVED_GAP_SUSPENDED"

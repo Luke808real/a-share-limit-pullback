@@ -401,11 +401,37 @@ def test_is_trading_string_false_fails_closed(tmp_path):
         _load(tmp_path)
 
 
-def test_baostock_unexpected_semantics_fails_closed(tmp_path):
+def test_baostock_normal_trading_is_now_trusted(tmp_path):
+    """baostock + normal + is_trading=true is the NEW negative-evidence trust."""
     _build_lake(
         tmp_path,
         status_rows=[
             {"symbol": "000010.SZ", "trade_date": date(2026, 6, 12), "is_trading": True, "status": "normal", "source": "baostock"},
+        ],
+    )
+    rows = _load(tmp_path)
+    row = next(
+        r for r in rows.rows if r.code == "000010" and r.trade_date == date(2026, 6, 12)
+    )
+    assert row.is_st is False
+    assert row.trade_status is True
+
+
+def test_baostock_unexpected_semantics_still_fail_closed(tmp_path):
+    """Non-trading / suspended / unsupported baostock rows still raise."""
+    _build_lake(
+        tmp_path,
+        status_rows=[
+            {"symbol": "000010.SZ", "trade_date": date(2026, 6, 12), "is_trading": False, "status": "normal", "source": "baostock"},
+        ],
+    )
+    with pytest.raises(AslAdapterError, match="UNEXPECTED_STATUS_SEMANTICS"):
+        _load(tmp_path)
+
+    _build_lake(
+        tmp_path,
+        status_rows=[
+            {"symbol": "000010.SZ", "trade_date": date(2026, 6, 12), "is_trading": True, "status": "suspended", "source": "baostock"},
         ],
     )
     with pytest.raises(AslAdapterError, match="UNEXPECTED_STATUS_SEMANTICS"):
