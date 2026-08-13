@@ -79,6 +79,7 @@
 - Implementation: `src/limit_pullback/selection/` created with `ranking.py` (verbatim move of `strategy/scoring.py`: FULL/PRICE_ONLY frozen score construction, imports only models) and `policies/__init__.py` (R9 target slot documented; no R9 code fabricated — R9 lives in separate research worktrees).
 - `strategy/scoring.py` is now an identity re-export shim; `state/engine.py` imports `build_score` from `selection.ranking` (transitional state→selection coupling recorded; composition-based inversion is a later slice).
 - Tests: `tests/test_selection_isolation.py` (shim identity, selection layer boundary incl. no providers/filesystem, ScoreBreakdown frozen). Targeted 52 passed; full default suite 582 passed / 11 skipped / 25 deselected; frozen rebuild differential in progress.
+- R6.2 implemented: state engine no longer imports selection at module level; ranking is resolved lazily and is injectable via `ranking_fn` (composition-ready, default behavior identical); eligibility/presentation target mapping registered in selection/__init__; strengthened "does not mutate state" test (frozen input snapshot + determinism). Full default suite 585 passed / 11 skipped / 25 deselected; frozen rebuild differential in progress.
 
 ## Active truth and authority
 

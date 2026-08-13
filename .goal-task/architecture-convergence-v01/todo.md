@@ -139,6 +139,7 @@ Phase contract (declared before start, per constitution):
 - Separate eligibility, ranking, and presentation; move R9 to a selection policy consuming candidate context only. [partial: ranking extracted; eligibility/presentation remain in engine/trade_plan layers; R9 slot registered]
 - Preserve cohort membership and ranking semantics; do not introduce R10, new coefficients, factors, thresholds, or state behavior. [held]
 - Gate: selection reads no raw provider/bars/filesystem, does not mutate state, and produces zero signal/artifact semantic diff. [in progress: boundary test green; full suite 582 passed; rebuild differential pending; three-reader review pending]
+- R6.2: ranking injection (`ranking_fn` lazy default, no module-level state→selection import); eligibility/presentation mapping registered; state-mutation test strengthened (frozen inputs + determinism). [done: 55 targeted / 585 full suite passed; rebuild differential pending; three-reader review pending]
 - Gate: transition matrix complete; nine golden categories; prefix invariance; state diff=0; three-reader adversarial review PASS. [in progress]
 
 - Consolidate one setup lifecycle, state engine, snapshot eligibility model, transition evidence, invalidation priority, supersede, and expiry behavior.

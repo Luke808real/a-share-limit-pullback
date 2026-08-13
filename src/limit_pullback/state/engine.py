@@ -35,6 +35,7 @@ from limit_pullback.models.signal import (
     ResistanceCandidateSnapshot,
     ResistanceSnapshot,
     S1Snapshot,
+    ScoreBreakdown,
     StrategySignal,
     SupportSnapshot,
 )
@@ -64,7 +65,6 @@ from limit_pullback.state.engine_helpers import (
 from limit_pullback.strategy.math import calculate_indicators
 from limit_pullback.strategy.indicators import IndicatorPrefixView, SequencePrefixView
 from limit_pullback.strategy.patterns import evaluate_patterns
-from limit_pullback.selection.ranking import build_score
 from limit_pullback.strategy.structure import (
     cluster_price_candidates,
     detect_anchor,
@@ -79,6 +79,21 @@ ONE = Decimal("1")
 ACTIONABLE = frozenset(
     {SetupStage.B1_READY, SetupStage.B2_READY, SetupStage.B2_CONFIRMED}
 )
+
+
+def _resolve_ranking(ranking_fn):
+    """Default ranking policy, injectable for composition (REF-R6.2).
+
+    The default resolves to `selection.ranking.build_score` lazily so this
+    module has no module-level selection import; callers may inject their own
+    ranking function without changing state semantics.
+    """
+
+    if ranking_fn is not None:
+        return ranking_fn
+    from limit_pullback.selection.ranking import build_score
+
+    return build_score
 
 
 def _select_resistance_levels_seam(*args, **kwargs):
@@ -100,6 +115,7 @@ def evaluate_strategy(
     previous_signal: StrategySignal | None = None,
     precomputed_indicators: Sequence[IndicatorPoint] | None = None,
     indicator_end_index: int | None = None,
+    ranking_fn=None,
 ) -> StrategySignal:
     """Evaluate one code as of one close, using only supplied data at or before T."""
 
@@ -140,7 +156,7 @@ def evaluate_strategy(
 
     if anchor is None:
         setup_id = f"{current.code}:{as_of:%Y%m%d}:NORMAL"
-        score = build_score(
+        score = _resolve_ranking(ranking_fn)(
             config=config,
             profile=ScoreProfile.PRICE_ONLY,
             bars=ordered,
@@ -482,7 +498,7 @@ def evaluate_strategy(
         config=config,
     )
 
-    score = build_score(
+    score = _resolve_ranking(ranking_fn)(
         config=config,
         profile=anchor.profile,
         bars=ordered,

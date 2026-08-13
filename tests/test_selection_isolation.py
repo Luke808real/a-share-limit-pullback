@@ -66,3 +66,55 @@ def test_selection_layer_import_boundary():
 
 def test_score_breakdown_is_frozen():
     assert ScoreBreakdown.model_config.get("frozen") is True
+
+
+def test_eligibility_registry_exists():
+    from limit_pullback.models.signal import ENTRY_CANDIDATE_STAGES
+
+    assert ENTRY_CANDIDATE_STAGES
+
+
+def test_state_engine_has_no_module_level_selection_import():
+    tree = ast.parse(
+        (ROOT / "src" / "limit_pullback" / "state" / "engine.py").read_text(
+            encoding="utf-8"
+        )
+    )
+    names: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            names.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            names.add(node.module)
+    assert not any(
+        name.startswith("limit_pullback.selection") for name in names
+    )
+
+
+def test_evaluate_strategy_does_not_mutate_inputs_and_is_deterministic():
+    from copy import deepcopy
+    from datetime import datetime, timezone
+
+    from limit_pullback.config import load_strategy_config
+    from limit_pullback.strategy import evaluate_strategy
+    from tests.synthetic_data import base_setup_bars
+
+    config = load_strategy_config(ROOT / "config" / "strategy.yaml")
+    bars = base_setup_bars()
+    as_of = bars[-1].trade_date
+    generated_at = datetime(2026, 8, 1, 15, 0, tzinfo=timezone.utc)
+    bars_before = deepcopy(bars)
+    first = evaluate_strategy(
+        bars=bars,
+        as_of=as_of,
+        config=config,
+        generated_at=generated_at,
+    )
+    second = evaluate_strategy(
+        bars=bars,
+        as_of=as_of,
+        config=config,
+        generated_at=generated_at,
+    )
+    assert first == second
+    assert bars == bars_before
