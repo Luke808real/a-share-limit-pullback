@@ -91,13 +91,13 @@ Phase contract (declared before start, per constitution):
 - Rule/threshold/strategy change: ZERO. [held]
 - Gate: pure unit tests plus old/new feature and downstream semantic differential parity PASS. [PASS: three-reader ACCEPT; full suite 576 passed; frozen rebuild run d10ee308b702 output_hash 9abb16e4…]
 
-## REF-R4.2 — Remaining Feature Families and Kline-Policy Extraction (`pending`, R5 prerequisite)
+## REF-R4.2 — Remaining Feature Families and Kline-Policy Extraction (`accepted`, R5 prerequisite)
 
 - Kline fact/policy split: features/common/math.py keeps pure KlineRatios; strategy/kline_policy.py owns threshold flags; strategy/indicators_calc.py is the indicator glue. [done]
 - Pure geometry extraction: features/structure/prices.py (at_price, cluster_price_candidates) moved verbatim; strategy/structure.py re-imports by identity. [done]
 - Remaining families (anchor/pullback/launch/context + threshold-coupled structure/pattern policy) intentionally stay in strategy per adversarial recommendation; they move only as R5-consumed pieces, never as a forced full-family sweep.
-- Rule/threshold change: ZERO; behavior change: NO; differential: frozen rebuild output_hash remains `9abb16e4…`. [in progress: rebuild differential pending]
-- Gate: features consume no policy; three-reader review ACCEPT before REF-R5 starts. [pending: round-2 slice review]
+- Rule/threshold change: ZERO; behavior change: NO; differential: frozen rebuild output_hash remains `9abb16e4…`. [PASS: rebuild run 1b667e1fd0ca output_hash 9abb16e4…]
+- Gate: features consume no policy; three-reader review ACCEPT before REF-R5 starts. [PASS: three-reader review all ACCEPT]
 
 ## REF-R5 — State Consolidation (`pending`, HIGH_RISK)
 

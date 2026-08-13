@@ -57,7 +57,8 @@
 - Kline fact/policy split implemented: `features/common/math.py` now exposes only policy-free `KlineRatios` facts; `strategy/kline_policy.py` owns frozen-threshold flag classification; `strategy/indicators_calc.py` is the strategy-side indicator glue; `strategy/math.py` shim preserves the public API for all existing callers.
 - Pure geometry slice implemented: `features/structure/prices.py` holds `at_price` and deterministic `cluster_price_candidates` (verbatim from strategy/structure.py; caller-provided tolerances only); `strategy/structure.py` re-imports them by identity.
 - Remaining families (anchor/pullback/launch/context and threshold-coupled structure/pattern policy) stay in the strategy layer by design; the adversarial recommendation (extract only R5-reusable pure geometry, do not force full-family extraction) is followed.
-- Validation: targeted tests 18 passed; full default suite 579 passed / 11 skipped / 25 deselected; frozen rebuild differential in progress.
+- Validation: targeted tests 18 passed; full default suite 579 passed / 11 skipped / 25 deselected; frozen full-market rebuild run `screen-rebuild-2026-07-31-snap-2026-07-1b667e1fd0ca` at HEAD `05f0332` produced output_hash `9abb16e4a5720503e4ffea5462067dc1b476d8022f0593a657c328f9836920ec` — identical to the R0 baseline artifact and Brain `FULL_MARKET_HASH` (1,844,543 rows, 3191 universe).
+- REF-R4.2 accepted: three-reader review all ACCEPT. Remaining feature families intentionally stay in strategy until consumed by REF-R5; REF-R5 start conditions verified (contract declared, evidence backfilled).
 
 ## Active truth and authority
 
