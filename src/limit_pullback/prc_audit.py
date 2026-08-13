@@ -22,7 +22,7 @@ from limit_pullback.models.config import StrategyConfig
 from limit_pullback.models.market import DailyBar, LimitUpRecord
 from limit_pullback.screen.canonical import iter_canonical_code_bars
 from limit_pullback.strategy.structure import detect_anchor
-from limit_pullback.warehouse.layout import WarehouseLayout
+from limit_pullback.data.facade import WarehouseLayout
 
 
 def _anchor_key(anchor) -> tuple | None:

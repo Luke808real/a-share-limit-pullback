@@ -1,0 +1,72 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "as_of": {
+      "format": "date",
+      "title": "As Of",
+      "type": "string"
+    },
+    "canonical_file_hashes": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Canonical File Hashes",
+      "type": "object"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "manifest_path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Manifest Path"
+    },
+    "provider_versions": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Provider Versions",
+      "type": "object"
+    },
+    "reconciliation_policy_version": {
+      "title": "Reconciliation Policy Version",
+      "type": "string"
+    },
+    "snapshot_id": {
+      "title": "Snapshot Id",
+      "type": "string"
+    },
+    "source_file_hashes": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Source File Hashes",
+      "type": "object"
+    },
+    "status": {
+      "default": "CURRENT",
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "snapshot_id",
+    "created_at",
+    "as_of",
+    "provider_versions",
+    "source_file_hashes",
+    "canonical_file_hashes",
+    "reconciliation_policy_version"
+  ],
+  "title": "SnapshotRecord",
+  "type": "object"
+}

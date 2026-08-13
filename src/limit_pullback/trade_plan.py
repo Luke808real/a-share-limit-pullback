@@ -39,9 +39,9 @@ from limit_pullback.strategy.structure import (
 )
 from limit_pullback.screen.canonical import FIXED_FETCHED_AT
 from limit_pullback.screen.generation import StatePointerError
-from limit_pullback.warehouse.layout import WarehouseLayout
-from limit_pullback.warehouse.metadata import WarehouseMetadata
-from limit_pullback.warehouse.snapshot import (
+from limit_pullback.data.facade import (
+    WarehouseLayout,
+    WarehouseMetadata,
     require_formally_usable_snapshot,
     require_state_snapshot_usable,
     snapshot_status_map,

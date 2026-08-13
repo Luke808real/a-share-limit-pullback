@@ -20,6 +20,10 @@ from limit_pullback.models.strategy import (
     PriceCluster,
     PriceLevelCandidate,
 )
+from limit_pullback.features.structure.prices import (
+    at_price,
+    cluster_price_candidates,
+)
 
 
 ONE = Decimal("1")
@@ -33,8 +37,7 @@ def theoretical_limit_price(bar: DailyBar, config: StrategyConfig) -> Decimal:
     return (ticks * tick).quantize(tick, rounding=ROUND_HALF_UP)
 
 
-def _at_price(value: Decimal, target: Decimal, tolerance: Decimal) -> bool:
-    return abs(value - target) <= tolerance
+_at_price = at_price
 
 
 def is_limit_close(bar: DailyBar, config: StrategyConfig) -> bool:
@@ -180,50 +183,6 @@ def detect_anchor(
             pool_record=record if full else None,
         )
     return None
-
-
-def cluster_price_candidates(
-    candidates: Sequence[PriceLevelCandidate],
-    distance: Decimal,
-) -> tuple[PriceCluster, ...]:
-    """Complete-link-style clustering, deterministic for every input order."""
-
-    ordered = tuple(sorted(candidates, key=lambda item: (item.value, item.source)))
-    if not ordered:
-        return ()
-    groups: list[list[PriceLevelCandidate]] = []
-    current: list[PriceLevelCandidate] = []
-    cluster_low: Decimal | None = None
-    for candidate in ordered:
-        if not current:
-            current = [candidate]
-            cluster_low = candidate.value
-            continue
-        assert cluster_low is not None
-        if candidate.value / cluster_low - ONE <= distance:
-            current.append(candidate)
-        else:
-            groups.append(current)
-            current = [candidate]
-            cluster_low = candidate.value
-    groups.append(current)
-
-    clusters = []
-    for group in groups:
-        values = tuple(item.value for item in group)
-        low = min(values)
-        high = max(values)
-        arithmetic_mean = sum(values, Decimal("0")) / Decimal(len(values))
-        center = min(max(arithmetic_mean, low), high)
-        clusters.append(
-            PriceCluster(
-                low=low,
-                high=high,
-                center=center,
-                sources=tuple(sorted({item.source for item in group})),
-            )
-        )
-    return tuple(clusters)
 
 
 def generate_support_candidates(

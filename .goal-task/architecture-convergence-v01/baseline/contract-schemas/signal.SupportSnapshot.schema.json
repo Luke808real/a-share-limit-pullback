@@ -1,0 +1,122 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "eligible_from": {
+      "format": "date",
+      "title": "Eligible From",
+      "type": "string"
+    },
+    "frozen_as_of": {
+      "format": "date",
+      "title": "Frozen As Of",
+      "type": "string"
+    },
+    "max_above_reference_close": {
+      "anyOf": [
+        {
+          "maximum": 0.005,
+          "type": "number"
+        },
+        {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "type": "string"
+        }
+      ],
+      "ge": "0",
+      "le": "1",
+      "title": "Max Above Reference Close"
+    },
+    "reference_close": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "type": "string"
+        }
+      ],
+      "gt": "0",
+      "title": "Reference Close"
+    },
+    "reference_low": {
+      "anyOf": [
+        {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "gt": "0"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reference Low"
+    },
+    "sources": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Sources",
+      "type": "array"
+    },
+    "support_center": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "type": "string"
+        }
+      ],
+      "gt": "0",
+      "title": "Support Center"
+    },
+    "support_high": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "type": "string"
+        }
+      ],
+      "gt": "0",
+      "title": "Support High"
+    },
+    "support_low": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "type": "string"
+        }
+      ],
+      "gt": "0",
+      "title": "Support Low"
+    }
+  },
+  "required": [
+    "support_low",
+    "support_high",
+    "support_center",
+    "sources",
+    "frozen_as_of",
+    "eligible_from",
+    "reference_close",
+    "max_above_reference_close"
+  ],
+  "title": "SupportSnapshot",
+  "type": "object"
+}

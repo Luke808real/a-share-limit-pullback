@@ -1,0 +1,95 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "as_of": {
+      "format": "date",
+      "title": "As Of",
+      "type": "string"
+    },
+    "config_hash": {
+      "title": "Config Hash",
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "dataset_snapshot_id": {
+      "title": "Dataset Snapshot Id",
+      "type": "string"
+    },
+    "kind": {
+      "title": "Kind",
+      "type": "string"
+    },
+    "output_hash": {
+      "title": "Output Hash",
+      "type": "string"
+    },
+    "rows_count": {
+      "minimum": 0,
+      "title": "Rows Count",
+      "type": "integer"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "snapshot_id": {
+      "title": "Snapshot Id",
+      "type": "string"
+    },
+    "start": {
+      "anyOf": [
+        {
+          "format": "date",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Start"
+    },
+    "status_counts": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "default": {},
+      "title": "Status Counts",
+      "type": "object"
+    },
+    "strategy_commit": {
+      "title": "Strategy Commit",
+      "type": "string"
+    },
+    "verify_replay_matched": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Verify Replay Matched"
+    }
+  },
+  "required": [
+    "run_id",
+    "kind",
+    "as_of",
+    "snapshot_id",
+    "strategy_commit",
+    "config_hash",
+    "dataset_snapshot_id",
+    "output_hash",
+    "rows_count",
+    "created_at"
+  ],
+  "title": "ScreenRunManifest",
+  "type": "object"
+}

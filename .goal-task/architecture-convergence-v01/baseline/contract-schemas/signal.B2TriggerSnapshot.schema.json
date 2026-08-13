@@ -1,0 +1,43 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "eligible_from": {
+      "format": "date",
+      "title": "Eligible From",
+      "type": "string"
+    },
+    "frozen_as_of": {
+      "format": "date",
+      "title": "Frozen As Of",
+      "type": "string"
+    },
+    "sources": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Sources",
+      "type": "array"
+    },
+    "trigger_price": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "type": "string"
+        }
+      ],
+      "gt": "0",
+      "title": "Trigger Price"
+    }
+  },
+  "required": [
+    "trigger_price",
+    "frozen_as_of",
+    "eligible_from",
+    "sources"
+  ],
+  "title": "B2TriggerSnapshot",
+  "type": "object"
+}

@@ -33,8 +33,7 @@ from limit_pullback.outcome import (
     _load_snapshot,
     _snapshot_file,
 )
-from limit_pullback.warehouse.layout import WarehouseLayout
-from limit_pullback.warehouse.parquet import sha256_file
+from limit_pullback.data.facade import WarehouseLayout, sha256_file
 
 
 CORRECTED_EPISODES_SHA256 = (

@@ -1,0 +1,49 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "eligible_from": {
+      "format": "date",
+      "title": "Eligible From",
+      "type": "string"
+    },
+    "frozen_as_of": {
+      "format": "date",
+      "title": "Frozen As Of",
+      "type": "string"
+    },
+    "initial_invalid_price": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "type": "string"
+        }
+      ],
+      "gt": "0",
+      "title": "Initial Invalid Price"
+    },
+    "invalid_price": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "type": "string"
+        }
+      ],
+      "gt": "0",
+      "title": "Invalid Price"
+    }
+  },
+  "required": [
+    "initial_invalid_price",
+    "invalid_price",
+    "frozen_as_of",
+    "eligible_from"
+  ],
+  "title": "InvalidPriceSnapshot",
+  "type": "object"
+}
