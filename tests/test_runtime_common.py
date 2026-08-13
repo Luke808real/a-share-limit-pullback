@@ -148,6 +148,7 @@ def test_orchestration_parity_replay_vs_screen():
         FIXED_FETCHED_AT,
         CanonicalDailyBarProvider,
         CanonicalLimitUpPoolProvider,
+        load_canonical_metadata,
     )
     from limit_pullback.models.market import DailyBar
     from limit_pullback.replay import replay_stock
@@ -161,6 +162,10 @@ def test_orchestration_parity_replay_vs_screen():
     )
     start = date(2026, 7, 1)
     as_of = date(2026, 7, 31)
+    _, all_pool_records, all_pool_status = load_canonical_metadata(
+        WarehouseLayout(ROOT / "data"),
+        snapshot_id="snap-2026-07-31-b5f84004de8a",
+    )
 
     def load_bars(code: str) -> tuple[DailyBar, ...]:
         canonical = adapter.get_daily(code, date(2026, 5, 1), as_of)
@@ -185,8 +190,26 @@ def test_orchestration_parity_replay_vs_screen():
             for bar in canonical
         )
 
-    for code in ("000001", "000002", "600000"):
+    for code in ("603221", "603580"):
         bars = load_bars(code)
+        code_pool = tuple(
+            sorted(
+                (record for record in all_pool_records if record.code == code),
+                key=lambda item: (item.trade_date, item.code),
+            )
+        )
+        records_by_date: dict = {}
+        for record in code_pool:
+            records_by_date.setdefault(record.trade_date, []).append(record)
+        records_by_date = {
+            key: tuple(value) for key, value in records_by_date.items()
+        }
+        code_pool_status = {
+            (key_code, key_date): status
+            for (key_code, key_date), status in all_pool_status.items()
+            if key_code == code
+        }
+        assert code_pool, f"probe code {code} has no pool records"
         replay_output = replay_stock(
             code=code,
             start=start,
@@ -198,7 +221,8 @@ def test_orchestration_parity_replay_vs_screen():
                 fetched_at=FIXED_FETCHED_AT,
             ),
             limit_pool_provider=CanonicalLimitUpPoolProvider(
-                {},
+                records_by_date,
+                status_by_key=code_pool_status,
                 pool_mode="formal",
                 fetched_at=FIXED_FETCHED_AT,
             ),
@@ -206,16 +230,21 @@ def test_orchestration_parity_replay_vs_screen():
         screen_rows, _ = screen_code(
             code=code,
             bars=bars,
-            pool_records=(),
+            pool_records=code_pool,
             config=config,
             start_date=start,
             as_of=as_of,
             generated_at=FIXED_FETCHED_AT + timedelta(seconds=1),
             previous_signal=None,
             last_processed=None,
-            pool_status={},
+            pool_status=code_pool_status,
             pool_mode="formal",
         )
         assert replay_output.timeline == screen_rows, (
             f"orchestration parity broken for {code}"
         )
+        stages = {item.setup_stage for item in screen_rows}
+        if code == "603221":
+            assert stages != {"NORMAL"}, (
+                "probe did not exercise any state transition"
+            )
