@@ -2,13 +2,13 @@
 
 Item state values: `pending`, `in_progress`, `needs_input`, `deferred`, `accepted`.
 
-## REF-R0 — Baseline Freeze (`in_progress`, round-3 evidence awaiting final review)
+## REF-R0 — Baseline Freeze (`accepted`)
 
 - Freeze exact Runtime, Brain, and ASL SHAs and repository cleanliness evidence. [done: evidence v02 sections 1,8]
 - Resolve and record strategy/rule/config versions and hashes, TEST_HASH/GOLDEN_HASH, reference snapshot/generation/episodes, ASL contract/version, and current authority gates. [done: evidence v03 sections 2-3; TEST_HASH 9fb950f0..., GOLDEN_HASH 3891b170..., CONTRACT_HASH df33ec3f...; ASL contract anchors VFLASH_ASL_PHASE1A_V1 / ba5681a; authority gates via IMPLEMENTATION_LOG.md + 00_Project/CURRENT_STATE.md]
 - Characterize existing public contracts, state/signal/artifact outputs, PIT prefixes, Runtime performance/RSS/artifact size, and legacy call/dependency inventory. [done: evidence v03 sections 5-6; providers=4 with stated criterion, StrategySignal=36 fields, lifecycle wording, 13 contract schema fingerprints]
 - Confirm no frozen artifact was modified and store baseline evidence without raw market data or secrets in Git. [done: evidence v02 section 8; baseline hash files committed under .goal-task/architecture-convergence-v01/baseline/]
-- Gate: reproducible, reviewer-approved baseline sufficient to detect semantic, lineage, and performance drift. [pending: round-2 three-reader re-review]
+- Gate: reproducible, reviewer-approved baseline sufficient to detect semantic, lineage, and performance drift. [PASS: round-3 three-reader review, all ACCEPT]
 
 Baseline findings to feed later phases:
 
@@ -17,6 +17,13 @@ Baseline findings to feed later phases:
 - F3: single full-market run JSON embeds all rows (4.27 GB artifact).
 
 Later-phase hard prerequisites recorded in evidence v03 section 7: Replay(D)=Daily(D) baseline, ASL-vs-Legacy equivalence, 20-stock frozen replay reproduction (needs frozen code list), Runtime/Brain CI gap.
+
+## REF-R1 — Architecture Constitution (`in_progress`)
+
+- Publish three-plane ownership, seven-domain boundary, dependency rules, truth ownership, promotion contract, and target mapping in the appropriate repositories. [done: Runtime docs/architecture-constitution.md, Brain ADR-007, ASL docs/architecture/plane-boundary.md]
+- Add enforceable architecture/dependency contract checks where practical (only rules that already hold may be enforced; target rules are documented future gates). [done: tests/test_architecture_constitution.py, 6 passed]
+- Behavior/strategy/data/schema/artifact change: NO. [verified: Runtime src/ zero diff vs 1cb5fb7a; three-repo docs/tests only]
+- Gate: documentation and contract checks agree across Runtime, Brain, and ASL; zero runtime behavior diff on the frozen reference. [pending: three-reader review]
 
 ## REF-R1 — Architecture Constitution (`pending`)
 

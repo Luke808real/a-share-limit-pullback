@@ -4,9 +4,9 @@
 
 - Mode: deep, cross-repository strangler refactor
 - Initialization: complete; implementation has not started
-- Current phase: REF-R0 Baseline Freeze
-- Progress: 0/9 refactor phases accepted (REF-R0 round-2 evidence awaiting re-review)
-- Next action: three-reader re-review of ref-r0-baseline-v02.md, then mark REF-R0 accepted and open REF-R1
+- Current phase: REF-R1 Architecture Constitution
+- Progress: 1/9 refactor phases accepted (REF-R0 accepted 2026-08-13, three-reader round-3 ACCEPT)
+- Next action: draft and publish the three-plane/seven-domain constitution across Runtime, Brain, and ASL with zero behavior change, then three-reader review
 
 ## REF-R0 status
 
@@ -15,7 +15,17 @@
 - Frozen full-market reproduction at clean Runtime HEAD: output_hash `9abb16e4…` equals Brain-recorded `FULL_MARKET_HASH`; 3191 universe, 1,844,543 rows, 269.84s, max RSS 2,386,182,144 bytes, run artifact 4,274,032,081 bytes.
 - Runtime offline validation: 547 passed / 11 skipped / 25 deselected (pytdx pinned separately; see F1). Brain: 47 passed. ASL: 1479 passed full suite (18 network deselected) with local proxy env unset.
 - F1 RESOLVED via focused pyproject commit; F2/F3 open and scheduled as later-phase prerequisites.
-- Review disposition: round 1 and round 2 NEEDS_FIX items all incorporated in v03 (authority path, providers criterion, golden fixture, contract fingerprints, ASL contract anchors).
+- Review disposition: round 1 and round 2 NEEDS_FIX items all incorporated in v03 (authority path, providers criterion, golden fixture, contract fingerprints, ASL contract anchors); round 3 all ACCEPT.
+- REF-R0 accepted on 2026-08-13. Evidence: ref-r0-baseline-v03.md; frozen full-market reproduction `9abb16e4…` at code base `1cb5fb7a…`.
+
+## REF-R1 status
+
+- Phase: zero-behavior constitution publication across the three repositories.
+- Rule: enforce only architecture rules that already hold; target-state rules are documented as future gates, not enforced prematurely.
+- Runtime artifacts: `docs/architecture-constitution.md` (three planes, seven domains, dependency rules, truth ownership, promotion contract, target mapping; enforced-today vs future gates) and `tests/test_architecture_constitution.py` (6 tests: frozen strategy/trade-plan config hashes, frozen SetupStage, models/strategy provider-import boundary, CanonicalDailyBar lineage fields, StrategySignal contract surface, generation lifecycle constants). Commit `697caae`.
+- Brain artifact: `03_Decisions/ADR-007-architecture-convergence-constitution.md` (PROPOSED; decision_date records proposal date until human decision). Branch pushed.
+- ASL artifact: `docs/architecture/plane-boundary.md` plus `docs/architecture/overview.md` link (Data Plane owns data truth, no strategy semantics). Branch pushed to fork.
+- Zero behavior change evidence: Runtime `src/` has no diff versus code base `1cb5fb7a…` (diff limited to `pyproject.toml` extra, `.goal-task/`, `docs/`, `tests/`). Targeted semantic tests and new constitution tests pass; Brain 47/47 and ASL 1473 unit tests pass with the new docs.
 
 ## Active truth and authority
 
