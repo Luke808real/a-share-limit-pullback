@@ -9,11 +9,15 @@ from limit_pullback.features.common import (
     IndicatorPrefixView,
     SequencePrefixView,
     build_continuous_prices,
-    calculate_indicators,
-    calculate_kline_metrics,
+    calculate_kline_ratios,
 )
 from limit_pullback.strategy import indicators as strategy_indicators
 from limit_pullback.strategy import math as strategy_math
+from limit_pullback.strategy.indicators_calc import calculate_indicators
+from limit_pullback.strategy.kline_policy import (
+    calculate_kline_metrics,
+    classify_kline_flags,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -70,3 +74,25 @@ def test_continuous_prices_prefix_invariance():
     full = build_continuous_prices(bars)
     prefix = build_continuous_prices(shorter)
     assert full[: len(prefix)] == prefix
+
+
+def test_kline_ratios_are_policy_free_and_flags_are_policy():
+    from limit_pullback.models.config import StrategyConfig
+    from limit_pullback.config import load_strategy_config
+
+    from tests.synthetic_data import base_setup_bars
+
+    config: StrategyConfig = load_strategy_config(
+        ROOT / "config" / "strategy.yaml"
+    )
+    bar = base_setup_bars()[-1]
+    ratios = calculate_kline_ratios(bar)
+    # Pure facts: no config involved.
+    assert hasattr(ratios, "body_share")
+    assert not hasattr(ratios, "is_doji")
+    metrics = classify_kline_flags(ratios, config.indicators)
+    assert calculate_kline_metrics(bar, config.indicators) == metrics
+    assert metrics.is_bullish == ratios.is_bullish
+    assert metrics.is_doji == (
+        ratios.body_share <= config.indicators.kline.doji_body_share_max
+    )

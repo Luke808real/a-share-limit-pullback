@@ -1,6 +1,8 @@
-"""Point-in-time continuous prices and deterministic indicators.
+"""Pure feature math: PIT continuous prices and kline ratio facts.
 
-Verbatim REF-R4 move of `strategy/math.py` (target: features/common).
+REF-R4/R4.2: only policy-free calculations live here. Threshold-classified
+kline flags and the indicator pipeline (which composes kline policy) live in
+the strategy glue layer and are imported by `strategy/math.py`.
 """
 
 from __future__ import annotations
@@ -9,13 +11,11 @@ from collections.abc import Sequence
 from datetime import date
 from decimal import Decimal
 
-from limit_pullback.models.config import IndicatorsConfig
 from limit_pullback.models.market import DailyBar
 from limit_pullback.models.strategy import (
     ContinuousPricePoint,
-    IndicatorPoint,
-    KlineMetrics,
 )
+from pydantic import BaseModel, ConfigDict
 
 
 ZERO = Decimal("0")
@@ -79,10 +79,23 @@ def _mean(values: Sequence[Decimal]) -> Decimal:
     return sum(values, ZERO) / Decimal(len(values))
 
 
-def calculate_kline_metrics(
-    bar: DailyBar,
-    config: IndicatorsConfig,
-) -> KlineMetrics:
+class KlineRatios(BaseModel):
+    """Policy-free kline shape facts for one daily bar."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    body_share: Decimal
+    close_location: Decimal
+    upper_shadow_share: Decimal
+    lower_shadow_share: Decimal
+    amplitude: Decimal
+    is_bullish: bool
+    is_bearish: bool
+
+
+def calculate_kline_ratios(bar: DailyBar) -> KlineRatios:
+    """Kline shape ratios as pure facts; no thresholds involved."""
+
     price_range = bar.high - bar.low
     if price_range == ZERO:
         body_share = ZERO
@@ -100,7 +113,7 @@ def calculate_kline_metrics(
             min(bar.open, bar.close) - bar.low
         ) / price_range
         amplitude = price_range / bar.preclose
-    return KlineMetrics(
+    return KlineRatios(
         body_share=body_share,
         close_location=close_location,
         upper_shadow_share=upper_shadow_share,
@@ -108,75 +121,4 @@ def calculate_kline_metrics(
         amplitude=amplitude,
         is_bullish=bar.close > bar.open,
         is_bearish=bar.close < bar.open,
-        is_doji=body_share <= config.kline.doji_body_share_max,
-        is_small_body=body_share <= config.kline.small_body_share_max,
-        is_long_bearish=(
-            bar.close < bar.open
-            and body_share >= config.kline.long_body_share_min
-        ),
-        has_long_lower_shadow=(
-            lower_shadow_share >= config.kline.long_shadow_share_min
-        ),
     )
-
-
-def calculate_indicators(
-    bars: Sequence[DailyBar],
-    config: IndicatorsConfig,
-    as_of: date | None = None,
-) -> tuple[IndicatorPoint, ...]:
-    ordered = _ordered_bars(bars, as_of)
-    continuous = build_continuous_prices(ordered)
-    values = tuple(point.continuous_close for point in continuous)
-    output: list[IndicatorPoint] = []
-
-    for index, (bar, point) in enumerate(zip(ordered, continuous, strict=True)):
-        continuous_mas: dict[int, Decimal | None] = {}
-        raw_mas: dict[int, Decimal | None] = {}
-        for window in config.moving_average_windows:
-            if index + 1 < window:
-                continuous_mas[window] = None
-                raw_mas[window] = None
-                continue
-            ma = _mean(values[index - window + 1 : index + 1])
-            continuous_mas[window] = ma
-            raw_mas[window] = ma * bar.close / point.continuous_close
-
-        compression_mas = tuple(
-            continuous_mas.get(window) for window in (5, 10, 20)
-        )
-        if all(value is not None for value in compression_mas):
-            resolved = tuple(
-                value for value in compression_mas if value is not None
-            )
-            ma_compression = (max(resolved) - min(resolved)) / point.continuous_close
-        else:
-            ma_compression = None
-
-        position_window = config.position_window
-        if index + 1 < position_window:
-            position = None
-        else:
-            position_values = values[index - position_window + 1 : index + 1]
-            rolling_low = min(position_values)
-            rolling_high = max(position_values)
-            if rolling_high == rolling_low:
-                position = ZERO
-            else:
-                position = (
-                    point.continuous_close - rolling_low
-                ) / (rolling_high - rolling_low)
-
-        output.append(
-            IndicatorPoint(
-                trade_date=bar.trade_date,
-                code=bar.code,
-                continuous_close=point.continuous_close,
-                continuous_mas=continuous_mas,
-                raw_equivalent_mas=raw_mas,
-                ma_compression=ma_compression,
-                position_120=position,
-                kline=calculate_kline_metrics(bar, config),
-            )
-        )
-    return tuple(output)

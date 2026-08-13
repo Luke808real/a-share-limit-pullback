@@ -13,9 +13,9 @@ is scheduled for policy extraction in a later round.
 
 from limit_pullback.features.common.math import (
     build_continuous_prices,
-    calculate_indicators,
-    calculate_kline_metrics,
+    calculate_kline_ratios,
 )
+from limit_pullback.features.common.math import KlineRatios
 from limit_pullback.features.common.views import (
     IndicatorPrefixView,
     SequencePrefixView,
@@ -23,8 +23,8 @@ from limit_pullback.features.common.views import (
 
 __all__ = [
     "IndicatorPrefixView",
+    "KlineRatios",
     "SequencePrefixView",
     "build_continuous_prices",
-    "calculate_indicators",
-    "calculate_kline_metrics",
+    "calculate_kline_ratios",
 ]

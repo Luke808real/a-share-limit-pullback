@@ -52,6 +52,12 @@
 - Validation: feature tests green (identity + layer boundary + PIT prefix invariance); full default suite 576 passed / 11 skipped / 25 deselected; frozen full-market rebuild run `screen-rebuild-2026-07-31-snap-2026-07-d10ee308b702` at HEAD `0fef278` produced output_hash `9abb16e4a5720503e4ffea5462067dc1b476d8022f0593a657c328f9836920ec` — identical to the R0 baseline artifact and Brain `FULL_MARKET_HASH` (1,844,543 rows, 3191 universe).
 - REF-R4 accepted: three-reader review all ACCEPT. Follow-up: remaining feature families and kline-policy extraction are now REF-R4.2 (R5 prerequisite) with its own gate.
 
+## REF-R4.2 status
+
+- Kline fact/policy split implemented: `features/common/math.py` now exposes only policy-free `KlineRatios` facts; `strategy/kline_policy.py` owns frozen-threshold flag classification; `strategy/indicators_calc.py` is the strategy-side indicator glue; `strategy/math.py` shim preserves the public API for all existing callers.
+- Remaining feature families (anchor/pullback/structure/launch/context in strategy/patterns.py and strategy/structure.py) stay in the strategy layer; their extraction is the remaining R4.2 work item after this split lands.
+- Validation: targeted tests 10 passed; full default suite 577 passed / 11 skipped / 25 deselected; frozen rebuild differential in progress.
+
 ## Active truth and authority
 
 Authority order:

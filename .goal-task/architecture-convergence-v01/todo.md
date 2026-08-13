@@ -93,6 +93,7 @@ Phase contract (declared before start, per constitution):
 
 ## REF-R4.2 — Remaining Feature Families and Kline-Policy Extraction (`pending`, R5 prerequisite)
 
+- Kline fact/policy split: features/common/math.py keeps pure KlineRatios; strategy/kline_policy.py owns threshold flags; strategy/indicators_calc.py is the indicator glue. [done]
 - Extract anchor/pullback/structure/launch/context feature families from strategy/patterns.py (260 LOC) and strategy/structure.py (504 LOC) as pure calculations.
 - Split threshold-coupled kline classification flags from the pure kline ratio facts (policy stays in a strategy policy module; features stay policy-free).
 - Rule/threshold change: ZERO; behavior change: NO; differential: frozen rebuild output_hash remains `9abb16e4…`.
