@@ -252,3 +252,4 @@ P6 artifact-impact contract (declared before implementation):
 - P6.3 design contract written (fail-closed pointer resolution, additive receipt fields, differential gate). [done: design only]
 - P6.3 precondition evidence: pointer resolver absent from merged main (convention documented but no implementation). [done: recorded; implementation blocked until pointer machinery lands in main]
 - Final per-condition evidence table delivered (final-condition-evidence.md); upstream PRs #19/#21 still OPEN. [done]
+- Maintainer nudge comments posted on ASL #19 and #21. [done]
