@@ -163,7 +163,8 @@ Phase contract (declared before start, per constitution):
 - Shared per-day evaluation seam: runtime/common.evaluate_day created; replay.py and screen/engine.py delegate with identical kwargs. [done]
 - runtime/replay and runtime/daily identity re-exports; runtime/live interface reservation only. [done]
 - Per-day parity probe on frozen snapshot (precomputed vs recompute mode field equality). [done: test passed]
-- Gate: default suite green (588 passed); frozen rebuild output_hash 9abb16e4…; three-reader review. [in progress: rebuild differential pending; review pending]
+- Orchestration-level parity: replay_stock vs screen_code field-identical timelines on frozen snapshot for 3 codes. [done per review follow-up]
+- Gate: default suite green (589 passed); frozen rebuild output_hash 9abb16e4…; three-reader review. [in progress: HEAD-level rebuild differential pending; round-2 review pending]
 - Gate: transition matrix complete; nine golden categories; prefix invariance; state diff=0; three-reader adversarial review PASS. [in progress]
 
 - Consolidate one setup lifecycle, state engine, snapshot eligibility model, transition evidence, invalidation priority, supersede, and expiry behavior.
