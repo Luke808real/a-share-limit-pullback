@@ -101,6 +101,38 @@ def test_feature_record_contract():
     assert record.source_refs == ()
 
 
+def test_feature_record_missing_value_must_be_explicit():
+    with pytest.raises(ValidationError):
+        FeatureRecord(
+            feature_id="pullback_volume_ratio",
+            feature_version="v1",
+            symbol="600000",
+            as_of="2026-07-31",
+            value=None,
+            availability=FeatureAvailability.AVAILABLE,
+        )
+    with pytest.raises(ValidationError):
+        FeatureRecord(
+            feature_id="pullback_volume_ratio",
+            feature_version="v1",
+            symbol="600000",
+            as_of="2026-07-31",
+            value=None,
+            availability=FeatureAvailability.SOURCE_MISSING,
+            missing_reason=None,
+        )
+    ok = FeatureRecord(
+        feature_id="pullback_volume_ratio",
+        feature_version="v1",
+        symbol="600000",
+        as_of="2026-07-31",
+        value=None,
+        availability=FeatureAvailability.SOURCE_MISSING,
+        missing_reason="daily bars unavailable",
+    )
+    assert ok.value is None
+
+
 def test_run_context_contract():
     context = RunContext(
         run_id="run-1",

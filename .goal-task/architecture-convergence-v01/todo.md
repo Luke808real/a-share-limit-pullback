@@ -43,7 +43,27 @@ Phase contract (declared before start, per constitution):
 - Extract canonical market facts, setup identity/stage/lifecycle, frozen snapshots, feature record/availability, run context, and provenance domain types. [done: domain/ package created; market/state re-exports, SetupIdentity, Lifecycle alias, FeatureRecord/FeatureAvailability, RunContext, DataProvenance]
 - Keep old APIs operational through compatibility adapters.
 - Behavior/strategy change: NO.
-- Gate: serialization/contract compatibility, transition/golden tests, and differential parity PASS. [in progress: existing 13 schemas verified unchanged; full suite running; three-reader review pending]
+- Gate: serialization/contract compatibility, transition/golden tests, and differential parity PASS. [PASS: three-reader review all ACCEPT; 565 passed / 11 skipped / 25 deselected]
+
+Note: "Canonical Market Facts" in this phase is covered by the `models.market`
+vocabulary re-export (DailyBar/LimitUpRecord). The single-provider-lineage
+`CanonicalDailyBar` stays in `warehouse/models.py` until REF-R3 moves the
+canonical data contract behind CanonicalDataPort; this deferral is intentional
+to keep the domain layer free of data-layer imports.
+
+## REF-R3 — Data Boundary (`pending`)
+
+Phase contract (declared before start, per constitution):
+
+- TASK_ID: REF-R3-ARCH-DATA-BOUNDARY-V01
+- BASE_SHA: Runtime code base `1cb5fb7a…`; Brain/ASL unchanged in this phase
+- ARCHITECTURE_DOMAIN: `data/` (ports/canonical/asl/snapshot/universe/quality) target; incremental only, legacy stays default
+- FILES_ALLOWED: new `src/limit_pullback/data/**`; small adapter re-exports; `tests/` contract tests
+- BEHAVIOR_CHANGE: NO; STRATEGY_CHANGE: NO; DATA_CHANGE: NO; SCHEMA_CHANGE: NO (new port is additive); ARTIFACT_CHANGE: NO
+- INVARIANT: legacy warehouse/providers remain default until ASL==Legacy equivalence evidence; ST_READY/PROVENANCE_GAP/PRODUCTION_CUTOVER stay blocking; no new provider; canonical rows keep single-provider lineage
+- DIFFERENTIAL_TEST: default suite green; existing canonical reader behavior unchanged; ASL-vs-Legacy parity probe recorded as pending until authority gates allow
+- GOLDEN_TEST: golden files unchanged and passing
+- PERFORMANCE_DELTA: additive import-only path; expected 0
 
 ## REF-R3 — Data Boundary (`pending`)
 

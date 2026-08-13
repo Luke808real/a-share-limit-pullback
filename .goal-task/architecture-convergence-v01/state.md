@@ -33,6 +33,7 @@
 - Phase contract declared in todo.md (TASK_ID REF-R2-ARCH-DOMAIN-V01; behavior/strategy/data/schema/artifact change all NO).
 - Implementation: new `src/limit_pullback/domain/` package (market/setup/state/features/run/provenance) that only re-exports from `limit_pullback.models.*` plus additive documentation-grade contracts (SetupIdentity, FeatureRecord, FeatureAvailability, RunContext, DataProvenance, Lifecycle alias). No warehouse/provider import in the domain layer.
 - Tests: `tests/test_domain_contracts.py` (12 tests incl. domain import boundary and unchanged existing schemas). Targeted run 18 passed (12 domain + 6 constitution). Full default suite run in progress.
+- REF-R2 accepted: three-reader review all ACCEPT (recorded follow-ups applied: FeatureRecord missing-value explicitness; CanonicalDailyBar deferral to REF-R3 documented; R3 contract declared).
 
 ## Active truth and authority
 

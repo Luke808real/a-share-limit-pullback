@@ -6,7 +6,7 @@ from datetime import date
 from enum import StrEnum
 from typing import Any
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from limit_pullback.models.base import DomainModel
 
@@ -43,6 +43,15 @@ class FeatureRecord(DomainModel):
     data_snapshot_id: str | None = None
     calculation_version: str | None = None
     source_refs: tuple[str, ...] = ()
+
+    @model_validator(mode="after")
+    def _missing_value_must_be_explicit(self) -> FeatureRecord:
+        if self.value is None:
+            if self.availability is FeatureAvailability.AVAILABLE:
+                raise ValueError("available feature must carry a value")
+            if self.missing_reason is None:
+                raise ValueError("missing feature value requires missing_reason")
+        return self
 
 
 __all__ = ["FeatureAvailability", "FeatureRecord"]
