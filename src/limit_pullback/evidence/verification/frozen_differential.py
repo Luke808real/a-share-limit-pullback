@@ -76,6 +76,7 @@ def read_run_summary(path: Path) -> dict[str, Any]:
         r'"output_hash"\s*:\s*"([0-9a-f]{64})"',
         head + tail,
     )
+    run_id = re.search(r'"run_id"\s*:\s*"([^"]+)"', head + tail)
     rows_count = re.search(r'"rows_count"\s*:\s*(\d+)', head + tail)
     universe_size = re.search(r'"universe_size"\s*:\s*(\d+)', head + tail)
     status_counts = _balanced_json_block(tail, "status_counts")
@@ -84,6 +85,7 @@ def read_run_summary(path: Path) -> dict[str, Any]:
         chunks = _balanced_json_block(tail, "chunk_runtimes")
     return {
         "output_hash": output_hash.group(1) if output_hash else None,
+        "run_id": run_id.group(1) if run_id else None,
         "rows_count": int(rows_count.group(1)) if rows_count else None,
         "universe_size": int(universe_size.group(1)) if universe_size else None,
         "status_counts": status_counts,

@@ -203,8 +203,16 @@ Preconditions (must land before any deletion):
 
 ## Final convergence closeout (`pending`)
 
+P2 artifact-impact contract (declared before implementation):
+
+- TASK_ID: REF-P2-EVIDENCE-PROTOCOL-V01
+- FILES_ALLOWED: new `src/limit_pullback/evidence/verification/*`; `tests/` contract tests
+- BEHAVIOR_CHANGE: NO; STRATEGY_CHANGE: NO; DATA_CHANGE: NO; SCHEMA_CHANGE: NO (additive receipt file only); ARTIFACT_CHANGE: additive-only — new receipt files beside runs; existing run row artifacts and `output_hash` unchanged
+- INVARIANT: frozen rebuild `output_hash` remains `9abb16e4…`; no existing artifact rewritten
+
 - Run all completion gates listed in `state.md` against frozen references and current repository-native validators.
 - Reconcile exact commits, Draft PRs, hashes, performance, review findings, known limitations, and unchanged authorization boundaries.
 - Update Brain project truth only with reviewed evidence; do not promote strategy, merge PRs, cut over production, publish data, or activate Forward/Live.
 - P1 frozen-reference differential verifier: done (evidence/verification/frozen_differential.py + baseline manifest + tests; e7c55287ff3f diff=0 vs R0 artifact).
 - P4 performance re-test at latest HEAD: done (266.99s / 2.387GB / 4.27GB, all within gates; hash 9abb16e4…).
+- P2 evidence protocol (additive): fingerprint + receipt done (tests green; artifact impact per declared contract).
