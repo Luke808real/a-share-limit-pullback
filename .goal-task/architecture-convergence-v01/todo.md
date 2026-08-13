@@ -18,12 +18,12 @@ Baseline findings to feed later phases:
 
 Later-phase hard prerequisites recorded in evidence v03 section 7: Replay(D)=Daily(D) baseline, ASL-vs-Legacy equivalence, 20-stock frozen replay reproduction (needs frozen code list), Runtime/Brain CI gap.
 
-## REF-R1 — Architecture Constitution (`in_progress`)
+## REF-R1 — Architecture Constitution (`accepted`)
 
 - Publish three-plane ownership, seven-domain boundary, dependency rules, truth ownership, promotion contract, and target mapping in the appropriate repositories. [done: Runtime docs/architecture-constitution.md, Brain ADR-007, ASL docs/architecture/plane-boundary.md]
 - Add enforceable architecture/dependency contract checks where practical (only rules that already hold may be enforced; target rules are documented future gates). [done: tests/test_architecture_constitution.py, 6 passed]
 - Behavior/strategy/data/schema/artifact change: NO. [verified: Runtime src/ zero diff vs 1cb5fb7a; three-repo docs/tests only]
-- Gate: documentation and contract checks agree across Runtime, Brain, and ASL; zero runtime behavior diff on the frozen reference. [pending: three-reader review]
+- Gate: documentation and contract checks agree across Runtime, Brain, and ASL; zero runtime behavior diff on the frozen reference. [PASS: round-2 three-reader re-review, all ACCEPT; Draft PRs Runtime#40, Brain#5, ASL upstream#19]
 
 ## REF-R2 — Domain Extraction (`pending`)
 
@@ -39,15 +39,6 @@ Phase contract (declared before start, per constitution):
 - GOLDEN_TEST: golden test files unchanged and passing
 - PERFORMANCE_DELTA: no runtime path change; expected 0
 - FILES_CHANGED/HEAD_SHA: recorded at phase close
-
-## REF-R1 — Architecture Constitution (`pending`)
-
-- Publish the three-plane ownership, seven-domain boundary, dependency rules, truth ownership, promotion contract, and target mapping in the appropriate repositories.
-- Add enforceable architecture/dependency contract checks where practical.
-- Behavior/strategy/data/schema/artifact change: NO.
-- Gate: documentation and contract tests agree across Runtime, Brain, and ASL; zero runtime behavior diff.
-
-## REF-R2 — Domain Extraction (`pending`)
 
 - Extract canonical market facts, instrument/session/status, setup identity/stage/lifecycle, frozen snapshots, feature record/availability, run context, and provenance domain types.
 - Keep old APIs operational through compatibility adapters.
