@@ -243,3 +243,4 @@ P6 artifact-impact contract (declared before implementation):
 - P5 pool-quality placement: verbatim move to data/pool_quality.py; screen re-exports by identity; data has zero screen imports. [done: 597 full suite; rebuild differential pending; review pending]
 - P6 formal-run receipt wiring: emit_formal_run_receipt called at chunked completion; receipt/fingerprint additive. [done: 598 full suite; real receipt emitted by frozen rebuild]
 - Final closeout: final rebuild a9e617fd38aa at ce175a1 hash 9abb16e4…; receipt fingerprint self-consistent; ALL_IN_REPO_DONE three-reader verdict; goal waits on five human inputs. [done]
+- P6.2 non-chunked receipt wiring done (run 73fbeedf9c7b emitted receipt); 20-stock anchor recovery attempt exhausted (local artifacts lack the frozen code list) — remains human input. [done]
