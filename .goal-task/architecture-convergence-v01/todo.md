@@ -164,7 +164,8 @@ Phase contract (declared before start, per constitution):
 - runtime/replay and runtime/daily identity re-exports; runtime/live interface reservation only. [done]
 - Per-day parity probe on frozen snapshot (precomputed vs recompute mode field equality). [done: test passed]
 - Orchestration-level parity: replay_stock vs screen_code field-identical timelines on frozen snapshot for 3 codes. [done per review follow-up]
-- Gate: default suite green (589 passed); frozen rebuild output_hash 9abb16e4…; three-reader review. [in progress: HEAD-level rebuild differential pending; round-2 review pending]
+- Probe strengthened with real pool records: 603221/603580 exercise anchor/transition paths; 603221 asserts non-NORMAL stages. [done]
+- Gate: default suite green (589 passed); frozen rebuild output_hash 9abb16e4…; three-reader review. [in progress: round-3 DATA_READER confirmation pending]
 - Gate: transition matrix complete; nine golden categories; prefix invariance; state diff=0; three-reader adversarial review PASS. [in progress]
 
 - Consolidate one setup lifecycle, state engine, snapshot eligibility model, transition evidence, invalidation priority, supersede, and expiry behavior.

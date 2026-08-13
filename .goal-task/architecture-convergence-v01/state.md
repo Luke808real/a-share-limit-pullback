@@ -90,6 +90,8 @@
 - Parity probe: on the frozen snapshot, precomputed-indicator mode and recompute mode produce field-identical per-day signals for a sampled code (test_runtime_common).
 - Validation: targeted 29 passed; full default suite 588 passed / 11 skipped / 25 deselected; frozen rebuild differential in progress.
 - Orchestration-level parity probe added per review: on the frozen snapshot, `replay_stock` (canonical provider injected, offline) vs `screen_code` produce field-identical `ReplayTimelineItem` sequences for three codes (000001/000002/600000) over the same window. Full default suite 589 passed / 11 skipped / 25 deselected; HEAD-level rebuild differential in progress.
+- Probe strengthened per DATA_READER: codes 603221/603580 now carry real frozen pool records, and 603221 asserts non-NORMAL stages — anchor/state-transition paths are exercised, not just NORMAL days. Full default suite 589 passed / 11 skipped / 25 deselected; HEAD-level rebuild differential complete below.
+- REF-R7 frozen rebuild at final parity-probe HEAD: output_hash `9abb16e4a5720503e4ffea5462067dc1b476d8022f0593a657c328f9836920ec` (1,844,543 rows, 3191 universe).
 
 ## Active truth and authority
 
