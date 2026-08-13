@@ -20,7 +20,11 @@ from limit_pullback.screen.canonical import (
     load_canonical_metadata,
 )
 from limit_pullback.screen.runner import _digest, _git_head
-from limit_pullback.data.facade import WarehouseLayout, sha256_file
+from limit_pullback.data.facade import (
+    ASL_CONTRACT_VERSION,
+    WarehouseLayout,
+    sha256_file,
+)
 
 
 CHUNK_SIZE = 200
@@ -255,6 +259,22 @@ def run_chunked_screen(
             spool_path=spool_path,
             output_path=final_path,
         )
+        from limit_pullback.config import load_strategy_config
+        from limit_pullback.evidence.wire import emit_formal_run_receipt
+
+        strategy_version = load_strategy_config(config_path).strategy_version
+        receipt_path = emit_formal_run_receipt(
+            artifact_path=final_path,
+            reference=None,
+            runtime_commit=commit,
+            strategy_version=strategy_version,
+            config_hash=config_hash,
+            asl_version=ASL_CONTRACT_VERSION,
+            data_snapshot_id=resolved_snapshot_id,
+            universe_id="phase-2d0",
+            predecessor_generation_id=None,
+            engine_versions={"runtime": "chunked-v1"},
+        )
         return {
             "run_id": run_id,
             "output_path": str(final_path),
@@ -266,6 +286,7 @@ def run_chunked_screen(
             "chunk_runtimes": chunk_runtimes,
             "parent_peak_rss_bytes": parent_peak["value"],
             "max_child_peak_rss_bytes": max_child_rss,
+            "receipt_path": str(receipt_path),
         }
     finally:
         import shutil

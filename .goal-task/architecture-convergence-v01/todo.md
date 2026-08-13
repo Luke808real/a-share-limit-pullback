@@ -224,6 +224,13 @@ P5 artifact-impact contract (declared before implementation):
 - BEHAVIOR_CHANGE: NO; STRATEGY_CHANGE: NO; DATA_CHANGE: NO; SCHEMA_CHANGE: NO; ARTIFACT_CHANGE: NO
 - INVARIANT: `pool_quality` moves verbatim (identity preserved via screen re-export); the data layer no longer imports `limit_pullback.screen`; frozen rebuild `output_hash` remains `9abb16e4…`
 
+P6 artifact-impact contract (declared before implementation):
+
+- TASK_ID: REF-P6-FORMAL-RUN-RECEIPT-V01
+- FILES_ALLOWED: new `src/limit_pullback/evidence/wire.py`; `screen/chunks.py` additive completion wiring; `data/facade.py` two identity re-exports; `tests/` contract test
+- BEHAVIOR_CHANGE: NO; STRATEGY_CHANGE: NO; DATA_CHANGE: NO; SCHEMA_CHANGE: NO; ARTIFACT_CHANGE: additive-only — a `<run_id>.receipt.json` file is written beside each formal chunked run; run rows and `output_hash` unchanged
+- INVARIANT: frozen rebuild `output_hash` remains `9abb16e4…`
+
 - Run all completion gates listed in `state.md` against frozen references and current repository-native validators.
 - Reconcile exact commits, Draft PRs, hashes, performance, review findings, known limitations, and unchanged authorization boundaries.
 - Update Brain project truth only with reviewed evidence; do not promote strategy, merge PRs, cut over production, publish data, or activate Forward/Live.
@@ -233,3 +240,4 @@ P5 artifact-impact contract (declared before implementation):
 - P3 warehouse-consumer bridge: data/facade.py identity re-exports; screen warehouse imports zeroed (boundary test). [done: 595 full suite; rebuild differential pending; three-reader review pending]
 - P3.2 read-side tool bridge: execution_reality/outcome/prc_audit/trade_plan/universe zeroed; cli.py acquisition surface exempt and recorded. [done: 596 full suite; rebuild differential pending]
 - P5 pool-quality placement: verbatim move to data/pool_quality.py; screen re-exports by identity; data has zero screen imports. [done: 597 full suite; rebuild differential pending; review pending]
+- P6 formal-run receipt wiring: emit_formal_run_receipt called at chunked completion; receipt/fingerprint additive. [done: 598 full suite; real receipt emitted by frozen rebuild]

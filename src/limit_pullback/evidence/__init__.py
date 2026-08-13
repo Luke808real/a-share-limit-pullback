@@ -15,6 +15,7 @@ from limit_pullback.evidence.verification.fingerprint import (
     fingerprint_hash,
 )
 from limit_pullback.evidence.verification.receipt import write_run_receipt
+from limit_pullback.evidence.wire import emit_formal_run_receipt
 
 __all__ = [
     "build_version_fingerprint",
@@ -22,4 +23,5 @@ __all__ = [
     "read_run_summary",
     "verify_against_reference",
     "write_run_receipt",
+    "emit_formal_run_receipt",
 ]
