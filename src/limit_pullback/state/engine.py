@@ -64,7 +64,7 @@ from limit_pullback.state.engine_helpers import (
 from limit_pullback.strategy.math import calculate_indicators
 from limit_pullback.strategy.indicators import IndicatorPrefixView, SequencePrefixView
 from limit_pullback.strategy.patterns import evaluate_patterns
-from limit_pullback.strategy.scoring import build_score
+from limit_pullback.selection.ranking import build_score
 from limit_pullback.strategy.structure import (
     cluster_price_candidates,
     detect_anchor,

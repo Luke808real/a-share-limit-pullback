@@ -74,6 +74,12 @@
 - REF-R5 accepted: three-reader phase review all ACCEPT. Frozen full-market rebuild run `screen-rebuild-2026-07-31-snap-2026-07-1dbf5d5e20f0` at HEAD `df7e312` produced output_hash `9abb16e4a5720503e4ffea5462067dc1b476d8022f0593a657c328f9836920ec` (1,844,543 rows, 3191 universe) — identical to the R0 baseline and Brain `FULL_MARKET_HASH`.
 - Shim contract (recorded in design.md): `strategy/engine.py` re-export face is a test contract; R6/R7 must keep identity-level exports for select_resistance_levels/build_score and the lazy evaluate_strategy seam, or update the contract with explicit review approval first.
 
+## REF-R6 status
+
+- Implementation: `src/limit_pullback/selection/` created with `ranking.py` (verbatim move of `strategy/scoring.py`: FULL/PRICE_ONLY frozen score construction, imports only models) and `policies/__init__.py` (R9 target slot documented; no R9 code fabricated — R9 lives in separate research worktrees).
+- `strategy/scoring.py` is now an identity re-export shim; `state/engine.py` imports `build_score` from `selection.ranking` (transitional state→selection coupling recorded; composition-based inversion is a later slice).
+- Tests: `tests/test_selection_isolation.py` (shim identity, selection layer boundary incl. no providers/filesystem, ScoreBreakdown frozen). Targeted 52 passed; full default suite 582 passed / 11 skipped / 25 deselected; frozen rebuild differential in progress.
+
 ## Active truth and authority
 
 Authority order:

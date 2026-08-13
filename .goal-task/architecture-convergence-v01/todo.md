@@ -134,6 +134,11 @@ Phase contract (declared before start, per constitution):
 - DIFFERENTIAL_TEST: default suite green; frozen full-market rebuild output_hash remains `9abb16e4…`; zero signal/artifact semantic diff
 - GOLDEN_TEST: golden files unchanged and passing; shim export face kept as test contract (design.md constraint from REF-R5)
 - PERFORMANCE_DELTA: expected 0 (delegation only)
+
+- Extract eligibility/ranking/presentation structure. [done: selection/ranking.py holds frozen score construction; selection/policies/r9 slot documented; R9 itself stays in separate research worktrees and is not fabricated]
+- Separate eligibility, ranking, and presentation; move R9 to a selection policy consuming candidate context only. [partial: ranking extracted; eligibility/presentation remain in engine/trade_plan layers; R9 slot registered]
+- Preserve cohort membership and ranking semantics; do not introduce R10, new coefficients, factors, thresholds, or state behavior. [held]
+- Gate: selection reads no raw provider/bars/filesystem, does not mutate state, and produces zero signal/artifact semantic diff. [in progress: boundary test green; full suite 582 passed; rebuild differential pending; three-reader review pending]
 - Gate: transition matrix complete; nine golden categories; prefix invariance; state diff=0; three-reader adversarial review PASS. [in progress]
 
 - Consolidate one setup lifecycle, state engine, snapshot eligibility model, transition evidence, invalidation priority, supersede, and expiry behavior.
