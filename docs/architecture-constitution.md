@@ -100,6 +100,41 @@ result, golden result, artifact hash, contract version, code review result.
 - `screen/generation.py` lifecycle constants stay
   `STAGED/VERIFIED/ACTIVE/REJECTED`.
 
+## Constitution MUST clauses (documented anchors, not enforced yet)
+
+These Architecture Constitution MUST clauses are quoted as target-state anchors
+so REF-R3..R8 gates have in-repository text to point at. They are documentation,
+not new code enforcement:
+
+- AC-01 single strategy truth: only Brain `01_Strategy/` may define human-readable
+  strategy truth.
+- AC-02 single data boundary: formal Runtime strategy consumes canonical market
+  facts only; Strategy must not reach AKShare/TDX/Tencent/ASL table internals.
+- AC-03 Feature != Rule: a computed fact and the policy threshold that judges it
+  live in different places.
+- AC-04 State != Ranking: lifecycle state and attention ranking are separate
+  engines; B2_READY does not imply Top5.
+- AC-05 one domain core: Replay, Daily, and future Live share the same domain
+  core; no backtest/daily/live triple implementation.
+- AC-06 PIT first: any judgment at time T uses only `known_as_of <= T` data;
+  frozen snapshots satisfy `eligible_from > frozen_as_of`.
+- AC-07 evidence first: important results become artifact + manifest + hash +
+  provenance + verifier, not just a Python return value.
+- AC-08 fail closed: source conflict, missing predecessor, ambiguous lineage,
+  bad snapshot, unknown ST, invalid preclose, or incomplete coverage defaults to
+  STOP/BLOCK, never silent fallback.
+- AC-09 immutable historical evidence: refactoring never rewrites historical
+  snapshots, generations, outcomes, episodes, receipts, hashes, or forward
+  epochs; new runs produce new evidence.
+- AC-10 no dynamic Brain reads: runtime startup never clones Brain and parses
+  STRATEGY_MASTER to build rules.
+- AC-11 refactoring is not feature authorization: interfaces for LIVE/FORWARD/
+  PRODUCTION/TRADEPLAN may exist without being authorized; current state keeps
+  `PRODUCTION=false`, `FORWARD=false`, `TRADEPLAN=false`, `PRIMARY_OOS=false`.
+- AC-12 no generic quant platform: no Kafka/RabbitMQ/Redis/ClickHouse/MongoDB/
+  Kubernetes/microservices/distributed workers/generic OMS/multi-strategy DSL
+  without a real requirement.
+
 ## Future gates (documented, not enforced yet)
 
 - Zero direct provider calls and zero ASL internal schema dependencies in
@@ -108,5 +143,12 @@ result, golden result, artifact hash, contract version, code review result.
 - Replay(D) == Daily(D) field-for-field on identical inputs (REF-R7).
 - Hashable manifest, provenance, receipt, and resolvable lineage for every
   formal run (REF-R7 evidence).
+- PIT prefix invariance, `known_as_of <= T`, snapshot `eligible_from >
+  frozen_as_of`, and no same-day retroactive trigger/support/invalid use
+  (REF-R5/REF-R7 transition and replay gates).
+- UNKNOWN is never coerced to FALSE; missing/conflicting data and ambiguous
+  predecessor lineage fail closed (REF-R3/REF-R5).
+- Frozen historical evidence immutability checks across refactor rounds
+  (REF-R0 baselines reused at every later phase).
 - Legacy retirement only after zero runtime/test/artifact dependencies and
   differential parity PASS (REF-R8).

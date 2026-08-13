@@ -25,6 +25,21 @@ Later-phase hard prerequisites recorded in evidence v03 section 7: Replay(D)=Dai
 - Behavior/strategy/data/schema/artifact change: NO. [verified: Runtime src/ zero diff vs 1cb5fb7a; three-repo docs/tests only]
 - Gate: documentation and contract checks agree across Runtime, Brain, and ASL; zero runtime behavior diff on the frozen reference. [pending: three-reader review]
 
+## REF-R2 — Domain Extraction (`pending`)
+
+Phase contract (declared before start, per constitution):
+
+- TASK_ID: REF-R2-ARCH-DOMAIN-V01
+- BASE_SHA: Runtime code base `1cb5fb7a1792edccc18c70207340980377cbd4eb` (Brain `2b15b44a…`, ASL `e13a3830…` unchanged in this phase)
+- ARCHITECTURE_DOMAIN: `domain/` (market, setup, state, features, signals, run, provenance)
+- FILES_ALLOWED: new `src/limit_pullback/domain/**`; compatibility re-export/adapters only where existing importers require them; `tests/` domain unit/contract tests
+- BEHAVIOR_CHANGE: NO; STRATEGY_CHANGE: NO; DATA_CHANGE: NO; SCHEMA_CHANGE: NO (serialization-compatible only); ARTIFACT_CHANGE: NO
+- INVARIANT: existing models keep the same pydantic schemas and values; old API import paths keep working through compatibility adapters
+- DIFFERENTIAL_TEST: CONTRACT_HASH (13 schemas) unchanged; default suite green; new domain types produce identical JSON schemas to the models they formalize
+- GOLDEN_TEST: golden test files unchanged and passing
+- PERFORMANCE_DELTA: no runtime path change; expected 0
+- FILES_CHANGED/HEAD_SHA: recorded at phase close
+
 ## REF-R1 — Architecture Constitution (`pending`)
 
 - Publish the three-plane ownership, seven-domain boundary, dependency rules, truth ownership, promotion contract, and target mapping in the appropriate repositories.

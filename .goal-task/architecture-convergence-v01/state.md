@@ -25,7 +25,7 @@
 - Runtime artifacts: `docs/architecture-constitution.md` (three planes, seven domains, dependency rules, truth ownership, promotion contract, target mapping; enforced-today vs future gates) and `tests/test_architecture_constitution.py` (6 tests: frozen strategy/trade-plan config hashes, frozen SetupStage, models/strategy provider-import boundary, CanonicalDailyBar lineage fields, StrategySignal contract surface, generation lifecycle constants). Commit `697caae`.
 - Brain artifact: `03_Decisions/ADR-007-architecture-convergence-constitution.md` (PROPOSED; decision_date records proposal date until human decision). Branch pushed.
 - ASL artifact: `docs/architecture/plane-boundary.md` plus `docs/architecture/overview.md` link (Data Plane owns data truth, no strategy semantics). Branch pushed to fork.
-- Zero behavior change evidence: Runtime `src/` has no diff versus code base `1cb5fb7a…` (diff limited to `pyproject.toml` extra, `.goal-task/`, `docs/`, `tests/`). Targeted semantic tests and new constitution tests pass; Brain 47/47 and ASL 1473 unit tests pass with the new docs.
+- Zero behavior change evidence: Runtime `src/` has zero diff versus code base `1cb5fb7a…`; the only non-doc/test task-branch change is the `pyproject.toml` `pytdx` extra line (R0-F1 environment pin, packaging metadata only). Targeted semantic tests and new constitution tests pass; Brain 47/47 and ASL 1473 unit tests pass with the new docs.
 
 ## Active truth and authority
 
