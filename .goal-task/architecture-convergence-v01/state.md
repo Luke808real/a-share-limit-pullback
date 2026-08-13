@@ -65,6 +65,11 @@
 - Pre-code artifacts: `.goal-task/architecture-convergence-v01/ref-r5-transition-matrix.md` (transition matrix, PIT invariants, nine golden categories mapped to existing tests) landed before any code edit.
 - Slice 1 (verbatim move): `src/limit_pullback/state/engine_helpers.py` holds setup identity, B1/B2 conditions, invalid reasons, event flags, entry room, risk/reward, and price-quantization helpers byte-identical to `1cb5fb7a`; `strategy/engine.py` imports them back and keeps `evaluate_strategy` orchestration unchanged.
 - Validation: 52 transition/golden targeted tests pass; full default suite 579 passed / 11 skipped / 25 deselected; frozen rebuild differential in progress.
+- Slice 2 attempted twice and reverted with two recorded findings:
+  - F5a (test seams): seven golden tests monkeypatch `select_resistance_levels` on `limit_pullback.strategy.engine`; a plain module move breaks the seam, and changing golden test files is prohibited by the phase contract.
+  - F5b (package-init cycle): `state.engine` importing `strategy.*` submodules while `strategy/__init__` imports `strategy.engine` creates an import cycle once the engine leaves the strategy package.
+  - Planned R5.2 resolution (documented, not started): move pattern/scoring/structure consumption out of the engine or introduce lazy strategy package exports, preserving monkeypatch seams; requires an amended file-scope contract and its own three-reader review.
+- R5 slice 1 remains the accepted milestone: transition helpers consolidated in `state/engine_helpers.py` with zero behavior change.
 
 ## Active truth and authority
 

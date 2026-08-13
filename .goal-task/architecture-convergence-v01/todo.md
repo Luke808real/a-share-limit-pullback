@@ -116,7 +116,7 @@ Phase contract (declared before start, per constitution):
 
 - Pre-code transition matrix and golden case list landed (ref-r5-transition-matrix.md). [done]
 - Slice 1: state transition helpers moved verbatim to state/engine_helpers.py; strategy/engine.py imports them back; zero behavior change. [done: targeted 52 passed, full suite 579 passed, rebuild differential pending]
-- Slice 2 (pending): move evaluate_strategy orchestration verbatim to state/engine.py with strategy/engine.py shim; then isolate scoring/ranking touchpoints for REF-R6.
+- Slice 2 (deferred with two findings): F5a golden monkeypatch seam on strategy.engine.select_resistance_levels; F5b import cycle between state.engine and strategy/__init__. R5.2 needs an amended scope (patterns/scoring/structure consumption relocation or lazy strategy exports) and its own review round; do not retry without that plan.
 - Gate: transition matrix complete; nine golden categories; prefix invariance; state diff=0; three-reader adversarial review PASS. [in progress]
 
 - Consolidate one setup lifecycle, state engine, snapshot eligibility model, transition evidence, invalidation priority, supersede, and expiry behavior.
