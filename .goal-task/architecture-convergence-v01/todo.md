@@ -249,3 +249,4 @@ P6 artifact-impact contract (declared before implementation):
 - R9 candidate-context verification from git history (branch 048b2c8a…, factor producer pure PIT surface; accumulator = evidence writer). [done]
 - ST/provenance gate probe: isolated ASL worktree lacks production config/data root; closure is a production data-engineering deliverable requiring real ASL config path or maintainer. [recorded]
 - ST series published: upstream PR rootSunc/ashare-lake#21 from fork branch fix/asl-historical-st-negative-evidence-v01 (head 0f16f39). [done]
+- P6.3 design contract written (fail-closed pointer resolution, additive receipt fields, differential gate). [done: design only]

@@ -75,6 +75,29 @@ Runtime converges on `domain/`, `data/`, `features/`, `state/`, `selection/`, `r
   shim exporting the same object identity or obtain explicit review approval
   to change the seam; silent seam breaks are forbidden.
 
+## P6.3 design contract — predecessor lineage in formal-run receipts
+
+- TASK_ID: REF-P6.3-PREDECESSOR-LINEAGE-V01 (design only; implementation needs
+  this contract plus its own review round)
+- Files allowed at implementation: `src/limit_pullback/evidence/wire.py`,
+  `src/limit_pullback/screen/runner.py` and/or `screen/generation.py`
+  delegation-only edits; `tests/` contract tests.
+- Change flags: BEHAVIOR_CHANGE NO; STRATEGY_CHANGE NO; DATA_CHANGE NO;
+  SCHEMA_CHANGE NO; ARTIFACT_CHANGE additive-only (receipt fields).
+- Precondition: the generation-pointer resolution semantics must be pinned by
+  evidence first. The existing machinery has a documented
+  `PREDECESSOR_RESOLUTION=AMBIGUOUS` history and must fail closed: zero or
+  multiple eligible candidates for a given as-of must NOT be coerced into a
+  guessed predecessor.
+- Semantics: incremental daily runs resolve the formal predecessor generation
+  id only through the explicit `formal_state_generation_pointer` consumer;
+  `predecessor_generation_id` in the receipt is that id or an explicit
+  `AMBIGUOUS`/`NONE` sentinel — never a latest-directory guess. Cold rebuild
+  runs keep `None` (correct: no predecessor).
+- Differential gate: frozen rebuild `output_hash` remains `9abb16e4…`; full
+  default suite green; receipt/fingerprint tests pass; three-reader review
+  before acceptance.
+
 ## Migration policy
 
 - Execute REF-R0 through REF-R8 as independently gated milestones.
