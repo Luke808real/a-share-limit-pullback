@@ -6,7 +6,7 @@ from pathlib import Path
 
 from limit_pullback.models.signal import StrategySignal
 from limit_pullback.screen.models import ScreenState
-from limit_pullback.warehouse.parquet import write_json_atomic
+from limit_pullback.data.facade import write_json_atomic
 
 
 def state_path(root: Path, code: str) -> Path:

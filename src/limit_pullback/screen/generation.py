@@ -36,9 +36,12 @@ from limit_pullback.universe import (
     Phase2d0Universe,
     PHASE2D0_UNIVERSE_CONTRACT_VERSION,
 )
-from limit_pullback.warehouse.layout import WarehouseLayout
-from limit_pullback.warehouse.metadata import WarehouseMetadata
-from limit_pullback.warehouse.parquet import sha256_file, write_json_atomic
+from limit_pullback.data.facade import (
+    WarehouseLayout,
+    WarehouseMetadata,
+    sha256_file,
+    write_json_atomic,
+)
 
 STAGED = "STAGED"
 VERIFIED = "VERIFIED"

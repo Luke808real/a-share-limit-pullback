@@ -12,7 +12,7 @@ from datetime import date
 from pathlib import Path
 
 from limit_pullback.screen.runner import run_screen
-from limit_pullback.warehouse.layout import WarehouseLayout
+from limit_pullback.data.facade import WarehouseLayout
 
 
 def main() -> None:

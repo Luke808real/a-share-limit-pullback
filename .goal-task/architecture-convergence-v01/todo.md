@@ -210,9 +210,17 @@ P2 artifact-impact contract (declared before implementation):
 - BEHAVIOR_CHANGE: NO; STRATEGY_CHANGE: NO; DATA_CHANGE: NO; SCHEMA_CHANGE: NO (additive receipt file only); ARTIFACT_CHANGE: additive-only — new receipt files beside runs; existing run row artifacts and `output_hash` unchanged
 - INVARIANT: frozen rebuild `output_hash` remains `9abb16e4…`; no existing artifact rewritten
 
+P3 artifact-impact contract (declared before implementation):
+
+- TASK_ID: REF-P3-WAREHOUSE-CONSUMER-BRIDGE-V01
+- FILES_ALLOWED: new `src/limit_pullback/data/facade.py`; import-only delegation edits in `screen/chunk_child.py`, `screen/chunks.py`, `screen/generation.py`, `screen/runner.py`, `screen/state.py`; `tests/` boundary test
+- BEHAVIOR_CHANGE: NO; STRATEGY_CHANGE: NO; DATA_CHANGE: NO; SCHEMA_CHANGE: NO; ARTIFACT_CHANGE: NO
+- INVARIANT: identity re-exports only (same objects); after this slice the screen package has zero `limit_pullback.warehouse` imports; frozen rebuild `output_hash` remains `9abb16e4…`
+
 - Run all completion gates listed in `state.md` against frozen references and current repository-native validators.
 - Reconcile exact commits, Draft PRs, hashes, performance, review findings, known limitations, and unchanged authorization boundaries.
 - Update Brain project truth only with reviewed evidence; do not promote strategy, merge PRs, cut over production, publish data, or activate Forward/Live.
 - P1 frozen-reference differential verifier: done (evidence/verification/frozen_differential.py + baseline manifest + tests; e7c55287ff3f diff=0 vs R0 artifact).
 - P4 performance re-test at latest HEAD: done (266.99s / 2.387GB / 4.27GB, all within gates; hash 9abb16e4…).
 - P2 evidence protocol (additive): fingerprint + receipt done (tests green; artifact impact per declared contract).
+- P3 warehouse-consumer bridge: data/facade.py identity re-exports; screen warehouse imports zeroed (boundary test). [done: 595 full suite; rebuild differential pending; three-reader review pending]
