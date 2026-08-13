@@ -94,10 +94,10 @@ Phase contract (declared before start, per constitution):
 ## REF-R4.2 — Remaining Feature Families and Kline-Policy Extraction (`pending`, R5 prerequisite)
 
 - Kline fact/policy split: features/common/math.py keeps pure KlineRatios; strategy/kline_policy.py owns threshold flags; strategy/indicators_calc.py is the indicator glue. [done]
-- Extract anchor/pullback/structure/launch/context feature families from strategy/patterns.py (260 LOC) and strategy/structure.py (504 LOC) as pure calculations.
-- Split threshold-coupled kline classification flags from the pure kline ratio facts (policy stays in a strategy policy module; features stay policy-free).
-- Rule/threshold change: ZERO; behavior change: NO; differential: frozen rebuild output_hash remains `9abb16e4…`.
-- Gate: features consume no policy; three-reader review ACCEPT before REF-R5 starts.
+- Pure geometry extraction: features/structure/prices.py (at_price, cluster_price_candidates) moved verbatim; strategy/structure.py re-imports by identity. [done]
+- Remaining families (anchor/pullback/launch/context + threshold-coupled structure/pattern policy) intentionally stay in strategy per adversarial recommendation; they move only as R5-consumed pieces, never as a forced full-family sweep.
+- Rule/threshold change: ZERO; behavior change: NO; differential: frozen rebuild output_hash remains `9abb16e4…`. [in progress: rebuild differential pending]
+- Gate: features consume no policy; three-reader review ACCEPT before REF-R5 starts. [pending: round-2 slice review]
 
 ## REF-R5 — State Consolidation (`pending`, HIGH_RISK)
 

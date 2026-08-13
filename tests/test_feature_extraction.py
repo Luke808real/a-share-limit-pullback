@@ -13,10 +13,15 @@ from limit_pullback.features.common import (
 )
 from limit_pullback.strategy import indicators as strategy_indicators
 from limit_pullback.strategy import math as strategy_math
+from limit_pullback.strategy import structure as strategy_structure
 from limit_pullback.strategy.indicators_calc import calculate_indicators
 from limit_pullback.strategy.kline_policy import (
     calculate_kline_metrics,
     classify_kline_flags,
+)
+from limit_pullback.features.structure.prices import (
+    at_price,
+    cluster_price_candidates,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -95,4 +100,32 @@ def test_kline_ratios_are_policy_free_and_flags_are_policy():
     assert metrics.is_bullish == ratios.is_bullish
     assert metrics.is_doji == (
         ratios.body_share <= config.indicators.kline.doji_body_share_max
+    )
+
+
+def test_structure_geometry_shims_reexport_feature_objects():
+    assert strategy_structure._at_price is at_price
+    assert strategy_structure.cluster_price_candidates is cluster_price_candidates
+
+
+def test_cluster_price_candidates_deterministic():
+    from decimal import Decimal
+
+    from limit_pullback.models.strategy import PriceLevelCandidate
+
+    candidates = tuple(
+        PriceLevelCandidate(source=source, value=Decimal(value))
+        for source, value in (
+            ("ANCHOR_PRICE", "10.00"),
+            ("MA5", "10.01"),
+            ("PLATFORM_HIGH_20", "11.50"),
+        )
+    )
+    clusters = cluster_price_candidates(candidates, Decimal("0.02"))
+    assert len(clusters) == 2
+    assert clusters[0].sources == ("ANCHOR_PRICE", "MA5")
+    assert clusters[1].sources == ("PLATFORM_HIGH_20",)
+    assert clusters == cluster_price_candidates(
+        tuple(reversed(candidates)),
+        Decimal("0.02"),
     )

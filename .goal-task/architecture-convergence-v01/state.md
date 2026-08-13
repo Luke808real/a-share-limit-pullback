@@ -55,8 +55,9 @@
 ## REF-R4.2 status
 
 - Kline fact/policy split implemented: `features/common/math.py` now exposes only policy-free `KlineRatios` facts; `strategy/kline_policy.py` owns frozen-threshold flag classification; `strategy/indicators_calc.py` is the strategy-side indicator glue; `strategy/math.py` shim preserves the public API for all existing callers.
-- Remaining feature families (anchor/pullback/structure/launch/context in strategy/patterns.py and strategy/structure.py) stay in the strategy layer; their extraction is the remaining R4.2 work item after this split lands.
-- Validation: targeted tests 10 passed; full default suite 577 passed / 11 skipped / 25 deselected; frozen rebuild differential in progress.
+- Pure geometry slice implemented: `features/structure/prices.py` holds `at_price` and deterministic `cluster_price_candidates` (verbatim from strategy/structure.py; caller-provided tolerances only); `strategy/structure.py` re-imports them by identity.
+- Remaining families (anchor/pullback/launch/context and threshold-coupled structure/pattern policy) stay in the strategy layer by design; the adversarial recommendation (extract only R5-reusable pure geometry, do not force full-family extraction) is followed.
+- Validation: targeted tests 18 passed; full default suite 579 passed / 11 skipped / 25 deselected; frozen rebuild differential in progress.
 
 ## Active truth and authority
 
