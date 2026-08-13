@@ -24,7 +24,7 @@ human approval before removal.
 | `warehouse/asl_adapter.py` | 6 |
 | `providers/tdx_daily.py` | 2 |
 | `providers/tencent_daily.py` | 3 |
-| `providers/baostock_daily.py` | 3 |
+| `providers/baostock_daily.py` | 4 |
 | `providers/akshare_limit_pool.py` | 3 |
 | `warehouse/akshare_provider.py` | 2 |
 | `warehouse/baostock_provider.py` | 2 |

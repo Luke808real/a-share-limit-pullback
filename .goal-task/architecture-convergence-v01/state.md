@@ -99,6 +99,14 @@
 - Read-only inventory landed: ref-r8-legacy-inventory.md. No retirement set currently satisfies the deletion gate (every provider module still has runtime or test references).
 - Authority blockers recorded: `ST_READY=NO`, `PROVENANCE_GAP=OPEN`, `PRODUCTION_CUTOVER=NO_GO` are Brain/ASL data-governance gates this task cannot flip; REF-R8 stays `needs_input` for human-approved retirement sets and rollback evidence.
 
+## Handoff next actions (from final convergence audit)
+
+- P1 (in-repo): build an explicit frozen-reference state/signal diff=0 verifier (new vs old engine on the frozen snapshot).
+- P2 (in-repo): adopt evidence protocol end-to-end (provenance block, receipt, seven-item fingerprint, predecessor lineage) into formal runs.
+- P3 (in-repo): zero-behavior migration of the five screen warehouse consumers toward the data layer, accumulating runtime_call=0 evidence for future R8 sets.
+- P4 (in-repo): record full-market runtime seconds at the latest HEAD (RSS already recorded in-gate).
+- Human inputs required: R8 per-set deletion approval + rollback authorization; ST_READY/PROVENANCE_GAP/CUTOVER closure by Brain/ASL owners; R9 out-of-repo verification; 20-stock frozen code list or exemption; three-repo PR merge only on explicit instruction.
+
 ## Active truth and authority
 
 Authority order:
