@@ -25,3 +25,9 @@ L2 研究因子层 + L3 统计验证层的落点。目标见 docs/ARCHITECTURE_G
 - ttl-h5h6-v01：信号时点单调 4.4%→72.1%；F14 全局分离部分为阶段混合；
   F19 弱；F21 循环定义 REJECT
 - ttl-survival-v01：B2 集中于 T+2/T+3；T+5 后复活 ≤1% → 研究层 TTL≈5-6 日
+- h6-f23-v01：F23（回调期价跌量增）作为全局失败负向结构因子 REJECT
+  （strict_win_rate delta +0.0141 与假设相反；timing 分层 4/4 负向、stage
+  分层 0/3 负向 → 强 timing/stage composition 依赖）。OBSERVATION ONLY：
+  F23_ANY 与较低 mean_R 存在描述性关联（胜率未同步恶化，收益分布形态可能
+  不同）；未经 tail quantile/significance 专门验证，非 validated tail effect。
+  不得作为 B1/B2 排除规则或 production filter。

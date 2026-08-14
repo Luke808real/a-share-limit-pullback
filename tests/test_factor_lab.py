@@ -201,3 +201,104 @@ def test_f23_pit_cutoff_no_future_leak() -> None:
     assert early != late
     # as_of == anchor -> no visible session after T0
     assert fl.pullback_down_volume_count(bars, anchor, anchor) is None
+
+
+def _ma_series(closes: list[str]) -> list:
+    """10 flat 10.00 sessions (indices 0..9), then the given tail."""
+    return _series(["10.00"] * 10 + closes, ["100"] * (10 + len(closes)))
+
+
+def test_ma10_touch_hold() -> None:
+    bars = _ma_series(["10.00"])
+    anchor = bars[9].trade_date
+    as_of = bars[10].trade_date
+    # MA10(day10) = 10.00; low 9.90 <= 10.00 <= close 10.00
+    assert fl.ma10_touch_hold(bars, anchor, as_of) is True
+    assert fl.ma10_close_break(bars, anchor, as_of) is False
+    assert fl.ma10_reclaim_within_3d(bars, anchor, as_of) is False
+
+
+def test_ma10_close_break() -> None:
+    bars = _ma_series(["9.50"])
+    anchor = bars[9].trade_date
+    as_of = bars[10].trade_date
+    # MA10(day10) = 9.95; close 9.50 < 9.95
+    assert fl.ma10_close_break(bars, anchor, as_of) is True
+    # low 9.40 <= 9.95 but close 9.50 < 9.95 -> no touch+hold
+    assert fl.ma10_touch_hold(bars, anchor, as_of) is False
+    # break at the last visible day -> no reclaim within the window
+    assert fl.ma10_reclaim_within_3d(bars, anchor, as_of) is False
+
+
+def test_ma10_reclaim_within_3d() -> None:
+    bars = _ma_series(["9.40", "10.10"])
+    anchor = bars[9].trade_date
+    as_of = bars[11].trade_date
+    # day10: close 9.40 < MA10 9.94 (break); day11: MA10 9.95, close 10.10
+    # >= 9.95 -> reclaim 1 visible session after the first break
+    assert fl.ma10_reclaim_within_3d(bars, anchor, as_of) is True
+
+
+def test_ma10_reclaim_after_3_not_counted() -> None:
+    bars = _ma_series(["9.40", "9.30", "9.20", "9.10", "10.20"])
+    anchor = bars[9].trade_date
+    as_of = bars[14].trade_date
+    # first break at day10; days 11-13 stay below MA10; day14 reclaim is
+    # the 4th visible session after the first break -> not counted
+    assert fl.ma10_reclaim_within_3d(bars, anchor, as_of) is False
+
+
+def test_ma10_insufficient_history_none() -> None:
+    bars = _series(["10.00"] * 6, ["100"] * 6)
+    anchor = bars[0].trade_date
+    as_of = bars[5].trade_date
+    # every visible day has fewer than 10 sessions of history -> MA10
+    # undefined -> no events can be evaluated
+    assert fl.ma10_touch_hold(bars, anchor, as_of) is None
+    assert fl.ma10_close_break(bars, anchor, as_of) is None
+    assert fl.ma10_reclaim_within_3d(bars, anchor, as_of) is None
+
+
+def test_ma10_future_reclaim_no_leak() -> None:
+    bars = _ma_series(["9.40", "10.10"])
+    anchor = bars[9].trade_date
+    early = fl.ma10_reclaim_within_3d(bars, anchor, bars[10].trade_date)
+    late = fl.ma10_reclaim_within_3d(bars, anchor, bars[11].trade_date)
+    assert early is False
+    assert late is True
+    assert early != late
+
+
+def test_ma10_fail_closed() -> None:
+    # duplicate trade dates -> ValueError
+    day = business_dates(date(2026, 1, 5), 1)[0]
+    dup = [
+        make_bar(
+            day, open_price="10.00", high="10.10", low="9.90",
+            close="10.00", preclose="9.90", volume="100",
+        ),
+        make_bar(
+            day, open_price="10.00", high="10.10", low="9.90",
+            close="10.00", preclose="9.90", volume="100",
+        ),
+    ]
+    with pytest.raises(ValueError):
+        fl.ma10_close_break(dup, day, day)
+    # multi-code bars -> ValueError
+    day1, day2 = business_dates(date(2026, 1, 5), 2)
+    multi = [
+        make_bar(
+            day1, code="600000", open_price="10.00", high="10.10",
+            low="9.90", close="10.00", preclose="9.90", volume="100",
+        ),
+        make_bar(
+            day2, code="000001", open_price="10.00", high="10.10",
+            low="9.90", close="10.00", preclose="9.90", volume="100",
+        ),
+    ]
+    with pytest.raises(ValueError):
+        fl.ma10_touch_hold(multi, day1, day2)
+    # missing anchor -> ValueError
+    bars = _series(["10.00"] * 10, ["100"] * 10)
+    with pytest.raises(ValueError):
+        fl.ma10_close_break(bars, date(2030, 1, 1), bars[-1].trade_date)

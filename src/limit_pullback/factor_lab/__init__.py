@@ -219,3 +219,106 @@ def pullback_down_volume_count(bars, anchor_date: date, as_of: date) -> int | No
             count += 1
         prev = bar
     return count
+
+
+def _ma10(ordered: tuple[DailyBar, ...]) -> dict[date, Decimal | None]:
+    """MA10(D) = mean close of the last 10 visible sessions ending at D
+    inclusive. None when fewer than 10 sessions exist through D (that day
+    contributes no event). Computed only from the series as passed."""
+    out: dict[date, Decimal | None] = {}
+    for i, bar in enumerate(ordered):
+        if i < 9:
+            out[bar.trade_date] = None
+        else:
+            out[bar.trade_date] = _mean(b.close for b in ordered[i - 9 : i + 1])
+    return out
+
+
+def ma10_touch_hold(bars, anchor_date: date, as_of: date) -> bool | None:
+    """E01_MA10_TOUCH_HOLD: exists D in (anchor_date, as_of] with
+    low(D) <= MA10(D) and close(D) >= MA10(D).
+
+    None when no post-anchor session is visible at as_of, or no visible
+    session has a defined MA10 (fewer than 10 sessions through that day).
+    PIT: never reads beyond as_of. Duplicate dates / multi-code / missing
+    anchor fail closed (ValueError)."""
+    ordered = _ordered(bars)
+    _require_anchor(ordered, anchor_date)
+    after = _after(ordered, anchor_date, as_of)
+    if not after:
+        return None
+    ma = _ma10(ordered)
+    evaluated = False
+    for bar in after:
+        m = ma[bar.trade_date]
+        if m is None:
+            continue
+        evaluated = True
+        if bar.low <= m <= bar.close:
+            return True
+    return False if evaluated else None
+
+
+def ma10_close_break(bars, anchor_date: date, as_of: date) -> bool | None:
+    """E02_MA10_CLOSE_BREAK: exists D in (anchor_date, as_of] with
+    close(D) < MA10(D).
+
+    None when no post-anchor session is visible at as_of, or no visible
+    session has a defined MA10. PIT: never reads beyond as_of. Duplicate
+    dates / multi-code / missing anchor fail closed (ValueError)."""
+    ordered = _ordered(bars)
+    _require_anchor(ordered, anchor_date)
+    after = _after(ordered, anchor_date, as_of)
+    if not after:
+        return None
+    ma = _ma10(ordered)
+    evaluated = False
+    for bar in after:
+        m = ma[bar.trade_date]
+        if m is None:
+            continue
+        evaluated = True
+        if bar.close < m:
+            return True
+    return False if evaluated else None
+
+
+def ma10_reclaim_within_3d(bars, anchor_date: date, as_of: date) -> bool | None:
+    """E03_MA10_RECLAIM_3D: after the FIRST close-break day D2 in
+    (anchor_date, as_of], there exists a visible session D' with
+    D2 < D' <= as_of, at most 3 visible sessions after D2, with
+    close(D') >= MA10(D'). Sessions with undefined MA10 are skipped (they
+    neither break nor reclaim).
+
+    Frozen anchoring choice: the 3-session window counts from the FIRST
+    E02 day in the window; later break days do not reset the window.
+    None when no post-anchor session is visible or no visible session has
+    a defined MA10; False when a defined-MA10 session exists but no break
+    occurred, or when no reclaim occurs within 3 sessions; True on
+    reclaim. PIT: never reads beyond as_of. Duplicate dates / multi-code /
+    missing anchor fail closed (ValueError)."""
+    ordered = _ordered(bars)
+    _require_anchor(ordered, anchor_date)
+    after = _after(ordered, anchor_date, as_of)
+    if not after:
+        return None
+    ma = _ma10(ordered)
+    evaluated = False
+    break_idx: int | None = None
+    for idx, bar in enumerate(after):
+        m = ma[bar.trade_date]
+        if m is None:
+            continue
+        evaluated = True
+        if bar.close < m:
+            break_idx = idx
+            break
+    if break_idx is None:
+        return False if evaluated else None
+    for candidate in after[break_idx + 1 : break_idx + 4]:
+        m = ma[candidate.trade_date]
+        if m is None:
+            continue
+        if candidate.close >= m:
+            return True
+    return False
