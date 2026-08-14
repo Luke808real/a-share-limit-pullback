@@ -1,0 +1,35 @@
+{
+  "study": "backtest-cooperation-v01",
+  "date": "2026-08-14",
+  "inputs": {
+    "episodes.parquet": {
+      "path": "data/outcome-study/outcome-snap-2026-07-31-b5f84004de8a-2024-01-01-2026-07-31-25903057f106/corrected-b2-trigger-outcome/episodes.parquet",
+      "sha256": "66d5943ffd4c83d8348d7b559ef9aa8ab9c041525471108a2f724fbedd84b093"
+    },
+    "frozen_execution_reality": {
+      "summary.json": "019e57f97b68c7fce65a39b804b998001f68912bd15c3543e0dc3318c83739de",
+      "execution_episodes.parquet": "3c3cfc044c820f20558a4ff363fa68229d38d035f72760aefe7c22a430db024d"
+    }
+  },
+  "scripts": {
+    "assemble_inputs_verified.py": "54c704b122a28f6f51f30649062fa030bb349e77a95227caa397a1a7ca3f0988",
+    "news_tag_coverage.py": "df6d5e4f83b34cb2cbb3900b63773df41fedbfea5b4d41645e1e1e127435159f",
+    "asl_news_ingest_driver.py": "06bb19f21c18edbfbca973e934fcefd3de67ec62b75e32d4e10de9a1e6cccf6f"
+  },
+  "outputs": {
+    "inputs-verified.json": "1b2003af62f641c9450c26b8b8dfdc3fd448bcc0c3ae1ea6296d2cfda10f6538",
+    "news-tag-coverage.json": "5dea03753c8867c483704d41d94e3374cca77f51342561b05ce80971792d9da6",
+    "protocol.md": "88b369be23306af4c87c7adabe45fc24548dc3297aa2bbac4f9a5576784ec512",
+    "conclusions.md": "400314ed506fdd6a8eec177ea4e1eddfb1047701141e164ed30d0dfa1ea26560",
+    "recheck_summary.json": "1d4608a84fca54c34ff9e8ed1dfbd00ae2b3bcb5aa87041e8eea53cccc607ee6",
+    "recheck_execution_episodes.parquet": "3c3cfc044c820f20558a4ff363fa68229d38d035f72760aefe7c22a430db024d"
+  },
+  "conclusions": {
+    "H1_input_provenance": "SUPPORTED",
+    "H2_determinism_resources": "SUPPORTED",
+    "H3_news_tags_historical": "REJECT_FOR_THIS_STUDY",
+    "H3_news_tags_forward": "OBSERVE_ONLY",
+    "H4_frozen_conclusions_intact": "SUPPORTED"
+  },
+  "promoted": "NONE — SUPPORTED != PROMOTED; no strategy change"
+}

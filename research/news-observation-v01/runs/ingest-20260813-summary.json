@@ -1,0 +1,118 @@
+{
+  "config": "/Users/luke808/AI/asl-shared-config.toml",
+  "runs": [
+    {
+      "job": "daily:news:news_headlines",
+      "steps": [
+        "news_headlines",
+        "compact"
+      ],
+      "trade_date": "2026-08-11",
+      "run_id": "07bc4108-fb4b-43db-9e77-da057d9bfd31",
+      "status": "success",
+      "rows_read": 0,
+      "rows_written": 0
+    },
+    {
+      "job": "daily:news:flash_news_wire",
+      "steps": [
+        "flash_news_wire",
+        "compact"
+      ],
+      "trade_date": "2026-08-11",
+      "run_id": "770738cf-3a58-466f-a3d9-df8f0d2fe41a",
+      "status": "failed",
+      "rows_read": 0,
+      "rows_written": 0
+    },
+    {
+      "job": "daily:news:news_headlines",
+      "steps": [
+        "news_headlines",
+        "compact"
+      ],
+      "trade_date": "2026-08-12",
+      "run_id": "4e5dc574-8c01-456e-b2a3-8daacbec8527",
+      "status": "success",
+      "rows_read": 0,
+      "rows_written": 0
+    },
+    {
+      "job": "daily:news:flash_news_wire",
+      "steps": [
+        "flash_news_wire",
+        "compact"
+      ],
+      "trade_date": "2026-08-12",
+      "run_id": "e730987a-9cfa-48c6-97c2-3c9b7310bf3e",
+      "status": "failed",
+      "rows_read": 0,
+      "rows_written": 0
+    },
+    {
+      "job": "daily:news:news_headlines",
+      "steps": [
+        "news_headlines",
+        "compact"
+      ],
+      "trade_date": "2026-08-13",
+      "run_id": "5a768446-afc7-4989-a56e-7254ea55199c",
+      "status": "success",
+      "rows_read": 0,
+      "rows_written": 0
+    },
+    {
+      "job": "daily:news:flash_news_wire",
+      "steps": [
+        "flash_news_wire",
+        "compact"
+      ],
+      "trade_date": "2026-08-13",
+      "run_id": "cf4c2018-e75a-4f9f-b47e-462b83abe029",
+      "status": "failed",
+      "rows_read": 0,
+      "rows_written": 0
+    },
+    {
+      "job": "daily:news:announcement_index",
+      "steps": [
+        "announcement_index",
+        "compact"
+      ],
+      "trade_date": "2026-08-13",
+      "run_id": "3a355bd0-a513-4cc5-8bf7-aef2df32859e",
+      "status": "success",
+      "rows_read": 8428,
+      "rows_written": 8428
+    },
+    {
+      "job": "daily:news:dragon_tiger",
+      "steps": [
+        "dragon_tiger",
+        "compact"
+      ],
+      "trade_date": "2026-08-13",
+      "run_id": "f9760103-616b-4dae-af25-f4d471c18529",
+      "status": "success",
+      "rows_read": 508,
+      "rows_written": 508
+    }
+  ],
+  "failed": [
+    {
+      "job": "daily:news:flash_news_wire",
+      "trade_date": "2026-08-11",
+      "status": "failed"
+    },
+    {
+      "job": "daily:news:flash_news_wire",
+      "trade_date": "2026-08-12",
+      "status": "failed"
+    },
+    {
+      "job": "daily:news:flash_news_wire",
+      "trade_date": "2026-08-13",
+      "status": "failed"
+    }
+  ]
+}

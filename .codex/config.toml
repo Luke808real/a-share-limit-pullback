@@ -15,3 +15,19 @@ config_file = "agents/data-reader.toml"
 [agents.adversarial-reviewer]
 description = "Read-only adversarial review before final validation."
 config_file = "agents/adversarial-reviewer.toml"
+
+[agents.research-strategy]
+description = "Strategy hypothesis research, backtest protocol design, study execution."
+config_file = "agents/research-strategy.toml"
+
+[agents.data-processing]
+description = "Provenance, lineage, coverage and reconciliation inspection."
+config_file = "agents/data-processing.toml"
+
+[agents.news-analysis]
+description = "News/announcement observation layer: ASL ingestion and daily briefs."
+config_file = "agents/news-analysis.toml"
+
+[agents.performance]
+description = "Pipeline profiling, timing budgets, golden-equivalence checks."
+config_file = "agents/performance.toml"

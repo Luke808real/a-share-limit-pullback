@@ -1,0 +1,3 @@
+# Recheck parquet is derived study output (hash recorded in provenance.json);
+# the frozen original lives under data/ (already gitignored).
+runs/execution-reality-recheck/*.parquet

@@ -1,0 +1,78 @@
+{
+  "study": "backtest-cooperation-v01",
+  "episodes": {
+    "path": "data/outcome-study/outcome-snap-2026-07-31-b5f84004de8a-2024-01-01-2026-07-31-25903057f106/corrected-b2-trigger-outcome/episodes.parquet",
+    "sha256": "66d5943ffd4c83d8348d7b559ef9aa8ab9c041525471108a2f724fbedd84b093",
+    "expected_sha256": "66d5943ffd4c83d8348d7b559ef9aa8ab9c041525471108a2f724fbedd84b093",
+    "match": true,
+    "rows": 31422
+  },
+  "snapshot_id": "snap-2026-07-31-b5f84004de8a",
+  "expected_snapshot_id": "snap-2026-07-31-b5f84004de8a",
+  "frozen_outputs": {
+    "dir": "data/outcome-study/outcome-snap-2026-07-31-b5f84004de8a-2024-01-01-2026-07-31-25903057f106/corrected-b2-trigger-outcome/execution-reality",
+    "summary_sha256": "019e57f97b68c7fce65a39b804b998001f68912bd15c3543e0dc3318c83739de",
+    "episodes_parquet_sha256": "3c3cfc044c820f20558a4ff363fa68229d38d035f72760aefe7c22a430db024d",
+    "analysis_seconds": 24.410350042002392
+  },
+  "recheck_outputs": {
+    "dir": "/Users/luke808/AI/V flash/research/backtest-cooperation-v01/runs/execution-reality-recheck",
+    "summary_sha256": "1d4608a84fca54c34ff9e8ed1dfbd00ae2b3bcb5aa87041e8eea53cccc607ee6",
+    "episodes_parquet_sha256": "3c3cfc044c820f20558a4ff363fa68229d38d035f72760aefe7c22a430db024d",
+    "analysis_seconds": 21.468325458001345,
+    "derived_rows": 31422,
+    "evaluate_strategy_calls": 0
+  },
+  "semantic_equal_after_stripping_analysis_seconds": true,
+  "cohorts": {
+    "B1_READY_ALL": {
+      "10bp_E_R": "-0.1730",
+      "20bp_E_R": "-0.3622",
+      "strict_E_R": null,
+      "conservative_E_R": null,
+      "resolved": 747
+    },
+    "B1_READY_SETUP_GE_80": {
+      "10bp_E_R": "0.0204",
+      "20bp_E_R": "-0.1277",
+      "strict_E_R": null,
+      "conservative_E_R": null,
+      "resolved": 151
+    },
+    "B1_READY_ENTRY_GE_80": {
+      "10bp_E_R": "0.2605",
+      "20bp_E_R": "0.1280",
+      "strict_E_R": null,
+      "conservative_E_R": null,
+      "resolved": 130
+    },
+    "B2_READY_ALL": {
+      "10bp_E_R": "-0.1107",
+      "20bp_E_R": "-0.1273",
+      "strict_E_R": null,
+      "conservative_E_R": null,
+      "resolved": 1627
+    },
+    "B2_READY_BREAKOUT_GAP_FILL": {
+      "10bp_E_R": "-0.0791",
+      "20bp_E_R": "-0.0941",
+      "strict_E_R": null,
+      "conservative_E_R": null,
+      "resolved": 144
+    },
+    "B2_READY_BREAKOUT_TRIGGER_FILL": {
+      "10bp_E_R": "-0.1143",
+      "20bp_E_R": "-0.1310",
+      "strict_E_R": null,
+      "conservative_E_R": null,
+      "resolved": 1483
+    },
+    "B2_CONFIRMED_ALL": {
+      "10bp_E_R": "-0.1272",
+      "20bp_E_R": "-0.1451",
+      "strict_E_R": null,
+      "conservative_E_R": null,
+      "resolved": 637
+    }
+  }
+}

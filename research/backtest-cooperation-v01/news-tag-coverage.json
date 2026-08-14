@@ -1,0 +1,21 @@
+{
+  "episodes": {
+    "rows": 31422,
+    "min_trade_date": "2024-01-03",
+    "max_trade_date": "2026-07-30"
+  },
+  "announcement_index": {
+    "rows": 4214,
+    "min_date": "2026-08-10",
+    "max_date": "2026-08-13",
+    "overlap_days_with_episodes": 0
+  },
+  "dragon_tiger": {
+    "rows": 254,
+    "min_date": "2026-08-10",
+    "max_date": "2026-08-13",
+    "overlap_days_with_episodes": 0
+  },
+  "conclusion": "REJECT_FOR_THIS_STUDY",
+  "note": "Frozen episodes end 2026-07-31; ASL news tables start 2026-08-10. Zero overlap: historical episode tagging is not applicable. News tags are forward-only going forward (via ops daily-run news-brief)."
+}
