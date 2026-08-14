@@ -1,22 +1,28 @@
-"""H9 v01: triple-volume (F19>=3) alone vs combined with B2 structural
-condition. Population: resolved B2-stage episodes (B2_READY/B2_CONFIRMED,
-outcome in WIN_S1/LOSS_INVALID/CANCEL_GAP_INVALID), frozen corrected
-episodes (SHA 66d5943f...) + frozen snapshot snap-2026-07-31-b5f84004de8a
-canonical bars. DESCRIPTIVE ONLY, no threshold search, no promotion.
+"""H9 v01 (audit-fix): triple-volume (F19>=3) alone vs combined with B2
+structural condition. Population: resolved B2-stage episodes
+(B2_READY/B2_CONFIRMED, outcome in WIN_S1/LOSS_INVALID/CANCEL_GAP_INVALID),
+frozen corrected episodes (SHA 66d5943f...) + frozen snapshot
+snap-2026-07-31-b5f84004de8a canonical bars.
+DESCRIPTIVE ONLY, no threshold search, no promotion.
+
+AUDIT FIX (ChatGPT research-QC): the v01 draft wrapped F19 computation in a
+broad `except ValueError: f19 = None`, silently converting data errors
+(missing anchor/B2 bar, duplicate dates, multi-code bars) into undefined.
+This version removes the broad except: only a factor return of None counts
+as undefined; every data error fails closed with a clear message.
 
 Assumptions (stated in the report):
 - b2 event date := signal_date for B2-stage episodes (frozen semantics).
 - Structural condition (PIT on B2 day): close(B2) >= support_high (S_plat);
   robustness echo with close(B2) >= b2_trigger_price (S_trig).
-- F19 needs a non-empty pullback window (anchor < bar < b2_date):
-  days_since_anchor == 1 rows are reported as undefined, not imputed.
-- Metrics are dual-lens (win share AND mean R among fills) because H10
-  showed win share alone can misjudge odds-type effects.
+- F19 needs a non-empty pullback window (anchor < bar < b2_date): such rows
+  are reported as undefined (factor returns None), not imputed.
 """
 from __future__ import annotations
 
 import hashlib
 import json
+import sys
 import time
 from datetime import date
 from decimal import Decimal
@@ -43,7 +49,23 @@ STARTED = time.time()
 
 
 def _log(msg: str) -> None:
-    print(f"[{time.time() - STARTED:7.1f}s] {msg}", flush=True)
+    print(f"[{time.time() - STARTED:7.1f}s] {msg}", file=sys.stderr, flush=True)
+
+
+def compute_f19(bars, anchor_date: date, b2_date: date) -> Decimal | None:
+    """F19 = vol(B2 day) / mean(vol, T+1 .. day before B2), fail-closed.
+
+    Data errors raise ValueError (never converted to undefined): missing
+    anchor bar, missing B2 bar, duplicate trade dates, bars spanning more
+    than one code. The only legitimately undefined outcome is the factor
+    returning None (empty pullback window).
+    """
+    by_date = {bar.trade_date: bar for bar in bars}
+    if anchor_date not in by_date:
+        raise ValueError(f"anchor bar missing for F19: {anchor_date}")
+    if b2_date not in by_date:
+        raise ValueError(f"b2 bar missing for F19: {b2_date}")
+    return fl.b2_volume_vs_pullback_mean(bars, anchor_date, b2_date)
 
 
 def _parse_r(value) -> float | None:
@@ -103,7 +125,6 @@ def main() -> int:
     }
     stage_split: dict[str, dict] = {g: {"B2_READY": 0, "B2_CONFIRMED": 0} for g in groups}
     undefined_f19 = 0
-    missing_trigger = 0
     processed = 0
     f19_values: list[float] = []
 
@@ -119,20 +140,18 @@ def main() -> int:
             (),
         )
         if not bars:
-            continue
+            raise ValueError(f"canonical bars missing for code {code} (fail closed)")
+        by_date = {bar.trade_date: bar for bar in bars}
         for ep in eps:
-            try:
-                f19 = fl.b2_volume_vs_pullback_mean(bars, ep["anchor"], ep["signal"])
-            except ValueError:
-                f19 = None
+            f19 = compute_f19(bars, ep["anchor"], ep["signal"])
             if f19 is None:
                 undefined_f19 += 1
                 continue
-            by_date = {b.trade_date: b for b in bars}
             b2_bar = by_date.get(ep["signal"])
             if b2_bar is None:
-                missing_trigger += 1
-                continue
+                raise ValueError(
+                    f"b2 bar missing for code {code} on {ep['signal']} (fail closed)"
+                )
             triple = f19 >= Decimal("3")
             s_plat = b2_bar.close >= ep["support_high"]
             s_trig = b2_bar.close >= ep["trigger"]
@@ -183,7 +202,12 @@ def main() -> int:
             "episodes_sha256": sha,
             "snapshot_id": SNAPSHOT_ID,
         },
-        "population": {"b2_stage_resolved": len(episodes), "undefined_f19": undefined_f19, "missing_b2_bar": missing_trigger},
+        "population": {
+            "b2_stage_resolved": len(episodes),
+            "undefined_f19": undefined_f19,
+            "missing_b2_bar": 0,
+            "fail_closed_validation": True,
+        },
         "f19_quantiles": {
             "n": len(f19_values),
             "p50": _q(f19_values, 0.50),

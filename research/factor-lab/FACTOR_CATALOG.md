@@ -61,10 +61,13 @@ vol(D) = 当日成交量；turn(D) = 当日换手；close/low/high 为原始价�
 - F19 B2 放量倍数：vol(B2 事件日) / mean(vol, T1..T(n-1))（相对回调均量）
 - F20 B2 放量倍数（相对 20 日均量）：vol(B2 日) / mean(vol, B2−20..B2−1)
 - 现状：均 GAP；三倍量（H9）= F19/F20 的特例，作为交互项验证，不做主效应。
-- v01 实证（2026-08-14，runs/h9-v01/）：B2 阶段 resolved n=3,214，F19
-  p50=0.85 / p90=1.36 / p99=1.73 / max=3.34；F19≥3 仅 1 例（0.03%）→
-  H9 按 F19 口径 REJECT（事件频率层面），B2 日量能通常不扩张。F20 口径
-  重测留作新假设（须 forward 样本）。
+- v01 实证（2026-08-14，runs/h9-v01/，fail-closed 审计版）：B2 阶段
+  resolved n=3,214，F19 p50=0.85 / p90=1.36 / p99=1.73 / max=3.34；
+  F19≥3 仅 1 例（0.03%）→ H9 = REJECT (event-frequency level)。
+  在 F19 口径下，相对 T+1..B2 前一日回调均量，B2 日成交量通常未明显
+  扩张；本结果不覆盖 F20、盘中量能或换手，不得解释成「成交量对 B2
+  无用」。days_since_anchor>=3 + F19>=2 = NEW / PRE-REGISTERED FORWARD
+  HYPOTHESIS（新阈值假设；禁止在当前 frozen 样本重新验证）。
 
 ## 6. 失败结构类（H6）
 
