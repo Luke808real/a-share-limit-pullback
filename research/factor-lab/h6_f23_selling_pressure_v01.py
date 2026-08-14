@@ -4,14 +4,26 @@ Question: is F23 — down-close + up-volume sessions during the pullback
 window after T0 — a negative structural factor for second-launch success?
 
 F23 pure function: limit_pullback.factor_lab.pullback_down_volume_count
-(bars, anchor_date, as_of) — count of visible sessions i after T0 through
-as_of with close(i) < close(i-1) AND volume(i) > volume(i-1). F23_ANY =
-count >= 1, used ONLY as a pre-registered grouping. No threshold search.
+(bars, anchor_date, as_of) — count of visible sessions D after T0 through
+as_of (anchor_date < D <= as_of) where close(D) < close(previous visible
+canonical bar) AND volume(D) > volume(previous visible canonical bar).
+F23_COUNT = None when no post-anchor bar is visible; 0 when post-anchor
+bars exist but no event. F23_ANY = COUNT >= 1 (pre-registered grouping
+only). No ratio threshold, no volume multiplier, no stage/outcome-aware
+logic. as_of = each episode's own signal_date (PIT through episode date).
 
 Primary comparison: F23_ANY=false vs F23_ANY=true over frozen resolved
-episodes (WIN_S1 union LOSS_INVALID union CANCEL_GAP_INVALID). R source =
-episodes.r_multiple (Phase 2D.0 corrected outcome study, strict variant,
-same field the frozen baseline E[R] table was computed from).
+episodes (WIN_S1 union LOSS_INVALID union CANCEL_GAP_INVALID). DELTA =
+ANY - NONE. R source = episodes.r_multiple (Phase 2D.0 corrected outcome
+study, strict variant).
+
+Sample accounting (Sol frozen contract): EPISODES_TOTAL / RESOLVED_N /
+F23_DEFINED_N / F23_UNDEFINED_N / F23_ANY_N / F23_NONE_N with identity
+F23_DEFINED_N = F23_ANY_N + F23_NONE_N. Undefined reasons:
+MISSING_CANONICAL_WINDOW (code absent from canonical snapshot) and
+NO_POST_ANCHOR_BAR (no bar after anchor through signal). DATA_ERROR
+(duplicate / multi-code / anchor missing / canonical window mismatch)
+FAILS CLOSED — never silently counted as undefined.
 
 DESCRIPTIVE ONLY. No thresholds tuned, no promotion, no model rebuild.
 Frozen inputs: episodes SHA 66d5943f... + snap-2026-07-31-b5f84004de8a.
@@ -38,6 +50,7 @@ EPISODES = Path(
 EXPECTED_SHA = "66d5943ffd4c83d8348d7b559ef9aa8ab9c041525471108a2f724fbedd84b093"
 DAILY_BARS = Path("data/canonical/daily_bars/snap-2026-07-31-b5f84004de8a.parquet")
 SNAPSHOT_ID = "snap-2026-07-31-b5f84004de8a"
+FROZEN_AS_OF = date(2026, 7, 31)
 OUT_DIR = Path("research/factor-lab/runs/h6-f23-v01")
 GROUPS = ("WIN_S1", "LOSS_INVALID", "CANCEL_GAP_INVALID")
 WIN = "WIN_S1"
@@ -150,30 +163,32 @@ def _group_comparison(rows: list[dict]) -> dict:
 
 
 def _verdict(primary: dict, stage: dict, timing: dict) -> str:
-    """Pre-registered mechanical verdict.
+    """Verdict per Sol frozen M6 contract.
 
-    Hypothesis: F23_ANY=true (selling pressure during pullback) is NEGATIVE
-    for second-launch success, i.e. lower win_share and lower mean_R.
+    Hypothesis: F23_ANY=true predicts WORSE second-launch outcomes, i.e.
+    STRICT_WIN_RATE_DELTA < 0 and MEAN_R_DELTA < 0 (DELTA = ANY - NONE).
 
-    REJECT: primary win_share delta is defined and >= 0 (direction absent
-    or opposite on the primary metric).
-    SUPPORTED: primary win_share delta < 0 AND primary mean_R delta < 0
-    when defined AND every stage/timing stratum whose delta is defined
-    also has win_share delta < 0 (direction stable across strata).
-    Otherwise OBSERVE_ONLY.
+    REJECT: strict_win_rate and mean_R are not BOTH negatively directional
+    as expected, or coverage cannot support judgment.
+    OBSERVE_ONLY: primary comparison is negatively directional, but
+    win_share conflicts (>= 0) or a main stratum shows a structural
+    reversal (strict_win_rate delta >= 0 where hypothesis expects < 0).
+    SUPPORTED: strict_win_rate and mean_R both negative, win_share not
+    conflicting, and no key structural reversal in main strata.
     """
-    p_ws = primary["delta"].get("win_share")
-    if p_ws is None:
-        return "OBSERVE_ONLY"
-    if p_ws >= 0:
+    swr = primary["delta"].get("strict_win_rate")
+    mr = primary["delta"].get("mean_r")
+    if swr is None or mr is None:
         return "REJECT"
-    p_mr = primary["delta"].get("mean_r")
-    if p_mr is not None and p_mr >= 0:
+    if not (swr < 0 and mr < 0):
+        return "REJECT"
+    ws = primary["delta"].get("win_share")
+    if ws is not None and ws >= 0:
         return "OBSERVE_ONLY"
     for strata in (stage, timing):
         for cell in strata.values():
-            ws = cell["delta"].get("win_share")
-            if ws is not None and ws >= 0:
+            d = cell["delta"].get("strict_win_rate")
+            if d is not None and d >= 0:
                 return "OBSERVE_ONLY"
     return "SUPPORTED"
 
@@ -188,6 +203,25 @@ def main() -> int:
     _log("input hashes verified")
 
     con = duckdb.connect()
+    episodes_total = con.execute(
+        "SELECT count(*) FROM read_parquet(?)", [str(EPISODES)]
+    ).fetchone()[0]
+    max_signal = con.execute(
+        "SELECT max(CAST(signal_date AS DATE)) FROM read_parquet(?)",
+        [str(EPISODES)],
+    ).fetchone()[0]
+    if max_signal is not None and date.fromisoformat(str(max_signal)) > FROZEN_AS_OF:
+        raise SystemExit(f"episodes contain post-frozen signal dates: {max_signal}")
+    bars_snap_ids = {
+        r[0] for r in con.execute(
+            "SELECT DISTINCT dataset_snapshot_id FROM read_parquet(?)",
+            [str(DAILY_BARS)],
+        ).fetchall()
+    }
+    if bars_snap_ids != {SNAPSHOT_ID}:
+        raise SystemExit(f"daily bars snapshot mismatch: {bars_snap_ids}")
+    _log(f"provenance gates pass: total={episodes_total}, bars snapshot ok")
+
     con.execute(
         "CREATE TEMP TABLE eps AS "
         "SELECT row_number() OVER () AS rid, code, setup_stage, "
@@ -200,13 +234,18 @@ def main() -> int:
     resolved_n = con.execute("SELECT count(*) FROM eps").fetchone()[0]
     _log(f"resolved episodes: {resolved_n}")
 
+    # M3: single bulk load of the canonical snapshot for resolved codes only;
+    # no full-market rebuild, no per-episode re-read of the snapshot.
     con.execute(
         "CREATE TEMP TABLE bars AS "
         "SELECT code, trade_date, close, volume FROM read_parquet(?) "
         "WHERE code IN (SELECT DISTINCT code FROM eps)",
         [str(DAILY_BARS)],
     )
-    _log("bars loaded for resolved codes")
+    code_has_bars = {
+        r[0] for r in con.execute("SELECT DISTINCT code FROM bars").fetchall()
+    }
+    _log(f"bars loaded for resolved codes: {len(code_has_bars)} codes")
 
     rows = con.execute(
         "SELECT e.rid, b.trade_date, b.close, b.volume "
@@ -227,21 +266,29 @@ def main() -> int:
     ).fetchall()
 
     defined: list[dict] = []
-    undefined_codes: list[str] = []
+    undefined_reasons = {"MISSING_CANONICAL_WINDOW": 0, "NO_POST_ANCHOR_BAR": 0}
     for rid, code, stage, anchor, signal, outcome, r_raw, days in episodes:
+        if code not in code_has_bars:
+            undefined_reasons["MISSING_CANONICAL_WINDOW"] += 1
+            continue
         window = by_rid.get(rid)
         if not window:
-            undefined_codes.append("NO_WINDOW")
-            continue
+            # code has canonical bars but none in [anchor, signal]:
+            # anchor bar missing -> DATA_ERROR, fail closed.
+            raise SystemExit(
+                f"DATA_ERROR: canonical window missing anchor bar "
+                f"(code={code} anchor={anchor} signal={signal})"
+            )
         try:
             count = fl.pullback_down_volume_count(
                 window, date.fromisoformat(str(anchor)), date.fromisoformat(str(signal))
             )
         except ValueError as exc:
-            undefined_codes.append(f"{exc}")
-            continue
+            raise SystemExit(
+                f"DATA_ERROR: {exc} (code={code} anchor={anchor} signal={signal})"
+            ) from exc
         if count is None:
-            undefined_codes.append("NO_AFTER")
+            undefined_reasons["NO_POST_ANCHOR_BAR"] += 1
             continue
         defined.append(
             {
@@ -253,10 +300,16 @@ def main() -> int:
                 "count": count,
             }
         )
-    _log(f"F23 defined: {len(defined)} / undefined: {len(undefined_codes)}")
 
     any_n = sum(1 for r in defined if r["count"] >= 1)
     none_n = len(defined) - any_n
+    undefined_n = sum(undefined_reasons.values())
+    assert len(defined) == any_n + none_n, "accounting identity violated"
+    _log(
+        f"defined={len(defined)} (any={any_n}, none={none_n}) "
+        f"undefined={undefined_n} {undefined_reasons}"
+    )
+
     primary = _group_comparison(defined)
 
     stage_strata = {}
@@ -271,6 +324,15 @@ def main() -> int:
 
     verdict = _verdict(primary, stage_strata, timing_strata)
 
+    stage_consistency = {
+        s: {"strict_win_rate_delta": stage_strata[s]["delta"].get("strict_win_rate")}
+        for s in STAGES
+    }
+    timing_consistency = {
+        b: {"strict_win_rate_delta": timing_strata[b]["delta"].get("strict_win_rate")}
+        for b in ("1-2", "3", "4-5", "6-10")
+    }
+
     payload = {
         "inputs": {
             "episodes": str(EPISODES),
@@ -278,16 +340,22 @@ def main() -> int:
             "daily_bars": str(DAILY_BARS),
             "daily_bars_sha256": bars_sha,
             "snapshot_id": SNAPSHOT_ID,
+            "bars_dataset_snapshot_ids": sorted(bars_snap_ids),
+            "frozen_as_of": str(FROZEN_AS_OF),
             "r_source": "episodes.r_multiple — Phase 2D.0 corrected outcome study, strict variant",
-            "f23_definition": "count of pullback sessions after T0 through signal_date "
-            "where close(i) < close(i-1) AND volume(i) > volume(i-1)",
+            "f23_definition": "count of visible sessions D, anchor_date < D <= as_of "
+            "(as_of = episode signal_date), where close(D) < close(previous visible "
+            "canonical bar) AND volume(D) > volume(previous visible canonical bar)",
             "f23_any_definition": "F23_COUNT >= 1 (pre-registered grouping only)",
         },
         "sample": {
+            "episodes_total": episodes_total,
             "resolved_n": resolved_n,
             "resolved_groups": list(GROUPS),
             "f23_defined_n": len(defined),
-            "f23_undefined_n": len(undefined_codes),
+            "f23_undefined_n": undefined_n,
+            "undefined_reasons": undefined_reasons,
+            "accounting_identity": "f23_defined_n == f23_any_n + f23_none_n",
             "f23_any_n": any_n,
             "f23_none_n": none_n,
             "min_n": MIN_N,
@@ -295,10 +363,14 @@ def main() -> int:
         "primary": primary,
         "stage_strata": stage_strata,
         "timing_strata": timing_strata,
+        "stage_consistency": stage_consistency,
+        "timing_consistency": timing_consistency,
         "verdict": verdict,
-        "verdict_logic": "REJECT: primary win_share delta defined and >= 0. "
-        "SUPPORTED: primary win_share delta < 0, mean_R delta < 0 when defined, "
-        "and every defined stage/timing stratum win_share delta < 0. Else OBSERVE_ONLY.",
+        "verdict_logic": "REJECT: strict_win_rate and mean_R not both negatively "
+        "directional, or coverage cannot support judgment. OBSERVE_ONLY: primary "
+        "negatively directional but win_share conflicts or a main stratum shows a "
+        "structural reversal. SUPPORTED: strict_win_rate and mean_R both negative, "
+        "win_share not conflicting, no key structural reversal in main strata.",
         "script_sha256": script_sha,
     }
     out_json = OUT_DIR / "h6-f23-v01.json"

@@ -5,11 +5,16 @@
     "daily_bars": "data/canonical/daily_bars/snap-2026-07-31-b5f84004de8a.parquet",
     "daily_bars_sha256": "e7243dee3bafe46e725e2b6ee884b07ac97a01c0705b41df0562d35019593514",
     "snapshot_id": "snap-2026-07-31-b5f84004de8a",
+    "bars_dataset_snapshot_ids": [
+      "snap-2026-07-31-b5f84004de8a"
+    ],
+    "frozen_as_of": "2026-07-31",
     "r_source": "episodes.r_multiple — Phase 2D.0 corrected outcome study, strict variant",
-    "f23_definition": "count of pullback sessions after T0 through signal_date where close(i) < close(i-1) AND volume(i) > volume(i-1)",
+    "f23_definition": "count of visible sessions D, anchor_date < D <= as_of (as_of = episode signal_date), where close(D) < close(previous visible canonical bar) AND volume(D) > volume(previous visible canonical bar)",
     "f23_any_definition": "F23_COUNT >= 1 (pre-registered grouping only)"
   },
   "sample": {
+    "episodes_total": 31422,
     "resolved_n": 9625,
     "resolved_groups": [
       "WIN_S1",
@@ -18,6 +23,11 @@
     ],
     "f23_defined_n": 9625,
     "f23_undefined_n": 0,
+    "undefined_reasons": {
+      "MISSING_CANONICAL_WINDOW": 0,
+      "NO_POST_ANCHOR_BAR": 0
+    },
+    "accounting_identity": "f23_defined_n == f23_any_n + f23_none_n",
     "f23_any_n": 4238,
     "f23_none_n": 5387,
     "min_n": 20
@@ -314,7 +324,32 @@
       }
     }
   },
+  "stage_consistency": {
+    "B1_READY": {
+      "strict_win_rate_delta": 0.0053
+    },
+    "B2_READY": {
+      "strict_win_rate_delta": 0.0082
+    },
+    "B2_CONFIRMED": {
+      "strict_win_rate_delta": 0.0243
+    }
+  },
+  "timing_consistency": {
+    "1-2": {
+      "strict_win_rate_delta": -0.0546
+    },
+    "3": {
+      "strict_win_rate_delta": -0.0869
+    },
+    "4-5": {
+      "strict_win_rate_delta": -0.0046
+    },
+    "6-10": {
+      "strict_win_rate_delta": -0.135
+    }
+  },
   "verdict": "REJECT",
-  "verdict_logic": "REJECT: primary win_share delta defined and >= 0. SUPPORTED: primary win_share delta < 0, mean_R delta < 0 when defined, and every defined stage/timing stratum win_share delta < 0. Else OBSERVE_ONLY.",
-  "script_sha256": "4ab33c82c3d93da201ba99ab64e09000d0272eccb50e5db1a7f46ebde0818b55"
+  "verdict_logic": "REJECT: strict_win_rate and mean_R not both negatively directional, or coverage cannot support judgment. OBSERVE_ONLY: primary negatively directional but win_share conflicts or a main stratum shows a structural reversal. SUPPORTED: strict_win_rate and mean_R both negative, win_share not conflicting, no key structural reversal in main strata.",
+  "script_sha256": "793742af3431d815776cf50cfd8ab06e71553c3dba9178b4a24e18ad4ff7b672"
 }

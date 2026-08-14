@@ -22,15 +22,26 @@ volume(i)>volume(i-1) 的交易日计数）是否为第二次启动失败的负�
 `F23_ANY = count >= 1`（仅作预注册分组，不搜索阈值）。
 duplicate / multi-code / anchor 缺失 → ValueError（fail-closed）。
 
-## 3. Sample Accounting
+## 3. Sample Accounting（Sol 冻结合同）
 
 | 项 | 值 |
 | --- | --- |
-| resolved_n（WIN_S1 ∪ LOSS_INVALID ∪ CANCEL_GAP_INVALID） | 9,625（与 H10 SAMPLE_N 一致） |
-| F23 defined | 9,625（100%，undefined = 0） |
-| F23_ANY=true | 4,238 |
-| F23_NONE | 5,387 |
+| EPISODES_TOTAL | 31,422 |
+| RESOLVED_N（WIN_S1 ∪ LOSS_INVALID ∪ CANCEL_GAP_INVALID） | 9,625（与 H10 SAMPLE_N 一致） |
+| F23_DEFINED_N | 9,625（= ANY + NONE，identity 成立） |
+| F23_UNDEFINED_N | 0 |
+| — MISSING_CANONICAL_WINDOW | 0 |
+| — NO_POST_ANCHOR_BAR | 0 |
+| — DATA_ERROR | 0（合同：出现即 FAIL CLOSED，本运行未触发） |
+| F23_ANY_N | 4,238 |
+| F23_NONE_N | 5,387 |
 | MIN_N（小样本置 null） | 20 |
+
+加载方式（M3）：对 resolved codes 单次 bulk 读取 canonical snapshot
+（2,341 codes / 33,476 窗口 bar 行），无 full-market rebuild，无 per-episode
+重复全量读取。provenance gates：episodes SHA 精确匹配；daily bars
+dataset_snapshot_id 全为 `snap-2026-07-31-b5f84004de8a`；最大 signal_date
+≤ 2026-07-31（无 frozen boundary 之后数据）。
 
 ## 4. Primary Comparison（F23_ANY=false vs true）
 
@@ -48,7 +59,8 @@ duplicate / multi-code / anchor 缺失 → ValueError（fail-closed）。
 
 方向判断：假设为「F23_ANY → 更高失败率 / 更差收益」。win_share 与
 strict_win_rate 方向与假设**相反**（ANY 更高）；mean_R 方向与假设一致
-（ANY 显著更差）。主指标 win_share delta >= 0 → 按预注册规则 REJECT。
+（ANY 显著更差）。strict_win_rate 与 mean_R 未共同呈预期负向 →
+按 M6 合同 REJECT（见第 7 节）。
 
 ## 5. Confounding Strata（预注册分层）
 
@@ -94,22 +106,27 @@ timing 四层 win_share delta **全部为负**：负向关系仅在 timing 分�
 VERDICT: REJECT
 ```
 
-预注册判定逻辑：primary win_share delta 已定义且 >= 0 → REJECT；
-SUPPORTED 需 primary win_share delta < 0 且 mean_R delta < 0（若定义）
-且全部分层 win_share delta < 0；否则 OBSERVE_ONLY。
+判定逻辑（Sol M6 冻结合同，DELTA = ANY − NONE）：
+- REJECT：strict_win_rate 与 mean_R 未共同呈预期负向，或输入/覆盖无法支持判断；
+- OBSERVE_ONLY：主比较呈负向，但 win_share 冲突或主分层存在结构性反转；
+- SUPPORTED：strict_win_rate 与 mean_R 均负向、win_share 不冲突、主分层无关键反转。
 
-H6/F23「回调期放量下跌为失败负向结构因子」在冻结样本主指标（win_share /
-strict_win_rate）上方向相反 → REJECT。mean_R 的负向关联（右尾收缩）是
-独立于本假设的附带观察，若继续研究需单独预注册（如 R 分布右尾假设），
-不属于本任务结论，亦不改任何生产规则。
+本运行：primary STRICT_WIN_RATE_DELTA = +0.0141（非负向），
+MEAN_R_DELTA = −0.1033 → 不满足「共同负向」→ **REJECT**。
+
+H6/F23「回调期放量下跌为失败负向结构因子」在冻结样本主指标上不成立
+（胜率方向相反）。mean_R 的负向关联（右尾收缩）是独立于本假设的附带
+观察，若继续研究需单独预注册（如 R 分布右尾假设），不属于本任务结论，
+亦不改任何生产规则。本轮成功标准 = M1–M6 全部 PASS（研究可复现），
+VERDICT=REJECT 不代表本轮失败。
 
 ## 8. Artifacts
 
 | 项 | 值 |
 | --- | --- |
 | 研究脚本 | `research/factor-lab/h6_f23_selling_pressure_v01.py` |
-| script SHA256 | `4ab33c82c3d93da201ba99ab64e09000d0272eccb50e5db1a7f46ebde0818b55` |
+| script SHA256 | `793742af3431d815776cf50cfd8ab06e71553c3dba9178b4a24e18ad4ff7b672` |
 | 输出 JSON | `research/factor-lab/runs/h6-f23-v01/h6-f23-v01.json` |
-| output JSON SHA256 | `3e64bf508b551758439b94e7d8dc292ecbcaa7ebfcf16f4682e5c22b354a683e` |
+| output JSON SHA256 | `d2134fb913419c70ec4fa8b7d760cfd2827daa7bfb59284d4939e7797970a863` |
 
 SUPPORTED != PROMOTED。本报告不改 setup_stage / 评分 / 阈值 / 生产规则。
