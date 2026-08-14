@@ -4,6 +4,8 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 REPO = Path(__file__).resolve().parents[1]
 
 
@@ -23,10 +25,14 @@ h10r = _load(
 
 def test_parse_r_missing_paths() -> None:
     assert h10r.parse_r(None) is None
-    assert h10r.parse_r("") is None
-    assert h10r.parse_r("oops") is None
     assert h10r.parse_r("-1") == -1.0
     assert h10r.parse_r("6.3035") == 6.3035
+
+
+def test_parse_r_dirty_values_fail_closed() -> None:
+    for dirty in ("", "oops", "NaN", "inf", "-inf", " 12 abc"):
+        with pytest.raises(ValueError):
+            h10r.parse_r(dirty)
 
 
 def test_r_summary_mean_median_quantiles() -> None:
@@ -103,4 +109,21 @@ def test_keyed_strata_small_cell_null() -> None:
     assert small["n"] == 1
     assert small["mean_r"] is None
     assert small["median_r"] is None
-    assert small["win_share"] == 0.0
+    assert small["win_share"] is None
+
+
+def test_r_strata_small_cell_rates_null() -> None:
+    rows = [
+        ("WIN_S1", 90.0, 2.0),
+        ("LOSS_INVALID", 85.0, -1.0),
+        ("WIN_S1", 79.5, 1.5),
+    ]
+    out = h10r.r_strata(rows, min_n=20)
+    # ge80 n=2 (<20): win_share and strict_win_rate must be None in the JSON
+    assert out["ge80"]["n"] == 2
+    assert out["ge80"]["win_share"] is None
+    assert out["ge80"]["strict_win_rate"] is None
+    # lt80 n=1 (<20): same contract
+    assert out["lt80"]["n"] == 1
+    assert out["lt80"]["win_share"] is None
+    assert out["lt80"]["strict_win_rate"] is None

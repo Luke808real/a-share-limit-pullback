@@ -47,21 +47,34 @@ def _log(msg: str) -> None:
 
 
 def parse_score(value) -> float | None:
+    """Fail-closed score parsing.
+
+    None -> None (legitimate missing); a numeric string -> float; any
+    non-NULL value that is not a finite number raises ValueError. Dirty
+    data must never be silently converted into missing.
+    """
     if value is None:
         return None
     try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
+        f = float(value)
+    except (TypeError, ValueError) as e:
+        raise ValueError(f"unparseable score value: {value!r}") from e
+    if not math.isfinite(f):
+        raise ValueError(f"non-finite score value: {value!r}")
+    return f
 
 
 def parse_r(value) -> float | None:
+    """Fail-closed R parsing, same contract as parse_score."""
     if value is None:
         return None
     try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
+        f = float(value)
+    except (TypeError, ValueError) as e:
+        raise ValueError(f"unparseable r_multiple value: {value!r}") from e
+    if not math.isfinite(f):
+        raise ValueError(f"non-finite r_multiple value: {value!r}")
+    return f
 
 
 def _quantile(values: list[float], q: float) -> float | None:
@@ -150,8 +163,10 @@ def r_strata(rows, min_n: int = MIN_N) -> dict:
         strict_denom = wins + losses
         out[name] = {
             "n": n,
-            "win_share": round(wins / n, 4) if n else None,
-            "strict_win_rate": round(wins / strict_denom, 4) if strict_denom else None,
+            # Small-cell contract: interpreted rates are None below min_n,
+            # so the JSON is the authority and the report never hides cells.
+            "win_share": round(wins / n, 4) if n >= min_n else None,
+            "strict_win_rate": round(wins / strict_denom, 4) if strict_denom >= min_n else None,
             "n_with_r": len(r_values),
             "r_missing_n": n - len(r_values),
             "r": r_summary(r_values, min_n),
@@ -289,7 +304,7 @@ def main() -> int:
             "wins": len(wins),
             "losses": len(losses),
             "ambiguous": len(ambiguous),
-            "strict_win_rate": round(len(wins) / strict_denom, 4) if strict_denom else None,
+            "strict_win_rate": round(len(wins) / strict_denom, 4) if strict_denom >= MIN_N else None,
             "strict_resolved_e_r": round(sum(strict_r) / len(strict_r), 4) if strict_r else None,
             "conservative_resolved_e_r": round(sum(cons_r) / len(cons_r), 4) if cons_r else None,
             "strict_r_distribution": r_summary(strict_r, MIN_N),

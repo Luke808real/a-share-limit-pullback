@@ -167,7 +167,7 @@
         "n": 11,
         "mean_r": null,
         "median_r": null,
-        "win_share": 0.1818
+        "win_share": null
       },
       "lt80": {
         "n": 911,
@@ -181,7 +181,7 @@
         "n": 3,
         "mean_r": null,
         "median_r": null,
-        "win_share": 0.0
+        "win_share": null
       },
       "lt80": {
         "n": 632,
@@ -225,7 +225,7 @@
         "n": 8,
         "mean_r": null,
         "median_r": null,
-        "win_share": 0.25
+        "win_share": null
       },
       "lt80": {
         "n": 1563,

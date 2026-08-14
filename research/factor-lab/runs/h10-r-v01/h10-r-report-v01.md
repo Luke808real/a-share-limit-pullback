@@ -89,9 +89,11 @@ contribution 无定义（总 R 为负）。
 | B2_READY | 56 | −0.2823 | 0.2857 | 1,587 | +0.0026 | 0.5211 |
 | B2_CONFIRMED | 8 | null | — | 1,563 | −0.0123 | 0.7601 |
 
-win-rate/payoff 分歧集中在 B1_READY：ge80 胜率略高（0.0772 vs 0.0434）
-且 mean_R 更高（−0.0556 vs −0.0898），与冻结 B1_READY_ENTRY_GE_80 观察
-（平均赢 R 6.3、低胜率）一致；B2 阶段 ge80 无优势。
+B1_READY 是 resolved 样本中 entry>=80 相对改善主要出现的 stage：ge80 胜率
+略高（0.0772 vs 0.0434）且 mean_R 更高（−0.0556 vs −0.0898），同向改善，
+与冻结 B1_READY_ENTRY_GE_80 观察（平均赢 R 6.3、低胜率）一致；B2 阶段
+ge80 无优势。注意：这不能证明 actionable strict 的 low-hit/high-payoff
+现象集中于 B1_READY——该现象属于 actionable strict aggregate 口径。
 
 ## 6. VERDICT
 
@@ -111,6 +113,6 @@ win-rate/payoff 分歧集中在 B1_READY：ge80 胜率略高（0.0772 vs 0.0434�
 - episodes SHA256: 66d5943ffd4c83d8348d7b559ef9aa8ab9c041525471108a2f724fbedd84b093
 - snapshot id: snap-2026-07-31-b5f84004de8a
 - execution/R source: episodes.r_multiple（Phase 2D.0 corrected outcome study, strict variant）；2D.1A 数字仅引用冻结 ER summary
-- script SHA256: b3e73c9e7566116fe3e05cddb6542295b026b747e9f96ec5ec455a858e270c73
-- output JSON SHA256: be3a64efb5f4d8665b37c1d0a6f045abcfdb8da769e7f25f908eb95da6666728
+- script SHA256: 9bcfa09192edcbd349a811066a5d97c29af16526d4776fc81fbb79f7557a7281
+- output JSON SHA256: 700a4f5de10b24c2f8f430b8159833956f16c46c98847d663abfa8985fee5d42
 - conclusion status: OBSERVATION（low-hit-rate/high-payoff，actionable strict only；不升级、不落地）
