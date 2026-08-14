@@ -1,0 +1,54 @@
+{
+  "inputs": {
+    "episodes": "data/outcome-study/outcome-snap-2026-07-31-b5f84004de8a-2024-01-01-2026-07-31-25903057f106/corrected-b2-trigger-outcome/episodes.parquet",
+    "sha256": "66d5943ffd4c83d8348d7b559ef9aa8ab9c041525471108a2f724fbedd84b093"
+  },
+  "overall": {
+    "all": [
+      9625,
+      0.2419
+    ],
+    "setup_ge80": [
+      1227,
+      0.2828
+    ],
+    "entry_ge80": [
+      556,
+      0.1007
+    ]
+  },
+  "by_timing_bucket": {
+    "1-2": {
+      "all_n": 6819,
+      "all_win": 0.1022,
+      "setup_ge80_n": 898,
+      "setup_ge80_win": 0.1459,
+      "entry_ge80_n": 519,
+      "entry_ge80_win": 0.0906
+    },
+    "3": {
+      "all_n": 1249,
+      "all_win": 0.4556,
+      "setup_ge80_n": 133,
+      "setup_ge80_win": 0.6165,
+      "entry_ge80_n": 23,
+      "entry_ge80_win": 0.3043
+    },
+    "4-5": {
+      "all_n": 922,
+      "all_win": 0.6551,
+      "setup_ge80_n": 119,
+      "setup_ge80_win": 0.6723,
+      "entry_ge80_n": 11,
+      "entry_ge80_win": null
+    },
+    "6-10": {
+      "all_n": 635,
+      "all_win": 0.7213,
+      "setup_ge80_n": 77,
+      "setup_ge80_win": 0.7013,
+      "entry_ge80_n": 3,
+      "entry_ge80_win": null
+    }
+  }
+}

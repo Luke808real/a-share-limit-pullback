@@ -1,0 +1,58 @@
+{
+  "inputs": {
+    "episodes": "data/outcome-study/outcome-snap-2026-07-31-b5f84004de8a-2024-01-01-2026-07-31-25903057f106/corrected-b2-trigger-outcome/episodes.parquet",
+    "episodes_sha256": "66d5943ffd4c83d8348d7b559ef9aa8ab9c041525471108a2f724fbedd84b093",
+    "snapshot_id": "snap-2026-07-31-b5f84004de8a"
+  },
+  "population": {
+    "b2_stage_resolved": 3214,
+    "undefined_f19": 0,
+    "missing_b2_bar": 0
+  },
+  "f19_quantiles": {
+    "n": 3214,
+    "p50": 0.8492234800170362,
+    "p75": 1.1439831111596956,
+    "p90": 1.3573818397892463,
+    "p95": 1.5154716053913413,
+    "p99": 1.7259440645726007,
+    "max": 3.3362540807925787
+  },
+  "groups": {
+    "base": {
+      "n": 3213,
+      "win_share": 0.6327,
+      "n_with_r": 2897,
+      "mean_r_fills": -0.0106,
+      "mean_r_given_win": 0.5789
+    },
+    "triple_only": {
+      "n": 0,
+      "win_share": null,
+      "n_with_r": 0,
+      "mean_r_fills": null,
+      "mean_r_given_win": null
+    },
+    "triple_struct": {
+      "n": 1,
+      "win_share": 0.0,
+      "n_with_r": 1,
+      "mean_r_fills": -1.0,
+      "mean_r_given_win": null
+    }
+  },
+  "stage_split": {
+    "base": {
+      "B2_READY": 1643,
+      "B2_CONFIRMED": 1570
+    },
+    "triple_only": {
+      "B2_READY": 0,
+      "B2_CONFIRMED": 0
+    },
+    "triple_struct": {
+      "B2_READY": 0,
+      "B2_CONFIRMED": 1
+    }
+  }
+}
