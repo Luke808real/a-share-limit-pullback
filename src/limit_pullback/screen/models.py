@@ -43,6 +43,7 @@ class ScreenState(DomainModel):
     setup_id: str | None = None
     snapshot_id: str
     bars_prefix_hash: str
+    bars_prefix_hash_v2: str | None = None
     limit_pool_prefix_hash: str
     strategy_commit: str
     config_hash: str

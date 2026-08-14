@@ -1,0 +1,179 @@
+{
+  "session": "2026-08-12",
+  "expect": "FULL",
+  "checks": [
+    {
+      "name": "daily ok",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "timing status OK",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "all five steps ok",
+      "passed": true,
+      "detail": "[]"
+    },
+    {
+      "name": "plan.json exists",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "watchlist.md exists",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "brief.md absent on NO_TRADE day (valid)",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "snapshot SCREEN_READY",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "generation ACTIVE",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "state_n == 3191",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "staging conflicted == 0",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "preclose mismatch == 0",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "provider retries == 0",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "sentinels all match",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "formal snapshot pointer == new",
+      "passed": true,
+      "detail": "snap-2026-08-12-b1c93a80b1e8"
+    },
+    {
+      "name": "formal state pointer == new",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "fetch failures == 0",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "tdx rows > 0",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "tencent rows > 0",
+      "passed": true,
+      "detail": ""
+    }
+  ],
+  "timing": {
+    "date": "2026-08-12",
+    "steps": [
+      {
+        "name": "daily",
+        "wall_seconds": 920.78,
+        "ok": true,
+        "detail": {
+          "snapshot_id": "snap-2026-08-12-b1c93a80b1e8",
+          "generation_id": "stategen-2026-08-12-651fc28e55c5"
+        }
+      },
+      {
+        "name": "trade-plan",
+        "wall_seconds": 2.15,
+        "ok": true,
+        "detail": {
+          "actionable": 0,
+          "b1_prep": 0,
+          "plans": 0
+        }
+      },
+      {
+        "name": "news-brief",
+        "wall_seconds": 0.0,
+        "ok": true,
+        "detail": "no candidates; brief skipped"
+      },
+      {
+        "name": "watchlist",
+        "wall_seconds": 0.0,
+        "ok": true,
+        "detail": null
+      },
+      {
+        "name": "reconcile",
+        "wall_seconds": 0.01,
+        "ok": true,
+        "detail": {
+          "snapshot": [
+            "snap-2026-08-12-b1c93a80b1e8",
+            "681e1bfedb64d48bebb36a87c7ae981b6dd079e0bfa8b3e35aca8701f1685a05"
+          ],
+          "state": "stategen-2026-08-12-651fc28e55c5"
+        }
+      }
+    ],
+    "completed": [
+      "daily",
+      "trade-plan",
+      "news-brief",
+      "watchlist",
+      "reconcile"
+    ],
+    "status": "OK"
+  },
+  "plan_summary": {
+    "plan_date": "2026-08-12",
+    "for_trade_date": null,
+    "snapshot_id": "snap-2026-08-12-b1c93a80b1e8",
+    "watch_count": 11,
+    "b1_prep_count": 0,
+    "b1_ready_count": 49,
+    "b2_ready_count": 135,
+    "b2_confirmed_count": 85,
+    "actionable_count": 0,
+    "universe": 5198
+  },
+  "sentinel_codes": [
+    "603980",
+    "002112",
+    "000001",
+    "605198"
+  ],
+  "fast_path_stats": {
+    "fast_path_n": 3189,
+    "targeted_fallback_n": 0,
+    "full_fallback_n": 0,
+    "fallback_reasons": {},
+    "rows_scanned": 738182,
+    "rows_materialized": 738182
+  },
+  "ok": true
+}

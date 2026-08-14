@@ -1,0 +1,11 @@
+{
+  "SERVER_A": "180.153.18.170:7709",
+  "SERVER_B": "202.108.253.139:80",
+  "stock_n": 20,
+  "daily_n": 100,
+  "daily_match_rate": 1.0,
+  "5m_n": 600,
+  "5m_match_rate": 1.0,
+  "daily_mismatch_examples": [],
+  "5m_mismatch_examples": []
+}

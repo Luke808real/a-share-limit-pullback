@@ -20,7 +20,9 @@ Before a strategy or TradePlan task, read only the smallest relevant set:
 - the phase pointer in `/Users/luke808/AI/a-share-strategy-brain/05_Codex/CURRENT_PHASE.md`
 
 For frozen-rule questions also read the relevant sections of
-`STRATEGY_MASTER.md`, `RULE_CATALOG.md`, and `BASELINE_MANIFEST.yaml`.
+`/Users/luke808/AI/a-share-strategy-brain/01_Strategy/STRATEGY_MASTER.md`,
+`/Users/luke808/AI/a-share-strategy-brain/01_Strategy/RULE_CATALOG.md`, and
+`/Users/luke808/AI/a-share-strategy-brain/01_Strategy/BASELINE_MANIFEST.yaml`.
 Do not scan the whole code repository or Vault for a small task. If chat and
 the knowledge base disagree, the reviewed/frozen knowledge-base rule wins.
 
@@ -57,11 +59,29 @@ not rewrite a frozen setup lifecycle. All calculations remain point-in-time.
 
 # Multi-Agent Rule
 
-Use at most three read-only readers by default: CODE_READER,
-DATA_READER (the existing data/strategy reader), and ADVERSARIAL_REVIEWER.
-They inspect and report only.
-The main agent is the only writer. Do not let multiple agents edit the same
-business module, tests, configuration, or strategy code.
+Four specialist agents support the main agent (MAIN), which is the only
+writer of `src/`, `config/`, and `tests/`:
+
+- `RESEARCH_STRATEGY` — strategy hypotheses, backtest protocols, and studies
+  under `research/`; every study records input provenance/hash, script,
+  output, and a REJECT / OBSERVE_ONLY / SUPPORTED conclusion.
+- `DATA_PROCESSING` — provenance, lineage, coverage, and reconciliation
+  audits; `data/` stays a protected read-only zone.
+- `NEWS_ANALYSIS` — news/announcement observation layer; ASL ingestion goes
+  through the ASL project's own CLI and staging, V flash reads the ASL lake
+  read-only, and briefs are OBSERVATION layer for human decision-making.
+- `PERFORMANCE` — profiling, timing budgets, runtime tuning proposals, and
+  golden-equivalence checks; any screen fast-path change must reproduce
+  stategen-2026-08-06-a846075a5ac7.
+
+Definitions live in `.codex/agents/`; the full protocol and guardrails live
+in `docs/agent-architecture.md`. Specialist agents report in 20 lines or
+fewer plus one structured JSON artifact under `docs/agent-reports/<date>/`;
+they never edit `src/`, `config/`, or `tests/`. At most three specialist
+agents inspect in parallel, and no two agents edit the same business module,
+tests, configuration, or strategy code. The generic CODE_READER, DATA_READER,
+and ADVERSARIAL_REVIEWER readers remain available for small tasks; the main
+agent is the only writer.
 
 # Adaptive Parallel Execution
 
@@ -76,8 +96,18 @@ business module, tests, configuration, or strategy code.
 - `HIGH_RISK`: Main with all three readers in parallel for strategy semantics,
   B1/B2, execution models, PIT, backtest correctness, reconciliation, or
   historical statistical claims that may alter strategy conclusions.
+- `RESEARCH_CYCLE`: `RESEARCH_STRATEGY` designs the study protocol and runs it;
+  `DATA_PROCESSING` validates input provenance/hashes; `NEWS_ANALYSIS` adds
+  observation-layer tags; `PERFORMANCE` bounds memory/time and rechecks output
+  determinism; Main reviews and archives. Conclusions are REJECT /
+  OBSERVE_ONLY / SUPPORTED.
+- `DAILY_RUN`: Main orchestrates `ops daily-run`; `DATA_PROCESSING` audits
+  catchup/reconciliation; `NEWS_ANALYSIS` produces the daily brief;
+  `PERFORMANCE` checks the timing budget and golden equivalence whenever
+  screen code changed.
 - For `HIGH_RISK`, `ADVERSARIAL_REVIEWER` must report before final validation.
-- Keep exactly one writer (Main); readers are read-only and do not spawn agents.
+- Keep exactly one writer (Main); specialist agents and readers are read-only
+  with respect to `src/`, `config/`, `tests/` and do not spawn agents.
 - For routes with two independent readers, Main may implement after their
   reports agree; use targeted tests during development and run full validation
   once at the end.
@@ -97,13 +127,17 @@ tokens, environment files, screenshots, or caches.
 
 # Validation
 
-Default checks:
+Default checks (parallel; offline suite asserts retry counts, never wall
+time, so provider backoff sleeps are no-op'd by tests/conftest.py):
 
 ```bash
-pytest -q
+pytest -q -n auto
 python -m compileall -q src tests
 git diff --check
 ```
+
+Run serial with `pytest -q -n 0` when diagnosing a flake; run real-provider
+integration only with `-m integration -n 0` and explicit request.
 
 # Handoff
 

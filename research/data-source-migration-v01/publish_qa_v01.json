@@ -1,0 +1,11 @@
+{
+  "total_row_n": 3298229,
+  "20260803_row_n": 5174,
+  "20260804_row_n": 5173,
+  "20260805_row_n": 5175,
+  "confirmed_row_n": 1860065,
+  "duplicate_row_n": 0,
+  "max_trade_date": "2026-08-05",
+  "historical_row_count_diff": 0,
+  "historical_ohlcv_diff_n": 0
+}

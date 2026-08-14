@@ -1,0 +1,193 @@
+{
+  "protocol_version": "FORWARD_PAPER_D0_BPOINT_V01",
+  "frozen_hypotheses": {
+    "H1_lower_volume_pace_better": true,
+    "H2_shallower_drawdown_better": true,
+    "H3_smaller_range_better": true,
+    "directions_frozen_before_start": true
+  },
+  "layers": {
+    "LAYER_A_B_POINT_QUALITY": [
+      "VOLUME_PACE",
+      "MAX_DRAWDOWN_FROM_PREV_CLOSE",
+      "SESSION_RANGE"
+    ],
+    "LAYER_B_ACTIVATION_STATE": [
+      "SUPPORT_TOUCH",
+      "SUPPORT_RECLAIM",
+      "DIST_TO_S1",
+      "S1_TOUCH",
+      "PROBE"
+    ],
+    "activation_never_enters_quality_score": true
+  },
+  "volume_semantic_audit": {
+    "0945": {
+      "A_D0cum_vs_D1full": {
+        "medians": {
+          "SUCCESS": 0.2248,
+          "FAILED_BREAKOUT": 0.2849,
+          "NO_LAUNCH": 0.1892,
+          "STRUCTURE_FAIL": 0.3239
+        },
+        "rb": {
+          "FAILED_BREAKOUT": 0.2335,
+          "STRUCTURE_FAIL": 0.3314
+        }
+      },
+      "B_D0cum_vs_anchorfull": {
+        "medians": {
+          "SUCCESS": 0.2818,
+          "FAILED_BREAKOUT": 0.3161,
+          "NO_LAUNCH": 0.1715,
+          "STRUCTURE_FAIL": 0.3586
+        },
+        "rb": {
+          "FAILED_BREAKOUT": 0.2129,
+          "STRUCTURE_FAIL": 0.2931
+        }
+      },
+      "D0cum_vs_median5": {
+        "medians": {
+          "SUCCESS": 0.3241,
+          "FAILED_BREAKOUT": 0.4095,
+          "NO_LAUNCH": 0.1759,
+          "STRUCTURE_FAIL": 0.3872
+        },
+        "rb": {
+          "FAILED_BREAKOUT": 0.2113,
+          "STRUCTURE_FAIL": 0.2059
+        }
+      },
+      "D1full_vs_median5": {
+        "medians": {
+          "SUCCESS": 1.2385,
+          "FAILED_BREAKOUT": 1.3395,
+          "NO_LAUNCH": 1.0,
+          "STRUCTURE_FAIL": 1.0778
+        },
+        "rb": {
+          "FAILED_BREAKOUT": -0.0072,
+          "STRUCTURE_FAIL": -0.1922
+        }
+      },
+      "F_D0cum_vs_D1_sametime": {
+        "medians": {
+          "SUCCESS": 0.243,
+          "FAILED_BREAKOUT": 0.3075,
+          "NO_LAUNCH": 0.193,
+          "STRUCTURE_FAIL": 0.3264
+        },
+        "rb": {
+          "FAILED_BREAKOUT": 0.2381,
+          "STRUCTURE_FAIL": 0.2618
+        }
+      },
+      "F_coverage_n": 206
+    },
+    "1000": {
+      "A_D0cum_vs_D1full": {
+        "medians": {
+          "SUCCESS": 0.3106,
+          "FAILED_BREAKOUT": 0.4003,
+          "NO_LAUNCH": 0.2895,
+          "STRUCTURE_FAIL": 0.4614
+        },
+        "rb": {
+          "FAILED_BREAKOUT": 0.2853,
+          "STRUCTURE_FAIL": 0.398
+        }
+      },
+      "B_D0cum_vs_anchorfull": {
+        "medians": {
+          "SUCCESS": 0.3713,
+          "FAILED_BREAKOUT": 0.4342,
+          "NO_LAUNCH": 0.2545,
+          "STRUCTURE_FAIL": 0.5258
+        },
+        "rb": {
+          "FAILED_BREAKOUT": 0.2536,
+          "STRUCTURE_FAIL": 0.326
+        }
+      },
+      "D0cum_vs_median5": {
+        "medians": {
+          "SUCCESS": 0.4445,
+          "FAILED_BREAKOUT": 0.5875,
+          "NO_LAUNCH": 0.2696,
+          "STRUCTURE_FAIL": 0.5698
+        },
+        "rb": {
+          "FAILED_BREAKOUT": 0.2567,
+          "STRUCTURE_FAIL": 0.2324
+        }
+      },
+      "D1full_vs_median5": {
+        "medians": {
+          "SUCCESS": 1.2385,
+          "FAILED_BREAKOUT": 1.3395,
+          "NO_LAUNCH": 1.0,
+          "STRUCTURE_FAIL": 1.0778
+        },
+        "rb": {
+          "FAILED_BREAKOUT": -0.0072,
+          "STRUCTURE_FAIL": -0.1922
+        }
+      },
+      "F_D0cum_vs_D1_sametime": {
+        "medians": {
+          "SUCCESS": 0.3175,
+          "FAILED_BREAKOUT": 0.4247,
+          "NO_LAUNCH": 0.2985,
+          "STRUCTURE_FAIL": 0.4614
+        },
+        "rb": {
+          "FAILED_BREAKOUT": 0.2778,
+          "STRUCTURE_FAIL": 0.3245
+        }
+      },
+      "F_coverage_n": 206
+    }
+  },
+  "volume_primary": "F_D0cum_vs_D1_sametime",
+  "checkpoints_primary": [
+    "0945",
+    "1000"
+  ],
+  "checkpoints_observation_only": [
+    "1030",
+    "1130",
+    "1330",
+    "1400",
+    "1430"
+  ],
+  "quiet_score_formula": "mean(inverse_percentile(VOLUME_PACE), inverse_percentile(abs(SESSION_LOW_VS_PREV_CLOSE)), inverse_percentile(SESSION_RANGE_PCT))",
+  "paper_entry_price_rule": "checkpoint last complete 5m bar close; no next-low/VWAP/intraday-low fill",
+  "outcome_rule": "fixed 3-session structural outcome: SUCCESS/FAILED_BREAKOUT/NO_LAUNCH/STRUCTURE_FAIL/UNKNOWN (caseset V01B definitions, frozen)",
+  "t_plus_1_execution_rule": "EXECUTION_LAYER_PENDING; reuse Phase 2D.1A execution-reality semantics when a forward-compatible resolver is approved; structural outcome only for now",
+  "interim_gate": "SUCCESS>=10 and FAILED_BREAKOUT>=20 -> descriptive only",
+  "decision_gate": "SUCCESS>=30 and FAILED_BREAKOUT>=30 and >=20 trading sessions",
+  "candidate_freeze_rule": "before open: freeze D-1 frozen production/research-approved daily screen output; CANDIDATE_LIST_HASH stored; no intraday additions (NOT_ELIGIBLE_FOR_TODAY)",
+  "no_threshold_optimization": true,
+  "rejected_do_not_retune": [
+    "VWAP_ACCEPTANCE",
+    "DAMAGE_RECOVERY",
+    "FAST_RECLAIM",
+    "D0_PROBE_COUNT",
+    "D0_NEW_LOW",
+    "CLOSE_LOCATION",
+    "RETURN_FROM_PREV_CLOSE",
+    "MA_RECLAIM",
+    "MORPHOLOGY_NEAREST_NEIGHBOR"
+  ],
+  "context_observation_only": [
+    "D1_UPPER_SHADOW",
+    "VWAP (VWAP_NOT_ENTRY_FEATURE=true)"
+  ],
+  "protocol_immutable": true,
+  "reference_distribution_hash": "9b8863a7dc71caf7c59e601871104bb7147db204ac7a96ad4eada1fd2aba4c72",
+  "forward_start_date": "PENDING_HUMAN_APPROVAL (next trading session after approval)",
+  "candidate_list_hash": "COMPUTED_AT_FREEZE",
+  "created_at": "2026-08-05T17:57:40",
+  "protocol_hash": "4125a4496540b572391512ea32ed8b485553cad886a26ba2d70e2a0dd74398c9"
+}

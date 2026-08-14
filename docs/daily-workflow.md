@@ -16,6 +16,8 @@ tuning runtime.yaml.
 | snapshot promotion | ops daily DATE | MAIN | promotion-summary.json |
 | state generation (fast path) | ops daily DATE | MAIN | stategen-summary.json, screen/generations/<id>/ |
 | next-day plan (B1_PREP) | trade-plan --as-of DATE --snapshot-id SNAP | MAIN | plan JSON |
+| news brief | ops news-brief --as-of DATE | NEWS_ANALYSIS | brief.json/brief.md |
+| fast radar (whole market) | asl fast screen/stats via fast_radar.py | MAIN (OBSERVATION) | fast-radar.json/fast-radar.md |
 | ASL advance screen | research/asl_screen_*.py (ad-hoc) | MAIN | data/tmp/asl-screen-*/ |
 | human review | research/daily-review/<date>-*.md | HUMAN | watchlist docs |
 
@@ -62,7 +64,8 @@ screen/fast-path logic must reproduce stategen-2026-08-06-a846075a5ac7
 
 ## Orchestration (target state, Phase 4)
 
-ops daily-run DATE — fail-closed chain: daily -> trade-plan -> news brief ->
-human watchlist markdown, with per-step timings in
-data/tmp/daily-run-DATE/timing.json. Any step failure stops the chain and
-keeps already-produced artifacts.
+ops daily-run DATE — fail-closed chain: daily -> trade-plan -> news-brief ->
+fast-radar (whole-market asl fast observation, ~200ms) -> watchlist ->
+reconcile, with per-step timings in data/tmp/daily-run-DATE/timing.json. Any
+step failure stops the chain and keeps already-produced artifacts. The radar
+section is OBSERVATION only and never feeds frozen strategy semantics.

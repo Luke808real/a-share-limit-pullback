@@ -1,0 +1,31 @@
+{
+  "epoch_id": "FORWARD_EPOCH_1_V02",
+  "supersedes": "FORWARD_EPOCH_1",
+  "supersede_reason": "PRESTART_REFERENCE_SEMANTIC_DEFECT",
+  "v01_forward_rows": 0,
+  "original_development_case_n": 206,
+  "reference_eligible_case_n": 195,
+  "excluded_missing_intraday_n": 11,
+  "membership_change_reason": "PRIMARY_VOLUME_SEMANTIC_REPAIR_REQUIRES_D1_SAME_TIME_DATA",
+  "outcome_based_filtering": false,
+  "cross_provider_reference_backfill": false,
+  "eligibility_rule": "V02_REFERENCE_ELIGIBLE = candidate has complete frozen intraday data required to calculate all three V02 primary components (VOLUME_PACE_PRIMARY, ABS_SESSION_LOW_VS_PREV_CLOSE, SESSION_RANGE_PCT) at BOTH 09:45 and 10:00; same membership for all components/checkpoints",
+  "protocol_hash": "aaca250e9bea16ca8f8ef4b09597670a2fbbc75dac968dc8a80cb65f00bbc131",
+  "reference_distribution_hash": "dd307825740e89367f76ba36fdb5ba632950b4c30e2b406894b1f45d3bf89cea",
+  "primary_volume_definition": "D0_CUM_VOLUME / D1_SAME_TIME_CUM_VOLUME",
+  "percentile_method": "EMPIRICAL_MIDRANK_ECDF_V1",
+  "intraday_provider": "TDX_5M",
+  "daily_provider": "TDX",
+  "daily_confirmation": "TENCENT",
+  "historical_forward_backfill": false,
+  "forward_reference_compatibility": "PASS_TDX_V02",
+  "provider_parity_metrics": {
+    "volume_pace_0945": 0.9999,
+    "volume_pace_1000": 1.0,
+    "quiet_score_abs_diff_median": 0.000855,
+    "quiet_score_rank_correlation": 0.9999,
+    "quartile_agreement_rate": 1.0,
+    "provider_material_mismatch_n": 0
+  },
+  "hash": "0540ff9bd68bc6c06a3643f2942c09c55bbf6a43a02f5f5411ce093901ab2cb9"
+}

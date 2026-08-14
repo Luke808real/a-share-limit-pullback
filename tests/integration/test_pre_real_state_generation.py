@@ -273,7 +273,8 @@ def test_pre_real_state_generation_promotion():
     assert roundtrip == manifest["output_hash"]
     assert row_n == manifest["compact_output_row_n"]
 
-    # 7) TradePlan blocked by semantic review; snapshot hash check.
+    # 7) B2 semantic review resolved 2026-08-14: decision output is allowed
+    # by default; an explicit allow_decision_output=False still blocks.
     from limit_pullback.trade_plan import build_trade_plan_output
 
     with pytest.raises(StrategySemanticReviewPendingError):
@@ -283,4 +284,5 @@ def test_pre_real_state_generation_promotion():
             snapshot_id=FORMAL_SNAPSHOT_ID,
             config=config,
             config_hash="x" * 64,
+            allow_decision_output=False,
         )

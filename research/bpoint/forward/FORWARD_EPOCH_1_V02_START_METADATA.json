@@ -1,0 +1,43 @@
+{
+  "epoch_id": "FORWARD_EPOCH_1_V02",
+  "planned_v01_start": "2026-08-06",
+  "v01_status": "SUPERSEDED_PRESTART_REFERENCE_DEFECT",
+  "v02_actual_start_date": "DEFERRED",
+  "target_d1": "2026-08-05",
+  "start_delay_reason": "DATA_ARCHITECTURE_MIGRATION_AND_REFERENCE_REPAIR",
+  "daily_provider": "TDX",
+  "daily_confirm": "TENCENT",
+  "intraday_provider": "TDX_5M",
+  "protocol_v02_hash": "aaca250e9bea16ca8f8ef4b09597670a2fbbc75dac968dc8a80cb65f00bbc131",
+  "reference_v02_hash": "dd307825740e89367f76ba36fdb5ba632950b4c30e2b406894b1f45d3bf89cea",
+  "epoch_v02_manifest_hash": "0540ff9bd68bc6c06a3643f2942c09c55bbf6a43a02f5f5411ce093901ab2cb9",
+  "staged_catchup": {
+    "sessions": [
+      "2026-08-03",
+      "2026-08-04",
+      "2026-08-05"
+    ],
+    "confirmed_total_n": 15585,
+    "provisional_total_n": 11,
+    "conflicted_total_n": 0,
+    "incomplete_total_n": 307,
+    "path": "data/tmp/canonical-catchup-2026-08"
+  },
+  "blockers": [
+    "PRODUCTION_CANONICAL_SNAPSHOT_PUBLICATION_PENDING (official ADR-008 ingest/pipeline integration)",
+    "PRODUCTION_SCREEN_CATCHUP_PENDING (requires published 8/5 canonical snapshot)",
+    "TARGET_D1_SCREEN/CANDIDATE_DRY_RUN_PENDING",
+    "D1_TDX_5M_REFERENCE_PENDING (candidate universe unknown until screen)"
+  ],
+  "created_at": "2026-08-05T21:22:26+08:00",
+  "note": "Run metadata only; V02 protocol/reference/manifest unchanged.",
+  "target_forward_session": "2026-08-06",
+  "new_canonical_snapshot_id": "snap-2026-08-05-d9e93fccc966",
+  "new_snapshot_hash": "ce9b489292b79d5a482bfc7f2aa027326587cf1687cea13e532ed1a30b405b16",
+  "new_manifest_hash": "92cd5fd2d469ae13c766298f247819f8919e418b8f08875166288adbe9858037",
+  "screen_latest_date": "2026-08-05",
+  "candidate_dry_run_n": 0,
+  "candidate_dry_run_blocker": "LIMIT_UP_POOL_MISSING_20260803_20260805 -> 0 B1/B2 states at D1",
+  "corporate_action_detection_status": "NOT_IMPLEMENTED",
+  "updated_at": "2026-08-05T21:49:33+08:00"
+}

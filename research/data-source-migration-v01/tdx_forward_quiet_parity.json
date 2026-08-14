@@ -1,0 +1,17 @@
+{
+  "case_n": 18,
+  "row_n": 36,
+  "volume_pace_ratio_0945_median": 1.3067,
+  "volume_pace_ratio_1000_median": 1.0915,
+  "volume_pace_vs_frozen_0945_median": 4.8977,
+  "volume_pace_vs_frozen_1000_median": 3.3038,
+  "session_low_abs_diff_median": 0.0,
+  "session_range_abs_diff_median": 0.0,
+  "quiet_score_abs_diff_median": 0.153877,
+  "quiet_quartile_agreement_rate": 0.3611,
+  "agreement_by_checkpoint": {
+    "0945": 0.4444,
+    "1000": 0.2778
+  },
+  "reference_artifact_defect": "frozen reference JSON lacks component CDFs; reconstructed deterministically from same frozen dev features"
+}

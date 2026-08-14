@@ -1,0 +1,20 @@
+{
+  "sample_n": 18,
+  "cum_ratio_945_median": 0.9998,
+  "cum_ratio_1000_median": 0.9999,
+  "volume_pace_ratio_945_median": 0.9999,
+  "volume_pace_ratio_1000_median": 1.0,
+  "volume_pace_945_p25_p75": [
+    0.9987,
+    1.0005
+  ],
+  "volume_pace_1000_p25_p75": [
+    0.9998,
+    1.0001
+  ],
+  "session_low_diff_945_median": 0.0,
+  "session_high_diff_945_median": 0.0,
+  "session_low_diff_1000_median": 0.0,
+  "session_high_diff_1000_median": 0.0,
+  "timestamp_semantics_tdx": "BAR_END_TIME"
+}

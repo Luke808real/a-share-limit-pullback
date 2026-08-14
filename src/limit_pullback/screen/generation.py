@@ -32,6 +32,8 @@ from limit_pullback.screen.runner import (
     ScreenFailpointError,
     run_screen,
 )
+from limit_pullback.screen.fast_path import run_screen_fast
+from limit_pullback.config import load_strategy_config
 from limit_pullback.universe import (
     Phase2d0Universe,
     PHASE2D0_UNIVERSE_CONTRACT_VERSION,
@@ -47,8 +49,8 @@ REJECTED = "REJECTED"
 PROMOTION_REASON = (
     "FULL_REBUILD_FROM_CORRECTED_SCREEN_READY_SNAPSHOT_AFTER_QUARANTINE"
 )
-DECISION_USE_STATUS = "BLOCKED_STRATEGY_SEMANTIC_REVIEW"
-DECISION_USE_REASON = "B2_CONFIRMED_LIFECYCLE_UNRESOLVED"
+DECISION_USE_STATUS = "AVAILABLE_FOR_DECISION"
+DECISION_USE_REASON = "B2_SEMANTIC_REVIEW_RESOLVED_MONOTONIC_2026-08-14"
 
 
 class StateGenerationError(RuntimeError):
@@ -215,7 +217,9 @@ def state_semantic_root_hash(states_root: Path) -> tuple[str, int]:
             "last_processed_date": state.last_processed_date.isoformat(),
             "setup_id": state.setup_id,
             "snapshot_id": state.snapshot_id,
-            "bars_prefix_hash": state.bars_prefix_hash,
+            "bars_prefix_hash": (
+                state.bars_prefix_hash_v2 or state.bars_prefix_hash
+            ),
             "limit_pool_prefix_hash": state.limit_pool_prefix_hash,
             "strategy_commit": state.strategy_commit,
             "config_hash": state.config_hash,
@@ -483,6 +487,12 @@ def build_state_generation(
     seed_states_root: Path | None = None,
     verified_no_trade: Sequence[tuple[str, date]] = (),
     session_calendar: Sequence[date] = (),
+    fast_path: bool = False,
+    window_calendar_days: int = 400,
+    previous_commit: str | None = None,
+    fast_stats: dict[str, Any] | None = None,
+    indicator_cache: Path | None = None,
+    workers: int = 4,
 ) -> StateGenerationResult:
     """Build and (unless dry) atomically promote one state generation."""
 
@@ -502,6 +512,12 @@ def build_state_generation(
             detail=f"screen pointer={screen_pointer}, snapshot={snapshot_id}",
         )
     config_hash = sha256_file(config_path)
+    if indicator_cache is None and rebuild:
+        from limit_pullback.screen.indicator_cache import indicator_cache_dir
+
+        indicator_cache = indicator_cache_dir(
+            layout, snapshot_id, config_hash
+        )
     commit = strategy_commit or _git_head()
     snapshot_content_hash = snapshot_content_hash_from_validation(
         layout,
@@ -519,37 +535,27 @@ def build_state_generation(
         )
         pf = pq.ParquetFile(layout.root / daily_rel)
         session_set = set(session_calendar)
+        sessions_arr = pa.array(sorted(session_set))
         for batch in pf.iter_batches(
             columns=["code", "trade_date", "reconciliation_status"],
             batch_size=65536,
             use_threads=False,
         ):
-            mask = pc.is_in(
-                batch["trade_date"],
-                value_set=pa.array(sorted(session_set)),
-            )
-            mask = pc.and_(
-                mask,
-                pc.equal(
-                    batch["reconciliation_status"],
-                    pa.scalar("CONFIRMED"),
-                ),
-            )
-            for row in batch.filter(mask).to_pylist():
-                confirmed_sessions.add((str(row["code"]), row["trade_date"]))
-        # Lightweight index of the latest CONFIRMED bar per code through as_of.
-        pf = pq.ParquetFile(layout.root / daily_rel)
-        for batch in pf.iter_batches(
-            columns=["code", "trade_date", "reconciliation_status"],
-            batch_size=65536,
-            use_threads=False,
-        ):
-            mask = pc.equal(
+            confirmed = pc.equal(
                 batch["reconciliation_status"],
                 pa.scalar("CONFIRMED"),
             )
+            in_sessions = pc.is_in(
+                batch["trade_date"],
+                value_set=sessions_arr,
+            )
+            mask = pc.and_(confirmed, in_sessions)
+            for row in batch.filter(mask).to_pylist():
+                confirmed_sessions.add((str(row["code"]), row["trade_date"]))
+            # Same pass: lightweight index of the latest CONFIRMED bar per
+            # code through as_of (was previously a second full-file scan).
             mask = pc.and_(
-                mask,
+                confirmed,
                 pc.less_equal(
                     batch["trade_date"],
                     pa.scalar(as_of),
@@ -569,23 +575,75 @@ def build_state_generation(
         for path in seed_states_root.glob("[0-9]*.json"):
             shutil.copy2(path, states_root / path.name)
 
-    result = run_screen(
-        layout=layout,
-        as_of=as_of,
-        snapshot_id=snapshot_id,
-        start=start,
-        rebuild=rebuild,
-        codes=universe.members,
-        config_path=config_path,
-        strategy_commit=commit,
-        manifest_path_override=manifest_path,
-        states_root=states_root,
-        compact_output_path=compact_output_path,
-        failpoint=failpoint,
-    )
-    _raise_failpoint(failpoint, "after_compact_output")
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    output_hash = manifest["output_hash"]
+    if fast_path:
+        from datetime import time, timezone
+
+        config = load_strategy_config(config_path)
+        processed_at = _utc_now()
+        generated_at = datetime.combine(
+            as_of,
+            time(23, 59, 59),
+            tzinfo=timezone.utc,
+        )
+        from limit_pullback.screen.fast_path import FastPathStats
+
+        stats = FastPathStats()
+        spool_path = build_root / "rows.jsonl"
+        manifest = run_screen_fast(
+            layout=layout,
+            snapshot=snapshot,
+            universe=universe,
+            as_of=as_of,
+            config_path=config_path,
+            config=config,
+            commit=commit,
+            config_hash=config_hash,
+            states_root=states_root,
+            spool_path=spool_path,
+            manifest_path=manifest_path,
+            compact_output_path=compact_output_path,
+            generated_at=generated_at,
+            processed_at=processed_at,
+            pool_mode="formal",
+            window_calendar_days=window_calendar_days,
+            verified_no_trade=verified_no_trade,
+            previous_commit=previous_commit,
+            stats=stats,
+        )
+        if fast_stats is not None:
+            fast_stats.update(
+                {
+                    "fast_path_n": stats.fast_path_n,
+                    "targeted_fallback_n": stats.targeted_fallback_n,
+                    "full_fallback_n": stats.full_fallback_n,
+                    "fallback_reasons": dict(
+                        sorted(stats.fallback_reasons.items())
+                    ),
+                    "rows_scanned": stats.rows_scanned,
+                    "rows_materialized": stats.rows_materialized,
+                }
+            )
+        output_hash = manifest["output_hash"]
+    else:
+        result = run_screen(
+            layout=layout,
+            as_of=as_of,
+            snapshot_id=snapshot_id,
+            start=start,
+            rebuild=rebuild,
+            codes=universe.members,
+            config_path=config_path,
+            strategy_commit=commit,
+            manifest_path_override=manifest_path,
+            states_root=states_root,
+            compact_output_path=compact_output_path,
+            failpoint=failpoint,
+            indicator_cache=indicator_cache,
+            workers=workers,
+        )
+        _raise_failpoint(failpoint, "after_compact_output")
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        output_hash = manifest["output_hash"]
 
     verification = _verify_generation(
         states_root=states_root,

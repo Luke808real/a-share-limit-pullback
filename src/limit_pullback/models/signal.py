@@ -16,6 +16,7 @@ from limit_pullback.models.base import (
     RatioDecimal,
     require_aware_datetime,
 )
+from limit_pullback.models.b2_confirmation import B2ConfirmationEvaluation
 from limit_pullback.models.enums import (
     DataQuality,
     EntryRoomState,
@@ -291,6 +292,7 @@ class StrategySignal(DomainModel):
     data_quality: DataQuality
     quality_flags: tuple[str, ...] = ()
     score: ScoreBreakdown
+    b2_confirmation: B2ConfirmationEvaluation | None = None
     anchor: AnchorSnapshot | None = None
     support: SupportSnapshot | None = None
     invalid_price_snapshot: InvalidPriceSnapshot | None = None
@@ -336,6 +338,15 @@ class StrategySignal(DomainModel):
 
     @model_validator(mode="after")
     def validate_signal_invariants(self) -> "StrategySignal":
+        if self.b2_confirmation is not None:
+            if self.b2_confirmation.trade_date != self.trade_date:
+                raise ValueError(
+                    "b2_confirmation trade_date must match signal trade_date"
+                )
+            if self.b2_confirmation.code != self.code:
+                raise ValueError(
+                    "b2_confirmation code must match signal code"
+                )
         if self.matched_patterns and self.primary_pattern is None:
             raise ValueError("matched patterns require one primary_pattern")
         if not self.matched_patterns and self.primary_pattern is not None:

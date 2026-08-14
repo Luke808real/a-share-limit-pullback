@@ -54,7 +54,12 @@ RATIO_QUANTUM = Decimal("0.0001")
 
 
 class StrategySemanticReviewPendingError(RuntimeError):
-    """Formal decision output is blocked until the B2 semantic review."""
+    """Formal decision output is blocked until the B2 semantic review.
+
+    Resolved 2026-08-14 (Owner directive): B2_CONFIRMED is monotonic per the
+    frozen STATE_MACHINE; decision output is allowed by default. Passing
+    allow_decision_output=False still raises this error.
+    """
 
     code = "STRATEGY_SEMANTIC_REVIEW_PENDING"
 
@@ -917,7 +922,7 @@ def build_trade_plan_output(
     trade_plan_config: TradePlanConfig | None = None,
     execution_config_hash: str | None = None,
     trade_calendar: Sequence[date] | None = None,
-    allow_decision_output: bool = False,
+    allow_decision_output: bool = True,
 ) -> TradePlanOutput:
     """Build the latest cross-section from persisted screen states.
 

@@ -103,7 +103,7 @@ def run_env(tmp_path, monkeypatch):
             return False
 
         def get_formal_pointer(self):
-            return "snap-new"
+            return ["snap-new", "h" * 64]
 
         def get_formal_state_pointer(self):
             return "stategen-new"
@@ -130,11 +130,12 @@ def run_env(tmp_path, monkeypatch):
 
 
 def _run(layout, *, codes=("600468",)) -> int:
-    args = SimpleNamespace(date=date(2026, 8, 13), window_days=3)
+    args = SimpleNamespace(date=date(2026, 8, 13), window_days=3, radar_top=30)
     return cmd_daily_run(argparse.Namespace(**vars(args)))
 
 
 def test_daily_run_success_chain(run_env, monkeypatch) -> None:
+    import limit_pullback.fast_radar as radar_mod
     import limit_pullback.news_brief as news_mod
     import limit_pullback.trade_plan as tp_mod
 
@@ -149,6 +150,9 @@ def test_daily_run_success_chain(run_env, monkeypatch) -> None:
     )
     monkeypatch.setattr(news_mod, "build_news_brief", lambda **kwargs: brief)
     monkeypatch.setattr(news_mod, "render_markdown", lambda b: "markdown")
+    radar = {"screen_n": 3, "limitup_n": 10, "content_hash": "cafe"}
+    monkeypatch.setattr(radar_mod, "run_fast_radar", lambda **kwargs: radar)
+    monkeypatch.setattr(radar_mod, "render_radar_markdown", lambda p: "radar-md")
 
     rc = _run(run_env)
     assert rc == 0
@@ -159,15 +163,18 @@ def test_daily_run_success_chain(run_env, monkeypatch) -> None:
         "daily",
         "trade-plan",
         "news-brief",
+        "fast-radar",
         "watchlist",
         "reconcile",
     ]
     assert all(s["ok"] for s in timing["steps"])
     assert (run_dir / "plan.json").exists()
     assert (run_dir / "brief.md").exists()
+    assert (run_dir / "fast-radar.md").exists()
     assert (run_dir / "watchlist.md").exists()
     watch = (run_dir / "watchlist.md").read_text()
     assert "600468" in watch
+    assert "radar-md" in watch
 
 
 def test_daily_run_fails_closed_on_daily_error(run_env, monkeypatch) -> None:

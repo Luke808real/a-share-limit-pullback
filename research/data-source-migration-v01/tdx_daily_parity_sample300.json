@@ -1,0 +1,11 @@
+{
+  "sample_n": 300,
+  "row_n": 5074,
+  "tdx_missing_n": 27,
+  "exact_ohlc_match_rate": 1.0,
+  "ohlc_within_0_01_rate": 1.0,
+  "close_mismatch_n": 0,
+  "volume_median_ratio": 1.0,
+  "amount_median_ratio": 1.0,
+  "volume_unit_check": "TDX lots *100 == canonical shares (7/31 600756: 569075*100 vs 56907538)"
+}

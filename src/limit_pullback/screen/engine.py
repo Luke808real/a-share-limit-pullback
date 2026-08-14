@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime
+from pathlib import Path
 
 from limit_pullback.models.config import StrategyConfig
 from limit_pullback.models.enums import DataQuality, SetupStage
@@ -17,6 +18,10 @@ from limit_pullback.models.market import DailyBar, LimitUpRecord
 from limit_pullback.models.replay import ReplayTimelineItem
 from limit_pullback.models.signal import StrategySignal
 from limit_pullback.quality import merge_signal_quality, timeline_item
+from limit_pullback.screen.indicator_cache import (
+    load_cached_indicators,
+    store_cached_indicators,
+)
 from limit_pullback.strategy.engine import evaluate_strategy
 from limit_pullback.strategy.indicators import SequencePrefixView
 from limit_pullback.strategy.math import calculate_indicators
@@ -59,6 +64,7 @@ def screen_code(
     last_processed: date | None = None,
     pool_status: Mapping[tuple[str, date], str] | None = None,
     pool_mode: str = "formal",
+    indicator_cache: Path | None = None,
 ) -> tuple[tuple[ReplayTimelineItem, ...], StrategySignal | None]:
     """Advance one code from the oldest bar (or last processed state) to as_of."""
 
@@ -67,7 +73,15 @@ def screen_code(
         return (), previous_signal
     if last_processed is not None and last_processed >= as_of:
         return (), previous_signal
-    full_indicators = calculate_indicators(ordered, config.indicators)
+    if indicator_cache is not None:
+        cached = load_cached_indicators(indicator_cache, code)
+        if cached is not None:
+            full_indicators = cached
+        else:
+            full_indicators = calculate_indicators(ordered, config.indicators)
+            store_cached_indicators(indicator_cache, code, full_indicators)
+    else:
+        full_indicators = calculate_indicators(ordered, config.indicators)
 
     code_pool = tuple(
         sorted(

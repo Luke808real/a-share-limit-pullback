@@ -17,6 +17,7 @@ from limit_pullback.models.enums import (
     SetupStage,
 )
 from limit_pullback.models.market import DailyBar, LimitUpRecord
+from limit_pullback.models.b2_confirmation import IntradayBar
 from limit_pullback.models.signal import (
     B2TriggerSnapshot,
     ConditionSnapshot,
@@ -36,6 +37,7 @@ from limit_pullback.models.strategy import (
 from limit_pullback.strategy.math import calculate_indicators
 from limit_pullback.strategy.indicators import IndicatorPrefixView, SequencePrefixView
 from limit_pullback.strategy.patterns import evaluate_patterns
+from limit_pullback.strategy.b2_confirmation import evaluate_b2_confirmation
 from limit_pullback.strategy.scoring import build_score
 from limit_pullback.strategy.structure import (
     cluster_price_candidates,
@@ -609,6 +611,7 @@ def evaluate_strategy(
     previous_signal: StrategySignal | None = None,
     precomputed_indicators: Sequence[IndicatorPoint] | None = None,
     indicator_end_index: int | None = None,
+    intraday_bars: Sequence[IntradayBar] = (),
 ) -> StrategySignal:
     """Evaluate one code as of one close, using only supplied data at or before T."""
 
@@ -899,6 +902,15 @@ def evaluate_strategy(
         stage = SetupStage.INVALID
     elif current.trade_date == anchor.snapshot.anchor_date:
         stage = SetupStage.LIMIT_ANCHOR
+    elif (
+        previous_same is not None
+        and previous_same.setup_stage is SetupStage.B2_CONFIRMED
+    ):
+        # B2 semantic review resolved 2026-08-14: B2_CONFIRMED is monotonic
+        # per the frozen STATE_MACHINE (exits: invalid / new anchor / expiry).
+        # Once confirmed, the stage never demotes to B2_READY; S2 exhaustion
+        # remains an event flag, not a stage exit.
+        stage = SetupStage.B2_CONFIRMED
     elif b2_confirmed:
         stage = SetupStage.B2_CONFIRMED
     elif trigger is not None:
@@ -1106,6 +1118,24 @@ def evaluate_strategy(
         config=config,
     )
 
+    b2_confirmation = None
+    if anchor is not None and stage is not SetupStage.LIMIT_ANCHOR:
+        b2_confirmation = evaluate_b2_confirmation(
+            ordered=ordered,
+            indicators=indicators,
+            as_of=as_of,
+            config=config,
+            anchor=anchor,
+            setup_stage=stage,
+            score=score,
+            b1_conditions=b1_conditions,
+            support=setup_support,
+            invalid_price=setup_invalid_price,
+            invalidation_reasons=invalidation_reasons,
+            limit_pool=usable_pool,
+            intraday_bars=intraday_bars,
+        )
+
     return StrategySignal(
         strategy_version=config.strategy_version,
         setup_id=setup_id,
@@ -1149,6 +1179,7 @@ def evaluate_strategy(
         data_quality=data_quality,
         quality_flags=tuple(sorted(base_flags)),
         score=score,
+        b2_confirmation=b2_confirmation,
         anchor=anchor_snapshot,
         support=signal_support,
         invalid_price_snapshot=signal_invalid_snapshot,

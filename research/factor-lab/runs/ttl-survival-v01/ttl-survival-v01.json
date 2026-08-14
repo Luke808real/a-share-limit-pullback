@@ -1,0 +1,95 @@
+{
+  "inputs": {
+    "episodes": "data/outcome-study/outcome-snap-2026-07-31-b5f84004de8a-2024-01-01-2026-07-31-25903057f106/corrected-b2-trigger-outcome/episodes.parquet",
+    "sha256": "66d5943ffd4c83d8348d7b559ef9aa8ab9c041525471108a2f724fbedd84b093",
+    "sample_end": "2026-07-31"
+  },
+  "population": {
+    "setups": 17691,
+    "with_b2": 10952,
+    "with_win": 1765,
+    "censored": 83,
+    "horizon_trading_days": 10
+  },
+  "km_first_b2": {
+    "1": 1.0,
+    "2": 0.6225,
+    "3": 0.4015,
+    "4": 0.3874,
+    "5": 0.3833,
+    "6": 0.3806,
+    "7": 0.3799,
+    "8": 0.3795,
+    "9": 0.3795,
+    "10": 0.3795
+  },
+  "conditional_fire_by_day10": {
+    "1": {
+      "no_b2_by_day": 17540,
+      "fired_by_day10": 10884,
+      "share": 0.6205
+    },
+    "2": {
+      "no_b2_by_day": 10918,
+      "fired_by_day10": 4262,
+      "share": 0.3904
+    },
+    "3": {
+      "no_b2_by_day": 7042,
+      "fired_by_day10": 386,
+      "share": 0.0548
+    },
+    "4": {
+      "no_b2_by_day": 6795,
+      "fired_by_day10": 139,
+      "share": 0.0205
+    },
+    "5": {
+      "no_b2_by_day": 6723,
+      "fired_by_day10": 67,
+      "share": 0.01
+    },
+    "6": {
+      "no_b2_by_day": 6676,
+      "fired_by_day10": 20,
+      "share": 0.003
+    },
+    "7": {
+      "no_b2_by_day": 6664,
+      "fired_by_day10": 8,
+      "share": 0.0012
+    },
+    "8": {
+      "no_b2_by_day": 6656,
+      "fired_by_day10": 0,
+      "share": 0.0
+    },
+    "9": {
+      "no_b2_by_day": 6656,
+      "fired_by_day10": 0,
+      "share": 0.0
+    }
+  },
+  "win_share_by_first_b2_day": {
+    "2": {
+      "n": 6622,
+      "win_share": 0.1397
+    },
+    "3": {
+      "n": 3876,
+      "win_share": 0.1855
+    },
+    "4": {
+      "n": 247,
+      "win_share": 0.1822
+    },
+    "5": {
+      "n": 72,
+      "win_share": 0.2083
+    },
+    "6": {
+      "n": 47,
+      "win_share": 0.2979
+    }
+  }
+}

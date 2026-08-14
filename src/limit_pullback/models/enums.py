@@ -59,6 +59,23 @@ class SetupTerminationReason(StrEnum):
     EXPIRED = "EXPIRED"
 
 
+class B2ConfirmationLevel(StrEnum):
+    """Research layer over the frozen B2 lifecycle; does not replace it."""
+
+    NONE = "NONE"
+    WEAK = "WEAK"
+    CANDIDATE = "CANDIDATE"
+    CONFIRMED = "CONFIRMED"
+    STRONG_CONFIRMED = "STRONG_CONFIRMED"
+
+
+class VwapSource(StrEnum):
+    """Provenance of the VWAP value used by B2 confirmation features."""
+
+    INTRADAY_AMOUNT_VOLUME = "INTRADAY_AMOUNT_VOLUME"
+    UNKNOWN = "UNKNOWN"
+
+
 class ExecutionLabel(StrEnum):
     """Post-close execution label; not a setup lifecycle state."""
 

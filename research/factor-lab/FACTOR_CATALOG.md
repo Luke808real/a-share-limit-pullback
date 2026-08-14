@@ -1,0 +1,84 @@
+# 因子目录 FACTOR_CATALOG v1（2026-08-14）
+
+把《涨停回调再启动》策略文档里的叙述因子形式化为可计算定义。原则：
+1. 每个因子在 as_of 当天可计算（PIT，无未来数据）；
+2. 优先复用冻结 artifacts（episodes 字段、b2_confirmation 特征层），
+   不重复计算冻结引擎已产出的东西；
+3. 现状标记：REUSE（冻结字段）/ REUSE_B2C（b2_confirmation 已有）/
+   GAP（需新算）/ BLOCKED（数据不可得）。
+
+记号：T0 = 锚点日（anchor_date）；Ti = T0 后第 i 个交易日；
+vol(D) = 当日成交量；turn(D) = 当日换手；close/low/high 为原始价。
+
+## 1. H1 所需：T0 质量类
+
+| ID | 名称 | PIT 定义 | 数据源 | 现状 |
+| --- | --- | --- | --- | --- |
+| F01 | T0 位置（60 日） | (T0_close − min(low, T0−60..T0−1)) / (max(high, T0−60..T0−1) − min(low, T0−60..T0−1))，分母为 0 时置 NULL | daily_bars | GAP |
+| F02 | 距 120 日高点回撤 | (max(high, T0−120..T0−1) − T0_close) / max(high, T0−120..T0−1) | daily_bars | GAP |
+| F03 | T0 前连板数 | T0 之前连续涨停天数（复用冻结 anchor 语义里的 recent_limit 口径，不重算） | 冻结引擎 | REUSE（anchoring 字段已有 recent_limit_count 语义） |
+| F04 | 一字板标记 | T0 开盘价 == 涨停价（历史近似：open==high==close 且涨停） | daily_bars | GAP（近似；精确封板时间需分时 → 见 F05） |
+| F05 | 封板时间 | 首次封板时刻（早/中/尾盘三分档） | 分钟数据 | BLOCKED（5m 覆盖仅近 ~491 交易日，历史样本不足；近期可试点） |
+| F06 | T0 换手 | turn(T0) | daily_bars | **BLOCKED**（2026-08-14 实测：canonical 与 ASL daily_bars 均无 turnover_rate 字段；需换手数据源） |
+| F07 | T0 相对 20 日均量 | vol(T0) / mean(vol, T0−20..T0−1) | daily_bars | GAP |
+| F08 | 板块共振 proxy | 同板块当日涨停家数占比 | ASL sector_members + limit pool | BLOCKED（SECTOR_V01 已评 LOW_CONFIDENCE_PROXY，先修数据再启用） |
+
+## 2. H2 所需：回调时间与深度
+
+| ID | 名称 | PIT 定义 | 数据源 | 现状 |
+| --- | --- | --- | --- | --- |
+| F09 | 回调深度 | (T0_close − min(close, T1..Tn)) / T0_close，n = days_since_anchor | daily_bars | GAP |
+| F10 | 回调最低点日 | argmin(close, T1..Tn) 的 Ti 序号 | daily_bars | GAP |
+| F11 | 回调天数 | 最低点日的 i（即 T0 后第几天见底） | daily_bars | GAP |
+| F12 | 至 B2 事件天数 | B2_READY/CONFIRMED 首个事件日 − T0 的天数 | 冻结 states/episodes | REUSE（days_since_anchor + setup_stage 事件日可导出） |
+| F13 | TTL 候选 | F12 的分布；研究问题：超过何阈值后第二波概率显著衰减（研究层结论，不落地生产规则） | 同上 | GAP（研究脚本计算） |
+
+## 3. H3 所需：缩量类
+
+| ID | 名称 | PIT 定义 | 数据源 | 现状 |
+| --- | --- | --- | --- | --- |
+| F14 | 回调缩量比 | min(vol, T1..Tn) / vol(T0) | daily_bars | REUSE_B2C（pullback_volume_ratio 语义近似，需核对口径） |
+| F15 | 回调均量比 | mean(vol, T1..Tn) / vol(T0) | daily_bars | GAP |
+| F16 | T1 量比 | vol(T1) / vol(T0) | daily_bars | GAP |
+| F17 | 换手衰减速度 | (turn(T1) − min_turn(T1..Tn)) / turn(T1) | daily_bars | BLOCKED（同 F06） |
+
+## 4. 支撑事件类（H4）
+
+支撑必须定义为可测事件，否则「支撑有效」是事后叙事：
+
+- E01 触及 MAx：存在 i 属于 T1..Tn 使 low(i) <= MAx(i) 且 close(i) >= MAx(i)（触及未破）
+- E02 收盘跌破 MAx：存在 i 使 close(i) < MAx(i)（破位）
+- E03 破位后收回：E02 后存在 j>i 使 close(j) >= MAx(j) 且 j−i <= 3
+- E04 触及 T0 实体：low(i) <= T0 实体上沿（max(open,close)）且 low(i) >= 实体下沿
+- E05 触及平台：复用冻结 support_low/high（冻结口径，不另定义新平台）
+- F18 支撑共振计数：E01/E04/E05 在相近价位（±2%）同时成立的数量
+
+现状：E01-E03 与 b2_confirmation 的 touched_below_ma5/10/18_7d 相关但口径
+不同（那是「7 日内曾跌破」，不是「触及未破」）→ GAP；E05/F18 → REUSE+GAP。
+
+## 5. B2 放量类（H5）
+
+- F19 B2 放量倍数：vol(B2 事件日) / mean(vol, T1..T(n-1))（相对回调均量）
+- F20 B2 放量倍数（相对 20 日均量）：vol(B2 日) / mean(vol, B2−20..B2−1)
+- 现状：均 GAP；三倍量（H9）= F19/F20 的特例，作为交互项验证，不做主效应。
+
+## 6. 失败结构类（H6）
+
+- F21 B2 次日跌回平台：B2 事件次日 close < 平台/突破位（用冻结 support/trigger）
+- F22 巨量长上影：上影线/实体 >= 阈值 且 vol 为 5 日均量 >= 1.5 倍
+- F23 放量下跌：回调期存在 i 使 close(i)<close(i−1) 且 vol(i)>vol(i−1)（连续计数）
+- 现状：均 GAP。
+
+## 7. BLOCKED 清单（短期不做）
+
+- 筹码类（获利盘/套牢盘/筹码峰/集中度）：CHIP SNAPSHOT PROBE UNAVAILABLE，
+  规则禁止自研算法
+- 封板时间（历史）：分钟数据覆盖不足
+- 板块共振（F08）：板块 proxy 数据质量未达标
+- 分时承接/VWAP（历史）：5m 覆盖不足；近期会话可试点
+
+## 8. 下一步（步骤 2）
+
+factor_lab 首批实现：F01、F02、F06、F07、F09、F11、F14、F16、F19、F21——
+覆盖 H1-H3 与 H5/H6 的最小集，全部为 daily_bars 上的 PIT 纯函数，
+附单元测试与差分校验（合成数据 + 与冻结 episodes 字段口径核对）。

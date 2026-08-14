@@ -1,0 +1,16 @@
+key,value
+VOLUME_RATIO_EXACT_DEFINITION,{"NUMERATOR": "D0 cumulative volume up to checkpoint (5m bars)", "DENOMINATOR": "D-1 full-day volume", "CHECKPOINT": "09:45 / 10:00", "DATA_FREQUENCY": "5m (1m unavailable)"}
+VOLUME_DENOMINATOR_AUDIT,{"conclusion": "VOLUME_PACE_SIGNAL_CONFIRMED", "num_rb_F_SF": [0.2113, 0.2059], "den_rb_F_SF": [-0.0072, -0.1922], "ratio_rb_F_SF": [0.2335, 0.3314]}
+APPROVED_VOLUME_PACE_PRIMARY,"F_D0cum_vs_D1_sametime"
+QUIET_SCORE_FORMULA,"mean(inverse_percentile(VOLUME_PACE), inverse_percentile(abs(SESSION_LOW_VS_PREV_CLOSE)), inverse_percentile(SESSION_RANGE_PCT))"
+REFERENCE_DISTRIBUTION_HASH,"9b8863a7dc71caf7c59e601871104bb7147db204ac7a96ad4eada1fd2aba4c72"
+CHECKPOINTS,["0945", "1000"]
+FORWARD_START_DATE,"PENDING_HUMAN_APPROVAL (next trading session after approval)"
+CANDIDATE_FREEZE_RULE,"before open: freeze D-1 frozen production/research-approved daily screen output; CANDIDATE_LIST_HASH stored; no intraday additions (NOT_ELIGIBLE_FOR_TODAY)"
+PAPER_ENTRY_PRICE_RULE,"checkpoint last complete 5m bar close; no next-low/VWAP/intraday-low fill"
+OUTCOME_RULE,"fixed 3-session structural outcome: SUCCESS/FAILED_BREAKOUT/NO_LAUNCH/STRUCTURE_FAIL/UNKNOWN (caseset V01B definitions, frozen)"
+T_PLUS_1_EXECUTION_RULE,"EXECUTION_LAYER_PENDING; reuse Phase 2D.1A execution-reality semantics when a forward-compatible resolver is approved; structural outcome only for now"
+INTERIM_GATE,"SUCCESS>=10 and FAILED_BREAKOUT>=20 -> descriptive only"
+DECISION_GATE,"SUCCESS>=30 and FAILED_BREAKOUT>=30 and >=20 trading sessions"
+PROTOCOL_HASH,"4125a4496540b572391512ea32ed8b485553cad886a26ba2d70e2a0dd74398c9"
+PRODUCTION_FILES_CHANGED,false

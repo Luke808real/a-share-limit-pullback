@@ -298,6 +298,94 @@ class QualityConfig(DomainModel):
     minimum_score_coverage: RatioDecimal
 
 
+class B2ConfirmationConfig(DomainModel):
+    """V01 hypothesis parameters for the B2 confirmation research layer.
+
+    These thresholds are explicit research hypotheses, not frozen production
+    semantics. They are centralized here so future SUCCESS/NO_LAUNCH/FAILED
+    validation can tune them without touching the frozen strategy file.
+    """
+
+    day_return_strong_min: DecimalValue = Decimal("0.025")
+    day_return_extended_min: DecimalValue = Decimal("0.07")
+    day_return_near_limit_min: DecimalValue = Decimal("0.09")
+    intraday_attack_min: DecimalValue = Decimal("0.04")
+    turnover_active_min: DecimalValue = Decimal("0.05")
+    washout_lookback_days: int = Field(default=7, ge=1)
+    limit_up_lookback_days: int = Field(default=7, ge=1)
+    washout_depth_scale: DecimalValue = Decimal("0.05")
+    return_20d_min: DecimalValue = Decimal("-0.20")
+    return_20d_max: DecimalValue = Decimal("0.30")
+    circulating_market_cap_max: PositiveDecimal = Decimal("50000000000")
+    level_weak_min: NonNegativeDecimal = Decimal("50")
+    level_candidate_min: NonNegativeDecimal = Decimal("65")
+    level_confirmed_min: NonNegativeDecimal = Decimal("75")
+    level_strong_min: NonNegativeDecimal = Decimal("85")
+    structure_max: dict[str, PositiveDecimal] = Field(
+        default_factory=lambda: {
+            "t0_quality": Decimal("15"),
+            "pullback_volume": Decimal("15"),
+            "support_pullback": Decimal("10"),
+            "b1_structure": Decimal("10"),
+        }
+    )
+    launch_max: dict[str, PositiveDecimal] = Field(
+        default_factory=lambda: {
+            "day_return_zone": Decimal("10"),
+            "intraday_attack": Decimal("8"),
+            "close_above_vwap": Decimal("10"),
+            "close_above_ma5": Decimal("5"),
+            "ma5_gt_ma10": Decimal("4"),
+            "ma5_gt_ma20": Decimal("4"),
+            "turnover_active": Decimal("5"),
+            "washout_ma_touch": Decimal("2"),
+            "prev_day_not_limit_up": Decimal("2"),
+        }
+    )
+
+    @model_validator(mode="after")
+    def validate_parameters(self) -> "B2ConfirmationConfig":
+        if not (
+            self.day_return_strong_min
+            < self.day_return_extended_min
+            < self.day_return_near_limit_min
+        ):
+            raise ValueError("B2 confirmation return zones must be increasing")
+        if self.return_20d_min >= self.return_20d_max:
+            raise ValueError("B2 confirmation 20d return range is reversed")
+        if not (
+            self.level_weak_min
+            < self.level_candidate_min
+            < self.level_confirmed_min
+            < self.level_strong_min
+        ):
+            raise ValueError("B2 confirmation level thresholds must be increasing")
+        if sum(self.structure_max.values(), Decimal("0")) != Decimal("50"):
+            raise ValueError("B2 structure maxima must sum to 50")
+        if sum(self.launch_max.values(), Decimal("0")) != Decimal("50"):
+            raise ValueError("B2 launch maxima must sum to 50")
+        if set(self.structure_max) != {
+            "t0_quality",
+            "pullback_volume",
+            "support_pullback",
+            "b1_structure",
+        }:
+            raise ValueError("unexpected B2 structure component ids")
+        if set(self.launch_max) != {
+            "day_return_zone",
+            "intraday_attack",
+            "close_above_vwap",
+            "close_above_ma5",
+            "ma5_gt_ma10",
+            "ma5_gt_ma20",
+            "turnover_active",
+            "washout_ma_touch",
+            "prev_day_not_limit_up",
+        }:
+            raise ValueError("unexpected B2 launch component ids")
+        return self
+
+
 class StrategyConfig(DomainModel):
     strategy_version: str = Field(min_length=1)
     universe: UniverseConfig
@@ -314,3 +402,6 @@ class StrategyConfig(DomainModel):
     invalidation: InvalidationConfig
     scoring: ScoringConfig
     quality: QualityConfig
+    b2_confirmation: B2ConfirmationConfig = Field(
+        default_factory=B2ConfirmationConfig
+    )

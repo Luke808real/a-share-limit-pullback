@@ -1,0 +1,56 @@
+{
+  "inventory": {
+    "daily_bars": "/Users/luke808/AI/V flash/data/canonical/daily_bars/snap-2026-07-31-b5f84004de8a.parquet",
+    "episodes": "/Users/luke808/AI/V flash/data/outcome-study/outcome-snap-2026-07-31-b5f84004de8a-2024-01-01-2026-07-31-25903057f106/episodes.parquet",
+    "caseset": "/Users/luke808/AI/V flash/research/intraday/success_control_cases_v01b.csv",
+    "intraday_5m_cache_files": 141,
+    "intraday_1m_cache_files": 141,
+    "unfrozen_data_registered_only": [
+      "data/tmp/eod-refresh-2026-08-04/refresh_20260804.parquet (8/3-8/4, NOT mixed)",
+      "data/tmp/eod-recovery-2026-08-03/eod_20260803.parquet (8/3 full-market, NOT mixed)"
+    ]
+  },
+  "outcome_counts": {
+    "STRUCTURE_FAIL": 5415,
+    "NO_LAUNCH": 1730,
+    "FAILED_BREAKOUT": 950,
+    "SUCCESS": 409,
+    "UNKNOWN": 242
+  },
+  "missing_bars": 0,
+  "missing_reasons": {},
+  "top_archetypes_vs_all_control": [
+    "ARCH_DAMAGE_FAST_REPAIR",
+    "ARCH_HIGH_LEVEL_CONSOLIDATION",
+    "ARCH_MULTI_PROBE_BREAKOUT_PREP"
+  ],
+  "human_references": [
+    {
+      "label": "HUMAN_600468",
+      "err": null
+    },
+    {
+      "label": "HUMAN_600756",
+      "err": null
+    }
+  ],
+  "db_exemplars": [
+    "600095:20250924:1271",
+    "600186:20260423:945",
+    "600992:20241010:1687"
+  ],
+  "feature_missingness_gt_5pct": {
+    "dist_to_trigger_pct": 0.9989,
+    "days_to_recover_previous_close": 0.9883,
+    "days_to_recover_damage_open": 0.9845,
+    "days_to_recover_damage_midpoint": 0.9743,
+    "largest_down_day_return_pct": 0.4659,
+    "largest_volume_down_day_ratio": 0.4659,
+    "price_recovery_pct": 0.4659,
+    "damage_open": 0.4659,
+    "damage_close": 0.4659
+  },
+  "pit_violations": 0,
+  "evaluate_strategy_calls": 0,
+  "production_files_changed": false
+}

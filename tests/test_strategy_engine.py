@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -221,6 +221,33 @@ def test_intraday_b2_break_without_close_hold_stays_ready(config):
     assert signal.setup_stage is SetupStage.B2_READY
     assert signal.b2_trigger.trigger_price == Decimal("11.30")
     assert signal.score.risks["b2_quality"] == "盘中突破B2触发价但收盘未站稳"
+
+
+def test_b2_confirmed_is_monotonic_no_demotion(config):
+    """B2 semantic review (2026-08-14): B2_CONFIRMED exits only via
+    invalid / new anchor / expiry; a quiet bar must not demote it."""
+    bars, pool, _, _, confirmed = build_progression(config)
+    trade_date = business_dates(bars[-1].trade_date + timedelta(days=1), 1)[0]
+    bars.append(
+        make_bar(
+            trade_date,
+            open_price="11.10",
+            high="11.20",
+            low="10.96",
+            close="11.05",
+            preclose="11.25",
+            volume="300",
+        )
+    )
+    signal = evaluate_strategy(
+        bars=bars,
+        as_of=bars[-1].trade_date,
+        config=config,
+        generated_at=GENERATED_AT,
+        limit_pool=pool,
+        previous_signal=confirmed,
+    )
+    assert signal.setup_stage is SetupStage.B2_CONFIRMED
 
 
 def test_close_hold_of_frozen_b2_trigger_confirms(config):

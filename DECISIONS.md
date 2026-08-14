@@ -303,3 +303,20 @@ Provider会话失败均在边界层保留具体原因；query失败后的logout�
 异常。Provider质量和flags进入来源报告及相关信号。少于配置的120根实际有效日线
 时标记`INSUFFICIENT_TRADING_HISTORY`、数据不可用且不具备新建仓资格，但不修改
 B1、B2、S1、INVALID或Entry Room结构语义。
+
+## D-026 B2_CONFIRMED 单调性（B2 语义评审决议）
+
+**状态：已采纳（2026-08-14，Owner 指令完成 B2 语义评审）**
+
+冻结真源 STATE_MACHINE 规定 B2_CONFIRMED 的退出仅限失效、新锚点或过期；
+代码实现曾允许其降回 B2_READY（SWE 审计 P0/CRITICAL 冲突）。按「冻结
+知识库规则胜出」原则决议：B2_CONFIRMED 为单调状态，一旦确认保持到失效 /
+新锚点 / 过期；S2_EXHAUSTED 只是事件标记，不是阶段退出；「过期」退出机制
+不在本次范围，后续如需由单独 ADR 定义。
+
+实现：strategy/engine.py 增加同 setup 的 B2_CONFIRMED 保持分支；golden
+s2_exhausted 期望修正为 B2_CONFIRMED；新增单调性回归测试。决策输出门同步
+开放：trade_plan 默认 allow_decision_output=True（显式 False 仍阻塞），
+state generation 的 decision_use_status 改为 AVAILABLE_FOR_DECISION。
+冻结快照与 08-07 之前的生成代保持原样；单调语义自 2026-08-10 及之后的新
+评估生效。详见 research/b2-semantic-review-2026-08-14/RESOLUTION.md。

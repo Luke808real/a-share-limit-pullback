@@ -1,0 +1,42 @@
+{
+  "pit_violations": 0,
+  "checkpoint_future_leakage": 0,
+  "duplicates": 0,
+  "missing_minute_cases": 8538,
+  "partial_minute_cases": 2,
+  "success_n": 40,
+  "failed_n": 97,
+  "no_launch_n": 12,
+  "structure_fail_n": 51,
+  "evaluate_strategy_calls": 0,
+  "production_files_changed": false,
+  "availability": {
+    "MISSING": 8538,
+    "5m_FALLBACK": 206,
+    "PARTIAL": 2
+  },
+  "complete_outcomes": {
+    "FAILED_BREAKOUT": 97,
+    "STRUCTURE_FAIL": 51,
+    "SUCCESS": 40,
+    "NO_LAUNCH": 12,
+    "UNKNOWN": 6
+  },
+  "top_features": [
+    "cum_volume_vs_D1_ratio",
+    "D1_upper_shadow_pct",
+    "session_range_pct",
+    "session_low_pct_vs_prev_close",
+    "cum_volume_vs_anchor_ratio"
+  ],
+  "checkpoints": [
+    "0945",
+    "1000",
+    "1030",
+    "1130",
+    "1330",
+    "1400",
+    "1430"
+  ],
+  "granularity_primary": "5m (1m complete=0)"
+}

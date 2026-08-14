@@ -18,7 +18,7 @@ b2_confirmed:
   review_group: STANDARD
 
 s2_exhausted:
-  setup_stage: B2_READY
+  setup_stage: B2_CONFIRMED
   event_flags: [NEAR_S1, S2_EXHAUSTED]
   primary_pattern: BEARISH_PULLBACK
   review_group: STANDARD

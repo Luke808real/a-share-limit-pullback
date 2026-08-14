@@ -1,0 +1,8 @@
+# Operational runtime defaults (not strategy thresholds).
+# DAILY_PIPELINE_FAST_PATH_V01: fixed defaults so operators do not guess.
+tencent_workers: 16
+canonical_reader_threads: 4
+canonical_reader_memory_limit: "2GB"
+screen_process_workers: 8
+screen_worker_memory_limit_mb: 512
+daily_window_calendar_days: 400

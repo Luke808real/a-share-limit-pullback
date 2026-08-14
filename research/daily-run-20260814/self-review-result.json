@@ -1,0 +1,264 @@
+{
+  "checks": [
+    {
+      "name": "timing status FAILED (expected: gate stop)",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "completed == [daily]",
+      "passed": true,
+      "detail": "['daily']"
+    },
+    {
+      "name": "daily step ok",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "trade-plan step recorded",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "trade-plan blocked by frozen semantic gate",
+      "passed": true,
+      "detail": "StrategySemanticReviewPendingError('STRATEGY_SEMANTIC_REVIEW_PENDING: B2_CONFIRMED_LIFECYCLE_UNRESOLVED')"
+    },
+    {
+      "name": "no steps after trade-plan",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "snapshot SCREEN_READY",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "pointer_before == 08-06",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "generation ACTIVE",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "state_n == 3191",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "staging conflicted == 0",
+      "passed": true,
+      "detail": "{'confirmed_n': 5197, 'provisional_n': 0, 'incomplete_n': 1, 'conflicted_n': 0, 'preclose_continuity_mismatch_n': 0, 'staging_hash': 'e9ab0427ffde32d8150ed92dea3abb4d8a54a4f511d14416ce5135af8abee45e'}"
+    },
+    {
+      "name": "preclose continuity mismatch == 0",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "provider retries == 0",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "incomplete_n == 1 (documented)",
+      "passed": true,
+      "detail": "1"
+    },
+    {
+      "name": "sentinels all match",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "staging hash present",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "generation semantic root present",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "formal snapshot pointer == new",
+      "passed": true,
+      "detail": "snap-2026-08-07-586cc17164af"
+    },
+    {
+      "name": "formal state pointer == new",
+      "passed": true,
+      "detail": "stategen-2026-08-07-a70b9b642b87"
+    },
+    {
+      "name": "fetch failures == 0",
+      "passed": true,
+      "detail": "tdx=0 tencent=0"
+    },
+    {
+      "name": "tdx rows > 0",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "tencent rows > 0",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "fetch sha256 present",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "promotion record exists for new snapshot",
+      "passed": true,
+      "detail": "1"
+    },
+    {
+      "name": "plan.json absent after gate (fail-closed)",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "brief.md absent after gate (fail-closed)",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "watchlist.md absent after gate (fail-closed)",
+      "passed": true,
+      "detail": ""
+    }
+  ],
+  "artifacts": {
+    "plan.json": "ABSENT",
+    "brief.md": "ABSENT",
+    "watchlist.md": "ABSENT",
+    "timing.json": "data/tmp/daily-run-20260807/timing.json",
+    "daily-summary.json": "data/tmp/canonical-catchup-2026-08-07/daily-summary.json",
+    "fetch-summary.json": "data/tmp/canonical-catchup-2026-08-07/fetch-summary.json",
+    "console-round2.log": "data/tmp/daily-run-20260807-console-round2.log"
+  },
+  "timing": {
+    "date": "2026-08-07",
+    "steps": [
+      {
+        "name": "daily",
+        "wall_seconds": 1015.96,
+        "ok": true,
+        "detail": {
+          "snapshot_id": "snap-2026-08-07-586cc17164af",
+          "generation_id": "stategen-2026-08-07-a70b9b642b87"
+        }
+      },
+      {
+        "name": "trade-plan",
+        "wall_seconds": 0.02,
+        "ok": false,
+        "detail": "StrategySemanticReviewPendingError('STRATEGY_SEMANTIC_REVIEW_PENDING: B2_CONFIRMED_LIFECYCLE_UNRESOLVED')"
+      }
+    ],
+    "completed": [
+      "daily"
+    ],
+    "status": "FAILED"
+  },
+  "daily_summary_core": {
+    "snapshot": {
+      "id": "snap-2026-08-07-586cc17164af",
+      "status": "SCREEN_READY",
+      "pointer_before": "snap-2026-08-06-e798f88ff67b",
+      "pointer_after": "snap-2026-08-07-586cc17164af"
+    },
+    "generation": {
+      "id": "stategen-2026-08-07-a70b9b642b87",
+      "status": "ACTIVE",
+      "state_n": 3191,
+      "semantic_root": "fc6990b08b9597654b0c77ae0fe5a35382eead1e925e704cf28a9e4581cb46b9",
+      "pointer_before": "stategen-2026-08-06-a846075a5ac7",
+      "pointer_after": "stategen-2026-08-07-a70b9b642b87"
+    },
+    "staging": {
+      "confirmed_n": 5197,
+      "provisional_n": 0,
+      "incomplete_n": 1,
+      "conflicted_n": 0,
+      "preclose_continuity_mismatch_n": 0,
+      "staging_hash": "e9ab0427ffde32d8150ed92dea3abb4d8a54a4f511d14416ce5135af8abee45e"
+    },
+    "provider": {
+      "total_codes": 5198,
+      "cached_codes": 0,
+      "requested_codes": 5198,
+      "retry_codes": 0,
+      "wall_time": 841.1684050559998
+    },
+    "fast_path_stats": {
+      "fast_path_n": 0,
+      "targeted_fallback_n": 3191,
+      "full_fallback_n": 0,
+      "fallback_reasons": {
+        "MISSING_PREFIX_HASH_V2": 3191
+      },
+      "rows_scanned": 1860488,
+      "rows_materialized": 1860488
+    }
+  },
+  "sentinels": [
+    {
+      "code": "603980",
+      "match": true,
+      "fast_stage": "B2_CONFIRMED",
+      "replay_stage": "B2_CONFIRMED",
+      "fast_last_processed": "2026-08-07"
+    },
+    {
+      "code": "002112",
+      "match": true,
+      "fast_stage": "INVALID",
+      "replay_stage": "INVALID",
+      "fast_last_processed": "2026-08-07"
+    },
+    {
+      "code": "000001",
+      "match": true,
+      "fast_stage": "NORMAL",
+      "replay_stage": "NORMAL",
+      "fast_last_processed": "2026-08-07"
+    },
+    {
+      "code": "605198",
+      "match": true,
+      "fast_stage": "B2_READY",
+      "replay_stage": "B2_READY",
+      "fast_last_processed": "2026-08-07"
+    }
+  ],
+  "fetch_summary": {
+    "run_id": "CATCHUP_20260807_TDX_TENCENT",
+    "session": "2026-08-07",
+    "provider_total_codes": 5198,
+    "provider_cached_codes": 0,
+    "provider_requested_codes": 5198,
+    "provider_retry_codes": 0,
+    "provider_wall_time": 841.168,
+    "tdx_row_n": 5197,
+    "tencent_row_n": 5197,
+    "tdx_failure_n": 0,
+    "tencent_failure_n": 0,
+    "tdx_full_sha256": "3093face7013605d7e9c88e226feba2c0c546483a36e1ede183e05833312cc83",
+    "tencent_full_sha256": "e903ec493614b09e30290a28b742b23467a7e46704c3949b7003349c5faca224"
+  },
+  "snapshot_promotion_records": [
+    {
+      "snapshot_id": "snap-2026-08-07-586cc17164af"
+    }
+  ],
+  "ok": true
+}

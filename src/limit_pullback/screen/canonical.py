@@ -393,6 +393,7 @@ def _canonical_daily_row_stream(
     *,
     codes: Sequence[str] | None = None,
     as_of: date | None = None,
+    since: date | None = None,
 ) -> Iterator[dict[str, Any]]:
     """Memory-bounded, globally ordered CONFIRMED daily row stream.
 
@@ -448,6 +449,9 @@ def _canonical_daily_row_stream(
     if as_of is not None:
         sql += " AND trade_date <= CAST(? AS DATE)"
         params.append(as_of.isoformat())
+    if since is not None:
+        sql += " AND trade_date > CAST(? AS DATE)"
+        params.append(since.isoformat())
     sql += " ORDER BY code, trade_date"
 
     con = duckdb.connect()
@@ -488,6 +492,30 @@ def _canonical_daily_row_stream(
             seen_key = key
             seen_row = row
             yield row
+
+
+def canonical_code_bars_window(
+    layout: WarehouseLayout,
+    snapshot: SnapshotRecord,
+    *,
+    code: str,
+    as_of: date,
+    since: date,
+    fetched_at: datetime = FIXED_FETCHED_AT,
+) -> tuple[DailyBar, ...]:
+    """Return one code's CONFIRMED bars in ``(since, as_of]``, sorted."""
+
+    bars = [
+        _daily_bar_from_row(row, fetched_at=fetched_at)
+        for row in _canonical_daily_row_stream(
+            layout,
+            snapshot,
+            codes=[code],
+            as_of=as_of,
+            since=since,
+        )
+    ]
+    return tuple(sorted(bars, key=lambda bar: bar.trade_date))
 
 
 def _canonical_row_content(row: Mapping[str, Any]) -> tuple[Any, ...]:

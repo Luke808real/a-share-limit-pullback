@@ -1,0 +1,13 @@
+{
+  "case_n": 18,
+  "row_n": 36,
+  "a_pace_tdx_vs_frozen_0945_median": 0.9997,
+  "a_pace_tdx_vs_frozen_1000_median": 0.9999,
+  "quiet_score_abs_diff_median": 0.002729,
+  "quiet_quartile_agreement_rate": 0.9444,
+  "agreement_by_checkpoint": {
+    "0945": 0.8889,
+    "1000": 1.0
+  },
+  "note": "frozen reference/dev scores use A definition (D0cum/D1full); TDX computed under same A definition"
+}

@@ -1,0 +1,9 @@
+{
+  "epoch_id": "FORWARD_EPOCH_1",
+  "planned_start_date": "2026-08-06",
+  "actual_start_date": "DEFERRED",
+  "start_delay_reason": "DATA_DEPENDENCY",
+  "blocker": "TUSHARE_AUTH_INVALID (canonical D-1=2026-08-05 cannot be confirmed; ADR-006 requires Tushare+AKShare agreement)",
+  "created_at": "2026-08-05T19:35:55+08:00",
+  "note": "Run metadata only; protocol/reference/manifest untouched."
+}

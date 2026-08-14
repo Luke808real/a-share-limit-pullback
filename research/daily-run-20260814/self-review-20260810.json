@@ -1,0 +1,410 @@
+{
+  "session": "2026-08-10",
+  "expect": "FULL",
+  "checks": [
+    {
+      "name": "daily ok",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "timing status OK",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "all five steps ok",
+      "passed": true,
+      "detail": "[]"
+    },
+    {
+      "name": "plan.json exists",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "watchlist.md exists",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "brief.md exists",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "snapshot SCREEN_READY",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "generation ACTIVE",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "state_n == 3191",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "staging conflicted == 0",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "preclose mismatch == 0",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "provider retries == 0",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "sentinels all match",
+      "passed": true,
+      "detail": "fresh recheck on rebuilt generation: 4/4 match (incl. 605198 B2_CONFIRMED == B2_CONFIRMED)"
+    },
+    {
+      "name": "formal snapshot pointer == new",
+      "passed": true,
+      "detail": "snap-2026-08-10-f811c7f53089"
+    },
+    {
+      "name": "formal state pointer == new",
+      "passed": true,
+      "detail": "pointer == stategen-2026-08-10-bf507b268263 (rebuilt generation)"
+    },
+    {
+      "name": "fetch failures == 0",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "tdx rows > 0",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "tencent rows > 0",
+      "passed": true,
+      "detail": ""
+    }
+  ],
+  "timing": {
+    "date": "2026-08-10",
+    "steps": [
+      {
+        "name": "daily",
+        "wall_seconds": 841.11,
+        "ok": true,
+        "detail": "promoted snap-2026-08-10 + old generation; sentinel 605198 mismatch (pre-fix seeds)"
+      },
+      {
+        "name": "rebuild-generation",
+        "wall_seconds": null,
+        "ok": true,
+        "detail": "full rebuild 2024-01-01..2026-08-10 with fixed engine -> stategen-2026-08-10-bf507b268263"
+      },
+      {
+        "name": "trade-plan",
+        "wall_seconds": 5.99,
+        "ok": true,
+        "detail": {
+          "actionable": 175,
+          "b1_prep": 0,
+          "plans": 192
+        }
+      },
+      {
+        "name": "news-brief",
+        "wall_seconds": 0.01,
+        "ok": true,
+        "detail": {
+          "matched": 3
+        }
+      },
+      {
+        "name": "watchlist",
+        "wall_seconds": 0.0,
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "reconcile",
+        "wall_seconds": 0.01,
+        "ok": true,
+        "detail": {
+          "snapshot": "snap-2026-08-10-f811c7f53089",
+          "state": "stategen-2026-08-10-bf507b268263"
+        }
+      }
+    ],
+    "completed": [
+      "daily",
+      "rebuild-generation",
+      "trade-plan",
+      "news-brief",
+      "watchlist",
+      "reconcile"
+    ],
+    "status": "OK"
+  },
+  "plan_summary": {
+    "plan_date": "2026-08-10",
+    "for_trade_date": null,
+    "snapshot_id": "snap-2026-08-10-f811c7f53089",
+    "watch_count": 17,
+    "b1_prep_count": 0,
+    "b1_ready_count": 31,
+    "b2_ready_count": 150,
+    "b2_confirmed_count": 80,
+    "actionable_count": 175,
+    "universe": 5198
+  },
+  "brief_summary": {
+    "symbols_requested": [
+      "000032",
+      "000045",
+      "000526",
+      "000609",
+      "000659",
+      "000676",
+      "000712",
+      "000721",
+      "000736",
+      "000739",
+      "000751",
+      "000908",
+      "000948",
+      "000981",
+      "001208",
+      "001210",
+      "001225",
+      "001266",
+      "001309",
+      "001318",
+      "001337",
+      "001339",
+      "001359",
+      "001378",
+      "002012",
+      "002015",
+      "002036",
+      "002058",
+      "002176",
+      "002197",
+      "002212",
+      "002213",
+      "002235",
+      "002279",
+      "002281",
+      "002286",
+      "002302",
+      "002303",
+      "002346",
+      "002355",
+      "002369",
+      "002384",
+      "002387",
+      "002396",
+      "002463",
+      "002484",
+      "002485",
+      "002534",
+      "002558",
+      "002607",
+      "002620",
+      "002636",
+      "002642",
+      "002681",
+      "002686",
+      "002693",
+      "002741",
+      "002742",
+      "002759",
+      "002762",
+      "002775",
+      "002779",
+      "002793",
+      "002796",
+      "002803",
+      "002902",
+      "002908",
+      "002913",
+      "002915",
+      "002916",
+      "002921",
+      "002929",
+      "002931",
+      "002945",
+      "002956",
+      "002989",
+      "002992",
+      "003005",
+      "003031",
+      "003040",
+      "600076",
+      "600078",
+      "600105",
+      "600110",
+      "600127",
+      "600156",
+      "600172",
+      "600188",
+      "600191",
+      "600236",
+      "600267",
+      "600303",
+      "600330",
+      "600367",
+      "600378",
+      "600403",
+      "600410",
+      "600419",
+      "600468",
+      "600556",
+      "600578",
+      "600584",
+      "600644",
+      "600651",
+      "600665",
+      "600666",
+      "600673",
+      "600702",
+      "600744",
+      "600758",
+      "600791",
+      "600829",
+      "600850",
+      "600985",
+      "600986",
+      "601086",
+      "601101",
+      "601126",
+      "601138",
+      "601231",
+      "601678",
+      "601699",
+      "601865",
+      "601869",
+      "603004",
+      "603009",
+      "603031",
+      "603036",
+      "603045",
+      "603057",
+      "603058",
+      "603067",
+      "603122",
+      "603123",
+      "603125",
+      "603139",
+      "603185",
+      "603192",
+      "603201",
+      "603203",
+      "603206",
+      "603232",
+      "603259",
+      "603268",
+      "603285",
+      "603286",
+      "603297",
+      "603328",
+      "603335",
+      "603336",
+      "603337",
+      "603348",
+      "603373",
+      "603375",
+      "603376",
+      "603466",
+      "603499",
+      "603533",
+      "603577",
+      "603610",
+      "603617",
+      "603618",
+      "603626",
+      "603637",
+      "603657",
+      "603661",
+      "603663",
+      "603719",
+      "603721",
+      "603757",
+      "603778",
+      "603779",
+      "603798",
+      "603801",
+      "603826",
+      "603912",
+      "603919",
+      "603928",
+      "603931",
+      "603936",
+      "603956",
+      "603979",
+      "603980",
+      "603995",
+      "605056",
+      "605069",
+      "605168",
+      "605178",
+      "605208",
+      "605303",
+      "605337",
+      "605488"
+    ],
+    "symbols_matched": 3,
+    "availability": [
+      {
+        "table": "news_headlines",
+        "exists": true,
+        "max_event_date": null,
+        "rows_in_window": 0,
+        "status": "NO_ROWS_IN_WINDOW"
+      },
+      {
+        "table": "flash_news_wire",
+        "exists": true,
+        "max_event_date": null,
+        "rows_in_window": 0,
+        "status": "NO_ROWS_IN_WINDOW"
+      },
+      {
+        "table": "announcement_index",
+        "exists": true,
+        "max_event_date": "2026-08-13",
+        "rows_in_window": 2,
+        "status": "OK"
+      },
+      {
+        "table": "dragon_tiger",
+        "exists": true,
+        "max_event_date": "2026-08-13",
+        "rows_in_window": 1,
+        "status": "OK"
+      }
+    ]
+  },
+  "sentinel_codes": [
+    "603980",
+    "002112",
+    "000001",
+    "605198"
+  ],
+  "fast_path_stats": {
+    "fast_path_n": 3191,
+    "targeted_fallback_n": 0,
+    "full_fallback_n": 0,
+    "fallback_reasons": {},
+    "rows_scanned": 738502,
+    "rows_materialized": 738502
+  },
+  "ok": true,
+  "note": "two checks originally read the stale pre-rebuild daily-summary; superseded by fresh sentinel recheck + ops status + tail reconcile."
+}

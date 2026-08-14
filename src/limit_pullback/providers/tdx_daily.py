@@ -33,6 +33,14 @@ DEFAULT_TDX_SERVERS = (
     ("119.147.212.81", 7709),
 )
 
+# Trailing daily bars requested per code. The daily path may legitimately run
+# several sessions behind the source (weekend/holiday gaps, late runs), and
+# get_security_bars only serves the most recent N bars. 5 bars excluded settled
+# sessions that had already fallen out of the trailing window. Rows outside the
+# requested sessions are filtered below, so a wider window is free apart from a
+# slightly larger per-code reply (~3 months of sessions).
+TDX_LOOKBACK_BAR_COUNT = 60
+
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
@@ -191,7 +199,7 @@ def fetch_tdx_daily(
                 market,
                 code,
                 0,
-                5,
+                TDX_LOOKBACK_BAR_COUNT,
             ) or []
         except Exception as exc:
             failures.append(

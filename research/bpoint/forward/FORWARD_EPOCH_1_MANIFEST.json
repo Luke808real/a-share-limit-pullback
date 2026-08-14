@@ -1,0 +1,52 @@
+{
+  "epoch_id": "FORWARD_EPOCH_1",
+  "protocol_hash": "4125a4496540b572391512ea32ed8b485553cad886a26ba2d70e2a0dd74398c9",
+  "reference_distribution_hash": "9b8863a7dc71caf7c59e601871104bb7147db204ac7a96ad4eada1fd2aba4c72",
+  "approval_status": "HUMAN_APPROVED",
+  "approval_timestamp": "2026-08-05T18:51:57+08:00",
+  "forward_start_date": "2026-08-06",
+  "candidate_source": {
+    "type": "PRODUCTION_SCREEN_STATES",
+    "path": "data/screen/states/*.json",
+    "snapshot_id": "snap-2026-07-31-b5f84004de8a",
+    "source_hash_now": "22db55120ff20b2a28288c95c421e8a6217e65966dfba015c72eba41e3a4fc5b",
+    "per_day_hash_policy": "DAILY_CANDIDATE_LIST_HASH computed at freeze from rows filtered by last_processed_date == D-1",
+    "immutable_after_0930": true
+  },
+  "primary_checkpoints": [
+    "09:45",
+    "10:00"
+  ],
+  "observation_checkpoints": [
+    "10:30",
+    "11:30",
+    "13:30",
+    "14:00",
+    "14:30"
+  ],
+  "primary_features": [
+    "CUM_VOLUME_VS_D1_SAME_TIME",
+    "SESSION_LOW_VS_PREV_CLOSE",
+    "SESSION_RANGE_PCT"
+  ],
+  "quiet_score_formula": "mean(inverse_percentile(VOLUME_PACE_PRIMARY), inverse_percentile(abs(SESSION_LOW_VS_PREV_CLOSE)), inverse_percentile(SESSION_RANGE_PCT)); NA if any input missing",
+  "primary_outcome_definition": "fixed 3-session structural outcome SUCCESS/FAILED_BREAKOUT/NO_LAUNCH/STRUCTURE_FAIL/UNKNOWN; primary metric SUCCESS/(SUCCESS+FAILED_BREAKOUT)",
+  "interim_gate": {
+    "SUCCESS_min": 10,
+    "FAILED_BREAKOUT_min": 20,
+    "action": "descriptive only"
+  },
+  "decision_gate": {
+    "SUCCESS_min": 30,
+    "FAILED_BREAKOUT_min": 30,
+    "trading_sessions_min": 20
+  },
+  "historical_backfill_allowed": false,
+  "threshold_optimization_allowed": false,
+  "production_change_allowed": false,
+  "volume_primary_missing_policy": "VOLUME_PACE_PRIMARY=NA, VOLUME_PRIMARY_STATUS=MISSING; no fallback to D1-full/anchor/median5",
+  "quiet_score_missing_policy": "any input missing -> QUIET_SCORE=NA, QUIET_SCORE_STATUS=INCOMPLETE, QUIET_QUARTILE=NA; no mean-available/2-factor/imputation",
+  "hashing_convention": "sha256(json.dumps(obj, ensure_ascii=False, sort_keys=True)) excluding the self-referential hash field",
+  "created_by": "Execution Engineer",
+  "epoch_manifest_hash": "0f65ac114cd9ae93c34fc0a8186f11132c783ce824c63ae7960b4733f83af11c"
+}

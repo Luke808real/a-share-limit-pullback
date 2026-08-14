@@ -217,14 +217,25 @@ def _screen_chunk_worker(
             previous_signal: StrategySignal | None = None
             last_processed: date | None = None
             if state is not None:
+                expected_bars_hash = (
+                    _bars_prefix_hash_chain(
+                        bars, state.last_processed_date
+                    )
+                    if state.bars_prefix_hash_v2 is not None
+                    else _bars_prefix_hash(bars, state.last_processed_date)
+                )
+                actual_bars_hash = (
+                    state.bars_prefix_hash_v2
+                    if state.bars_prefix_hash_v2 is not None
+                    else state.bars_prefix_hash
+                )
                 stale = (
                     state.strategy_commit != commit
                     or state.config_hash != config_hash
                     or state.reconciliation_policy_version
                     != snapshot.reconciliation_policy_version
                     or state.last_processed_date > as_of
-                    or state.bars_prefix_hash
-                    != _bars_prefix_hash(bars, state.last_processed_date)
+                    or actual_bars_hash != expected_bars_hash
                     or state.limit_pool_prefix_hash
                     != _pool_prefix_hash(
                         pool_records,
@@ -260,6 +271,11 @@ def _screen_chunk_worker(
                 last_processed=last_processed,
                 pool_status=pool_status,
                 pool_mode=pool_mode,
+                indicator_cache=(
+                    Path(ctx["indicator_cache"])
+                    if ctx.get("indicator_cache")
+                    else None
+                ),
             )
             if final_signal is not None:
                 save_state(
@@ -269,6 +285,9 @@ def _screen_chunk_worker(
                     signal=final_signal,
                     snapshot_id=ctx["resolved_snapshot_id"],
                     bars_prefix_hash=_bars_prefix_hash(
+                        bars, min(final_signal.trade_date, as_of)
+                    ),
+                    bars_prefix_hash_v2=_bars_prefix_hash_chain(
                         bars, min(final_signal.trade_date, as_of)
                     ),
                     limit_pool_prefix_hash=_pool_prefix_hash(
@@ -338,6 +357,7 @@ def _run_screen_parallel(
     pool_mode: str,
     resolved_snapshot_id: str,
     workers: int = 4,
+    indicator_cache: Path | None = None,
 ) -> tuple[
     tuple[str, ...],
     int,
@@ -377,6 +397,9 @@ def _run_screen_parallel(
         "states_root": str(states_root),
         "pool_mode": pool_mode,
         "resolved_snapshot_id": resolved_snapshot_id,
+        "indicator_cache": (
+            str(indicator_cache) if indicator_cache is not None else None
+        ),
     }
     with ProcessPoolExecutor(
         max_workers=worker_count,
@@ -493,6 +516,41 @@ def _bars_prefix_hash(bars, up_to: date) -> str:
         if bar.trade_date <= up_to
     ]
     return _digest(json.dumps(prefix, sort_keys=True))
+
+
+def _bar_hash_payload(bar) -> tuple[Any, ...]:
+    return (
+        bar.trade_date.isoformat(),
+        str(bar.open),
+        str(bar.high),
+        str(bar.low),
+        str(bar.close),
+        str(bar.preclose),
+        str(bar.volume),
+        str(bar.amount),
+        str(bar.turnover_rate) if bar.turnover_rate is not None else None,
+        str(bar.pct_change) if bar.pct_change is not None else None,
+        bar.trade_status,
+        bar.is_st,
+    )
+
+
+def _extend_bars_prefix_hash_chain(previous: str, bar) -> str:
+    return _digest(
+        previous,
+        json.dumps(_bar_hash_payload(bar), sort_keys=True),
+    )
+
+
+def _bars_prefix_hash_chain(bars, up_to: date) -> str:
+    """Incremental-friendly chain hash over canonical bar prefixes."""
+
+    digest = _digest("")
+    for bar in bars:
+        if bar.trade_date > up_to:
+            break
+        digest = _extend_bars_prefix_hash_chain(digest, bar)
+    return digest
 
 
 def _pool_prefix_hash(
@@ -620,6 +678,8 @@ def run_screen(
     states_root: Path | None = None,
     compact_output_path: Path | None = None,
     failpoint: str | None = None,
+    indicator_cache: Path | None = None,
+    workers: int = 4,
 ) -> ScreenRunResult:
     """Run the offline screen over one canonical snapshot."""
 
@@ -754,6 +814,8 @@ def run_screen(
             processed_at=processed_at,
             pool_mode=pool_mode,
             resolved_snapshot_id=resolved_snapshot_id,
+            indicator_cache=indicator_cache,
+            workers=workers,
         )
         notes.extend(parallel_notes)
         counts = dict(sorted(status_counts.items()))
@@ -785,16 +847,27 @@ def run_screen(
                 previous_signal: StrategySignal | None = None
                 last_processed: date | None = None
                 if state is not None:
+                    expected_bars_hash = (
+                        _bars_prefix_hash_chain(
+                            bars, state.last_processed_date
+                        )
+                        if state.bars_prefix_hash_v2 is not None
+                        else _bars_prefix_hash(
+                            bars, state.last_processed_date
+                        )
+                    )
+                    actual_bars_hash = (
+                        state.bars_prefix_hash_v2
+                        if state.bars_prefix_hash_v2 is not None
+                        else state.bars_prefix_hash
+                    )
                     stale = (
                         state.strategy_commit != commit
                         or state.config_hash != config_hash
                         or state.reconciliation_policy_version
                         != snapshot.reconciliation_policy_version
                         or state.last_processed_date > as_of
-                        or state.bars_prefix_hash
-                        != _bars_prefix_hash(
-                            bars, state.last_processed_date
-                        )
+                        or actual_bars_hash != expected_bars_hash
                         or state.limit_pool_prefix_hash
                         != _pool_prefix_hash(
                             pool_records,
@@ -831,6 +904,7 @@ def run_screen(
                     last_processed=last_processed,
                     pool_status=pool_status,
                     pool_mode=pool_mode,
+                    indicator_cache=indicator_cache,
                 )
                 if final_signal is not None:
                     save_state(
@@ -842,6 +916,9 @@ def run_screen(
                         signal=final_signal,
                         snapshot_id=resolved_snapshot_id,
                         bars_prefix_hash=_bars_prefix_hash(
+                            bars, min(final_signal.trade_date, as_of)
+                        ),
+                        bars_prefix_hash_v2=_bars_prefix_hash_chain(
                             bars, min(final_signal.trade_date, as_of)
                         ),
                         limit_pool_prefix_hash=_pool_prefix_hash(

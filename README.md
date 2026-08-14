@@ -10,7 +10,15 @@
 核心目标是把当前股票池逐步缩小成一小份值得人工盯盘的候选。
 （长期愿景是面向全市场扫描。）
 
-`当前项目股票池（约3000+） → 找到第一次资金明显表态 → 判断回调后结构是否仍然健康 → 找到重新转强的股票 → 提前缩小到少量 PREPOSITION / LAUNCH_READY 候选 → 由人工盘中执行。`
+`当前项目股票池（约3000+） → 找到第一次资金明显表态 → 判断回调后结构是否仍然健康 → 找到重新转强的股票 → 提前缩小到少量 PREPOSITION / LAUNCH_READY 候选 → 由人工在系统外独立决策。`
+
+## 当前状态与安全边界
+
+项目 current truth 由 `a-share-strategy-brain/00_Project/CURRENT_STATE.md` 维护；
+[docs/CURRENT_STATE.md](docs/CURRENT_STATE.md) 只是兼容入口和远端 SHA 核验协议。
+本仓库不维护第二份阶段、Gate、blocker 或运行授权快照。权威状态不可用、过期或冲突时
+一律 fail closed；任何 Gate PASS、review branch、研究结论或 next step 都不会自动开启
+下一阶段。
 
 ## 策略怎么理解
 
@@ -27,6 +35,10 @@
 - **POST_B**：主要启动段已经兑现，进入持仓管理 / 延续观察阶段；新开仓通常
   NO_CHASE。
 
+以上是首页的叙事性说明，不是另一套正式 `setup_stage`。冻结 B1/B2 生命周期、
+阈值和 PIT 语义只以 Strategy Master、Rule Catalog、Baseline Manifest 与冻结代码树
+为权威；术语不能从 README 反向进入策略实现。
+
 文中统一使用客观描述：资金表态、结构保持、换手/分歧、重新转强、第二次攻击。
 不把“主力洗盘 / 吸筹”写成事实。
 
@@ -38,7 +50,7 @@ flowchart LR
     B --> C[PREPOSITION]
     C --> D[LAUNCH_READY]
     D --> E[HUMAN WATCH]
-    E --> F[HUMAN EXECUTION]
+    E --> F[HUMAN DECISION OUTSIDE SYSTEM]
     E -. 没有合适标的 .-> G[NO_TRADE_DAY]
 ```
 
@@ -77,7 +89,7 @@ B condition =
 
 ## 每日工作流
 
-`当前股票池（3000+） → tens of structural candidates → 10-20 Human Watch → 3-5 重点观察 → 0-2 实际交易`
+`当前股票池（3000+） → tens of structural candidates → 10-20 Human Watch → 3-5 重点观察 → 人工在系统外独立决策`
 
 没有合适标的时间，允许 **NO TRADE**，不为交易强制选股。
 
@@ -106,8 +118,10 @@ B condition =
 
 ## 更多文档
 
+- [docs/REPOSITORY_NAVIGATION.md](docs/REPOSITORY_NAVIGATION.md) — 仓库导航：目录地图、进度入口、开发历史、数据保护边界
+- [docs/CURRENT_STATE.md](docs/CURRENT_STATE.md) — 指向 brain Project OS current truth 的兼容入口
 - [docs/strategy-overview.md](docs/strategy-overview.md) — 策略概览（更详细）
-- [docs/agent-context.md](docs/agent-context.md) — 工程上下文
+- [docs/agent-context.md](docs/agent-context.md) — 新 Agent 最短读取路径
 - [docs/project-operating-model.md](docs/project-operating-model.md) — 四层 truth 模型
 - [research/second_launch_radar_v1.md](research/second_launch_radar_v1.md) — research-only 雷达 spec
 - 知识库：`a-share-strategy-brain`

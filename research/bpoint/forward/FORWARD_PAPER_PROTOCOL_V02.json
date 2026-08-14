@@ -1,0 +1,52 @@
+{
+  "protocol_version": "FORWARD_PAPER_D0_BPOINT_V02",
+  "supersedes": "FORWARD_PAPER_D0_BPOINT_V01",
+  "supersede_reason": "PRESTART_REFERENCE_SEMANTIC_DEFECT",
+  "forward_rows_before_supersede": 0,
+  "primary_checkpoints": [
+    "09:45",
+    "10:00"
+  ],
+  "primary_features": [
+    "VOLUME_PACE_PRIMARY",
+    "SESSION_LOW_VS_PREV_CLOSE",
+    "SESSION_RANGE_PCT"
+  ],
+  "primary_volume_definition": "D0_CUM_VOLUME_TO_CHECKPOINT / D1_SAME_TIME_CUM_VOLUME",
+  "volume_audit_columns_only": [
+    "D0CUM/D1_FULL",
+    "D0CUM/ANCHOR",
+    "D0CUM/MEDIAN5"
+  ],
+  "percentile_method": "EMPIRICAL_MIDRANK_ECDF_V1",
+  "quiet_score_formula": "mean(1-pct(VOLUME_PACE_PRIMARY), 1-pct(abs(SESSION_LOW_VS_PREV_CLOSE)), 1-pct(SESSION_RANGE_PCT)); equal weights",
+  "quartile_rule": "score<=Q25->Q1; Q25<score<=Q50->Q2; Q50<score<=Q75->Q3; score>Q75->Q4 (Q4=quietest)",
+  "paper_entry_price_rule": "checkpoint last completed 5m bar close",
+  "outcome_definition": "SUCCESS/FAILED_BREAKOUT/NO_LAUNCH/STRUCTURE_FAIL/UNKNOWN (3-session structural, frozen)",
+  "interim_gate": {
+    "SUCCESS_min": 10,
+    "FAILED_BREAKOUT_min": 20
+  },
+  "decision_gate": {
+    "SUCCESS_min": 30,
+    "FAILED_BREAKOUT_min": 30,
+    "trading_sessions_min": 20
+  },
+  "intraday_provider": "TDX_5M",
+  "intraday_audit": "SINA_5M",
+  "daily_provider": "TDX",
+  "daily_confirmation": "TENCENT",
+  "daily_audit_backup": "BAOSTOCK",
+  "no_provider_fallback": true,
+  "missing_volume_policy": "VOLUME_PACE_PRIMARY=NA, VOLUME_PRIMARY_STATUS=MISSING; no fallback",
+  "missing_score_policy": "QUIET_SCORE=NA, QUIET_SCORE_STATUS=INCOMPLETE, QUIET_QUARTILE=NA",
+  "corporate_action_policy": "CORPORATE_ACTION_AFFECTED=true -> QUIET_SCORE_STATUS=CORPORATE_ACTION_EXCLUDED",
+  "reference_distribution_hash": "dd307825740e89367f76ba36fdb5ba632950b4c30e2b406894b1f45d3bf89cea",
+  "forbidden": [
+    "threshold scan",
+    "weight change",
+    "outcome redefinition",
+    "historical backfill"
+  ],
+  "hash": "aaca250e9bea16ca8f8ef4b09597670a2fbbc75dac968dc8a80cb65f00bbc131"
+}
