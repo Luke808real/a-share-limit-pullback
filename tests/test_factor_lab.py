@@ -269,6 +269,19 @@ def test_ma10_future_reclaim_no_leak() -> None:
     assert early != late
 
 
+def test_ma10_second_break_does_not_reset_window() -> None:
+    bars = _ma_series(["9.40", "9.30", "9.20", "9.10", "9.05", "9.90"])
+    anchor = bars[9].trade_date
+    as_of = bars[15].trade_date
+    # first break at day10 (close 9.40 < MA10 9.94); days 11-13 stay below
+    # MA10 -> no reclaim within 3 sessions; day14 is a later (second)
+    # break; day15 closes back above MA10 (reclaim within 3 sessions of
+    # the second break). The window stays anchored to the FIRST break, so
+    # E03 must still be False.
+    assert fl.ma10_close_break(bars, anchor, as_of) is True
+    assert fl.ma10_reclaim_within_3d(bars, anchor, as_of) is False
+
+
 def test_ma10_fail_closed() -> None:
     # duplicate trade dates -> ValueError
     day = business_dates(date(2026, 1, 5), 1)[0]
