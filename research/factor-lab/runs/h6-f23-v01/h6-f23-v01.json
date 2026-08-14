@@ -1,0 +1,320 @@
+{
+  "inputs": {
+    "episodes": "data/outcome-study/outcome-snap-2026-07-31-b5f84004de8a-2024-01-01-2026-07-31-25903057f106/corrected-b2-trigger-outcome/episodes.parquet",
+    "episodes_sha256": "66d5943ffd4c83d8348d7b559ef9aa8ab9c041525471108a2f724fbedd84b093",
+    "daily_bars": "data/canonical/daily_bars/snap-2026-07-31-b5f84004de8a.parquet",
+    "daily_bars_sha256": "e7243dee3bafe46e725e2b6ee884b07ac97a01c0705b41df0562d35019593514",
+    "snapshot_id": "snap-2026-07-31-b5f84004de8a",
+    "r_source": "episodes.r_multiple — Phase 2D.0 corrected outcome study, strict variant",
+    "f23_definition": "count of pullback sessions after T0 through signal_date where close(i) < close(i-1) AND volume(i) > volume(i-1)",
+    "f23_any_definition": "F23_COUNT >= 1 (pre-registered grouping only)"
+  },
+  "sample": {
+    "resolved_n": 9625,
+    "resolved_groups": [
+      "WIN_S1",
+      "LOSS_INVALID",
+      "CANCEL_GAP_INVALID"
+    ],
+    "f23_defined_n": 9625,
+    "f23_undefined_n": 0,
+    "f23_any_n": 4238,
+    "f23_none_n": 5387,
+    "min_n": 20
+  },
+  "primary": {
+    "any": {
+      "n": 4238,
+      "win": 1071,
+      "loss": 2451,
+      "cancel_gap_invalid": 716,
+      "win_share": 0.2527,
+      "strict_win_rate": 0.3041,
+      "mean_r": -0.1159,
+      "median_r": -1.0,
+      "p_r_gt0": 0.2462,
+      "p_r_ge2": 0.044,
+      "n_with_r": 3522,
+      "r_missing_n": 0
+    },
+    "none": {
+      "n": 5387,
+      "win": 1257,
+      "loss": 3078,
+      "cancel_gap_invalid": 1052,
+      "win_share": 0.2333,
+      "strict_win_rate": 0.29,
+      "mean_r": -0.0126,
+      "median_r": -1.0,
+      "p_r_gt0": 0.2404,
+      "p_r_ge2": 0.0443,
+      "n_with_r": 4335,
+      "r_missing_n": 0
+    },
+    "delta": {
+      "win_share": 0.0194,
+      "strict_win_rate": 0.0141,
+      "mean_r": -0.1033,
+      "median_r": 0.0
+    }
+  },
+  "stage_strata": {
+    "B1_READY": {
+      "any": {
+        "n": 2810,
+        "win": 138,
+        "loss": 2072,
+        "cancel_gap_invalid": 600,
+        "win_share": 0.0491,
+        "strict_win_rate": 0.0624,
+        "mean_r": -0.1819,
+        "median_r": -1.0,
+        "p_r_gt0": 0.0624,
+        "p_r_ge2": 0.0624,
+        "n_with_r": 2210,
+        "r_missing_n": 0
+      },
+      "none": {
+        "n": 3601,
+        "win": 157,
+        "loss": 2592,
+        "cancel_gap_invalid": 852,
+        "win_share": 0.0436,
+        "strict_win_rate": 0.0571,
+        "mean_r": -0.0106,
+        "median_r": -1.0,
+        "p_r_gt0": 0.0571,
+        "p_r_ge2": 0.0567,
+        "n_with_r": 2749,
+        "r_missing_n": 0
+      },
+      "delta": {
+        "win_share": 0.0055,
+        "strict_win_rate": 0.0053,
+        "mean_r": -0.1713,
+        "median_r": 0.0
+      }
+    },
+    "B2_READY": {
+      "any": {
+        "n": 713,
+        "win": 382,
+        "loss": 216,
+        "cancel_gap_invalid": 115,
+        "win_share": 0.5358,
+        "strict_win_rate": 0.6388,
+        "mean_r": 0.0098,
+        "median_r": 0.241,
+        "p_r_gt0": 0.6388,
+        "p_r_ge2": 0.0084,
+        "n_with_r": 598,
+        "r_missing_n": 0
+      },
+      "none": {
+        "n": 930,
+        "win": 461,
+        "loss": 270,
+        "cancel_gap_invalid": 199,
+        "win_share": 0.4957,
+        "strict_win_rate": 0.6306,
+        "mean_r": -0.0223,
+        "median_r": 0.1755,
+        "p_r_gt0": 0.6306,
+        "p_r_ge2": 0.0137,
+        "n_with_r": 731,
+        "r_missing_n": 0
+      },
+      "delta": {
+        "win_share": 0.0401,
+        "strict_win_rate": 0.0082,
+        "mean_r": 0.0321,
+        "median_r": 0.0655
+      }
+    },
+    "B2_CONFIRMED": {
+      "any": {
+        "n": 715,
+        "win": 551,
+        "loss": 163,
+        "cancel_gap_invalid": 1,
+        "win_share": 0.7706,
+        "strict_win_rate": 0.7717,
+        "mean_r": -0.017,
+        "median_r": -0.005,
+        "p_r_gt0": 0.486,
+        "p_r_ge2": 0.0168,
+        "n_with_r": 714,
+        "r_missing_n": 0
+      },
+      "none": {
+        "n": 856,
+        "win": 639,
+        "loss": 216,
+        "cancel_gap_invalid": 1,
+        "win_share": 0.7465,
+        "strict_win_rate": 0.7474,
+        "mean_r": -0.0106,
+        "median_r": 0.0,
+        "p_r_gt0": 0.4959,
+        "p_r_ge2": 0.0304,
+        "n_with_r": 855,
+        "r_missing_n": 0
+      },
+      "delta": {
+        "win_share": 0.0241,
+        "strict_win_rate": 0.0243,
+        "mean_r": -0.0064,
+        "median_r": -0.005
+      }
+    }
+  },
+  "timing_strata": {
+    "1-2": {
+      "any": {
+        "n": 2641,
+        "win": 206,
+        "loss": 1870,
+        "cancel_gap_invalid": 565,
+        "win_share": 0.078,
+        "strict_win_rate": 0.0992,
+        "mean_r": -0.2433,
+        "median_r": -1.0,
+        "p_r_gt0": 0.0992,
+        "p_r_ge2": 0.0564,
+        "n_with_r": 2076,
+        "r_missing_n": 0
+      },
+      "none": {
+        "n": 4178,
+        "win": 491,
+        "loss": 2701,
+        "cancel_gap_invalid": 986,
+        "win_share": 0.1175,
+        "strict_win_rate": 0.1538,
+        "mean_r": -0.01,
+        "median_r": -1.0,
+        "p_r_gt0": 0.1538,
+        "p_r_ge2": 0.0495,
+        "n_with_r": 3192,
+        "r_missing_n": 0
+      },
+      "delta": {
+        "win_share": -0.0395,
+        "strict_win_rate": -0.0546,
+        "mean_r": -0.2333,
+        "median_r": 0.0
+      }
+    },
+    "3": {
+      "any": {
+        "n": 743,
+        "win": 308,
+        "loss": 315,
+        "cancel_gap_invalid": 120,
+        "win_share": 0.4145,
+        "strict_win_rate": 0.4944,
+        "mean_r": 0.0864,
+        "median_r": -1.0,
+        "p_r_gt0": 0.4799,
+        "p_r_ge2": 0.0273,
+        "n_with_r": 623,
+        "r_missing_n": 0
+      },
+      "none": {
+        "n": 506,
+        "win": 261,
+        "loss": 188,
+        "cancel_gap_invalid": 57,
+        "win_share": 0.5158,
+        "strict_win_rate": 0.5813,
+        "mean_r": -0.0536,
+        "median_r": -0.0323,
+        "p_r_gt0": 0.4855,
+        "p_r_ge2": 0.0356,
+        "n_with_r": 449,
+        "r_missing_n": 0
+      },
+      "delta": {
+        "win_share": -0.1013,
+        "strict_win_rate": -0.0869,
+        "mean_r": 0.14,
+        "median_r": -0.9677
+      }
+    },
+    "4-5": {
+      "any": {
+        "n": 471,
+        "win": 303,
+        "loss": 147,
+        "cancel_gap_invalid": 21,
+        "win_share": 0.6433,
+        "strict_win_rate": 0.6733,
+        "mean_r": 0.1489,
+        "median_r": -0.011,
+        "p_r_gt0": 0.4889,
+        "p_r_ge2": 0.04,
+        "n_with_r": 450,
+        "r_missing_n": 0
+      },
+      "none": {
+        "n": 451,
+        "win": 301,
+        "loss": 143,
+        "cancel_gap_invalid": 7,
+        "win_share": 0.6674,
+        "strict_win_rate": 0.6779,
+        "mean_r": 0.0293,
+        "median_r": -0.0691,
+        "p_r_gt0": 0.4617,
+        "p_r_ge2": 0.0338,
+        "n_with_r": 444,
+        "r_missing_n": 0
+      },
+      "delta": {
+        "win_share": -0.0241,
+        "strict_win_rate": -0.0046,
+        "mean_r": 0.1196,
+        "median_r": 0.0581
+      }
+    },
+    "6-10": {
+      "any": {
+        "n": 383,
+        "win": 254,
+        "loss": 119,
+        "cancel_gap_invalid": 10,
+        "win_share": 0.6632,
+        "strict_win_rate": 0.681,
+        "mean_r": -0.0645,
+        "median_r": -0.1223,
+        "p_r_gt0": 0.3807,
+        "p_r_ge2": 0.008,
+        "n_with_r": 373,
+        "r_missing_n": 0
+      },
+      "none": {
+        "n": 252,
+        "win": 204,
+        "loss": 46,
+        "cancel_gap_invalid": 2,
+        "win_share": 0.8095,
+        "strict_win_rate": 0.816,
+        "mean_r": -0.0458,
+        "median_r": 0.0073,
+        "p_r_gt0": 0.512,
+        "p_r_ge2": 0.012,
+        "n_with_r": 250,
+        "r_missing_n": 0
+      },
+      "delta": {
+        "win_share": -0.1463,
+        "strict_win_rate": -0.135,
+        "mean_r": -0.0187,
+        "median_r": -0.1296
+      }
+    }
+  },
+  "verdict": "REJECT",
+  "verdict_logic": "REJECT: primary win_share delta defined and >= 0. SUPPORTED: primary win_share delta < 0, mean_R delta < 0 when defined, and every defined stage/timing stratum win_share delta < 0. Else OBSERVE_ONLY.",
+  "script_sha256": "4ab33c82c3d93da201ba99ab64e09000d0272eccb50e5db1a7f46ebde0818b55"
+}

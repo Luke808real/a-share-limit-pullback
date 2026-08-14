@@ -130,3 +130,74 @@ def test_b2_next_day_back_under_platform() -> None:
     assert fl.b2_next_day_back_under_platform(
         bars, anchor, b2_date, Decimal("10.10")
     ) is False
+
+
+def test_f23_zero_events() -> None:
+    bars = _series(
+        ["10.00", "10.20", "10.40"],
+        ["100", "90", "80"],
+    )
+    anchor = bars[0].trade_date
+    as_of = bars[-1].trade_date
+    # rising closes, falling volume -> no down-volume session
+    assert fl.pullback_down_volume_count(bars, anchor, as_of) == 0
+
+
+def test_f23_exactly_one_event() -> None:
+    bars = _series(
+        ["10.00", "9.80", "9.90", "10.10"],
+        ["100", "150", "140", "130"],
+    )
+    anchor = bars[0].trade_date
+    as_of = bars[-1].trade_date
+    # T+1: close down and volume up -> event; T+2/T+3 closes up -> not events
+    assert fl.pullback_down_volume_count(bars, anchor, as_of) == 1
+
+
+def test_f23_multiple_events() -> None:
+    bars = _series(
+        ["10.00", "9.70", "9.50", "9.80"],
+        ["100", "120", "130", "110"],
+    )
+    anchor = bars[0].trade_date
+    as_of = bars[-1].trade_date
+    # T+1 and T+2 both close down with volume up -> 2 events; T+3 close up
+    assert fl.pullback_down_volume_count(bars, anchor, as_of) == 2
+
+
+def test_f23_price_down_volume_not_up_no_event() -> None:
+    bars = _series(
+        ["10.00", "9.80", "9.60"],
+        ["100", "90", "80"],
+    )
+    anchor = bars[0].trade_date
+    as_of = bars[-1].trade_date
+    # closes fall but volume also falls -> no event
+    assert fl.pullback_down_volume_count(bars, anchor, as_of) == 0
+
+
+def test_f23_volume_up_price_not_down_no_event() -> None:
+    bars = _series(
+        ["10.00", "10.10", "10.20"],
+        ["100", "150", "160"],
+    )
+    anchor = bars[0].trade_date
+    as_of = bars[-1].trade_date
+    # volume rises but closes rise -> no event
+    assert fl.pullback_down_volume_count(bars, anchor, as_of) == 0
+
+
+def test_f23_pit_cutoff_no_future_leak() -> None:
+    bars = _series(
+        ["10.00", "9.80", "9.50", "9.90"],
+        ["100", "150", "160", "140"],
+    )
+    anchor = bars[0].trade_date
+    # events at T+1 and T+2; the later as_of must not leak into the earlier one
+    early = fl.pullback_down_volume_count(bars, anchor, bars[1].trade_date)
+    late = fl.pullback_down_volume_count(bars, anchor, bars[-1].trade_date)
+    assert early == 1
+    assert late == 2
+    assert early != late
+    # as_of == anchor -> no visible session after T0
+    assert fl.pullback_down_volume_count(bars, anchor, anchor) is None

@@ -200,3 +200,22 @@ def b2_next_day_back_under_platform(
     if not next_day:
         return None
     return next_day[0].close < platform_price
+
+
+def pullback_down_volume_count(bars, anchor_date: date, as_of: date) -> int | None:
+    """F23: count of pullback sessions after T0 through as_of where
+    close(i) < close(i-1) and volume(i) > volume(i-1); the previous session
+    for the first visible day is T0 itself. None when no session after T0
+    is visible at as_of. Duplicate dates / multi-code bars fail closed via
+    _ordered/_require_anchor (ValueError)."""
+    ordered = _ordered(bars)
+    prev = _require_anchor(ordered, anchor_date)
+    after = _after(ordered, anchor_date, as_of)
+    if not after:
+        return None
+    count = 0
+    for bar in after:
+        if bar.close < prev.close and bar.volume > prev.volume:
+            count += 1
+        prev = bar
+    return count
