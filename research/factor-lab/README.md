@@ -61,8 +61,11 @@ L2 研究因子层 + L3 统计验证层的落点。目标见 docs/ARCHITECTURE_G
   primary contrast F18>=2(N6634) vs F18<=1(N2960)，
   Δstrict_win_rate=−0.0016、ΔP(R>0)=−0.0070 → **H4C = REJECT**；深度表无
   单调性；robust R 显示双方尾部均极端（max_R 69/109，top1pct 贡献为负）。
-  F18 PREDICTIVE VALUE = UNKNOWN；VALIDATED = NO；PROMOTED = NO。
-  预注册纪律：未做 outcome-aware 调参、未搜索阈值、合同未改；审计修正
-  （undefined 分组、SHA gate 无 bypass）已并入脚本。
+  **F18 OUTCOME VALIDATION V01 = REJECT；PREDICTIVE_VALUE: global main
+  effect not supported；VALIDATED = NO；PROMOTED = NO**（2026-08-16
+  hardening v01 收口：accounting invariants + frozen materialization locks
+  fail closed、artifact accounting 字段、undefined isolation / wrong-SHA /
+  no-bypass 回归测试）。timing 分层观察仅作 OBSERVATION / NEW HYPOTHESIS，
+  不升级为规则。预注册纪律：未做 outcome-aware 调参、未搜索阈值、合同未改。
   产物：runs/f18-support-confluence-validation-v01/f18-validation-v01.json
   + f18-validation-report-v01.md + research/f18_validation_v01.py

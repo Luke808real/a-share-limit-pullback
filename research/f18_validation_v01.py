@@ -37,6 +37,15 @@ RESOLVED_OUTCOMES = ("WIN_S1", "LOSS_INVALID", "CANCEL_GAP_INVALID")
 TZ = timezone(timedelta(hours=8))
 PRIMARY_CONTRAST = "F18 >= 2 vs F18 <= 1"
 
+# Frozen V01 materialization locks (fail closed; validated 2026-08-16).
+FROZEN_ACCOUNTING = {
+    "RESOLVED_N": 9625,
+    "F18_DEFINED_N": 9594,
+    "F18_UNDEFINED_N": 31,
+    "CONFLUENCE_N": 6634,
+    "NON_CONFLUENCE_N": 2960,
+}
+
 
 def sha256(path: Path) -> str:
     """SHA-256 of a file, hex digest."""
@@ -49,6 +58,8 @@ def sha256(path: Path) -> str:
 
 def load_episodes(path: Path, expected_sha: str = EPISODES_SHA, expected_total: int = EPISODES_TOTAL) -> pd.DataFrame:
     """Load frozen episodes with SHA/total gate; fail closed on mismatch."""
+    if isinstance(path, pd.DataFrame):
+        raise TypeError("load_episodes: DataFrame bypass forbidden; path + SHA gate required (no bypass)")
     if sha256(path) != expected_sha:
         raise RuntimeError(f"episodes SHA mismatch: {path}")
     df = pd.read_parquet(path)
@@ -59,6 +70,8 @@ def load_episodes(path: Path, expected_sha: str = EPISODES_SHA, expected_total: 
 
 def load_daily(path: Path, expected_sha: str = DAILY_SHA) -> pd.DataFrame:
     """Load frozen canonical daily bars with SHA gate; fail closed on mismatch."""
+    if isinstance(path, pd.DataFrame):
+        raise TypeError("load_daily: DataFrame bypass forbidden; path + SHA gate required (no bypass)")
     if sha256(path) != expected_sha:
         raise RuntimeError(f"daily SHA mismatch: {path}")
     return pd.read_parquet(path)
@@ -265,6 +278,84 @@ def classify_group(value: object) -> str:
     return "CONFLUENCE" if value >= 2 else "NON_CONFLUENCE"
 
 
+def delta(a, b):
+    if a is None or b is None:
+        return None
+    return _round(a - b)
+
+
+def check_accounting_counts(resolved_n, defined_n, undefined_n, con_n, non_n, frozen=None) -> dict:
+    """Fail-closed accounting invariants (hard raises, no artifact on failure).
+
+    Invariants (always enforced):
+      F18_DEFINED_N + F18_UNDEFINED_N == RESOLVED_N
+      CONFLUENCE_N + NON_CONFLUENCE_N == F18_DEFINED_N
+    When `frozen` is given (FROZEN_ACCOUNTING by callers of main), every
+    current materialization count must equal the frozen V01 lock, else
+    RuntimeError. Returns the validated accounting dict.
+    """
+    if defined_n + undefined_n != resolved_n:
+        raise RuntimeError(
+            f"ACCOUNTING INVARIANT FAILED: F18_DEFINED_N({defined_n}) + F18_UNDEFINED_N({undefined_n}) != RESOLVED_N({resolved_n})"
+        )
+    if con_n + non_n != defined_n:
+        raise RuntimeError(
+            f"ACCOUNTING INVARIANT FAILED: CONFLUENCE_N({con_n}) + NON_CONFLUENCE_N({non_n}) != F18_DEFINED_N({defined_n})"
+        )
+    accounting = {
+        "RESOLVED_N": resolved_n,
+        "F18_DEFINED_N": defined_n,
+        "F18_UNDEFINED_N": undefined_n,
+        "CONFLUENCE_N": con_n,
+        "NON_CONFLUENCE_N": non_n,
+    }
+    if frozen is not None:
+        for key, expected in frozen.items():
+            if accounting[key] != expected:
+                raise RuntimeError(
+                    f"FROZEN MATERIALIZATION LOCK FAILED: {key} = {accounting[key]} != {expected} (frozen V01)"
+                )
+    return accounting
+
+
+def check_accounting(resolved, defined, con, non, frozen=FROZEN_ACCOUNTING) -> dict:
+    """Frame-level wrapper: derive counts from the materialized groups."""
+    undefined_n = int((resolved["group"] == "UNDEFINED").sum())
+    return check_accounting_counts(
+        resolved_n=len(resolved),
+        defined_n=len(defined),
+        undefined_n=undefined_n,
+        con_n=len(con),
+        non_n=len(non),
+        frozen=frozen,
+    )
+
+
+def primary_analysis(defined: pd.DataFrame) -> dict:
+    """Primary metrics, deltas and verdict for the defined population.
+
+    Undefined episodes never reach this function (they are excluded from the
+    outcome analysis and only counted in ACCOUNTING).
+    """
+    con = defined[defined["group"] == "CONFLUENCE"]
+    non = defined[defined["group"] == "NON_CONFLUENCE"]
+    con_m = group_metrics(con["outcome"], con["r_multiple_num"])
+    non_m = group_metrics(non["outcome"], non["r_multiple_num"])
+    delta_swr = delta(con_m["strict_win_rate"], non_m["strict_win_rate"])
+    delta_pr = delta(con_m["P(R>0)"], non_m["P(R>0)"])
+    delta_mean = delta(con_m["mean_R"], non_m["mean_R"])
+    delta_median = delta(con_m["median_R"], non_m["median_R"])
+    return {
+        "CONFLUENCE": con_m,
+        "NON_CONFLUENCE": non_m,
+        "DELTA_STRICT_WIN_RATE": delta_swr,
+        "DELTA_P_R_GT_0": delta_pr,
+        "DELTA_MEAN_R": delta_mean,
+        "DELTA_MEDIAN_R": delta_median,
+        "VERDICT": verdict(delta_swr, delta_pr),
+    }
+
+
 def main(episodes_path: Path, daily_path: Path, out_dir: Path) -> dict:
     """Full pre-registered pipeline. Returns the result dict (and writes JSON + MD).
 
@@ -303,18 +394,18 @@ def main(episodes_path: Path, daily_path: Path, out_dir: Path) -> dict:
     defined = resolved[resolved["group"] != "UNDEFINED"]
     con = defined[defined["group"] == "CONFLUENCE"]
     non = defined[defined["group"] == "NON_CONFLUENCE"]
-    con_m = group_metrics(con["outcome"], con["r_multiple_num"])
-    non_m = group_metrics(non["outcome"], non["r_multiple_num"])
+    # Fail-closed accounting: invariants + frozen V01 materialization locks.
+    # Any mismatch raises RuntimeError BEFORE any JSON/MD artifact is written.
+    accounting = check_accounting(resolved, defined, con, non)
 
-    def delta(a, b):
-        if a is None or b is None:
-            return None
-        return _round(a - b)
-
-    delta_swr = delta(con_m["strict_win_rate"], non_m["strict_win_rate"])
-    delta_pr = delta(con_m["P(R>0)"], non_m["P(R>0)"])
-    delta_mean = delta(con_m["mean_R"], non_m["mean_R"])
-    delta_median = delta(con_m["median_R"], non_m["median_R"])
+    primary = primary_analysis(defined)
+    con_m = primary["CONFLUENCE"]
+    non_m = primary["NON_CONFLUENCE"]
+    delta_swr = primary["DELTA_STRICT_WIN_RATE"]
+    delta_pr = primary["DELTA_P_R_GT_0"]
+    delta_mean = primary["DELTA_MEAN_R"]
+    delta_median = primary["DELTA_MEDIAN_R"]
+    result_verdict = primary["VERDICT"]
 
     stage_rows = []
     for stage in ("B1_READY", "B2_READY", "B2_CONFIRMED"):
@@ -365,8 +456,14 @@ def main(episodes_path: Path, daily_path: Path, out_dir: Path) -> dict:
             "as_of": "signal_date",
         },
         "ACCOUNTING": {
-            "F18_DEFINED_N": int(resolved["f18"].notna().sum()),
-            "F18_UNDEFINED_N": int(resolved["f18"].isna().sum()),
+            "RESOLVED_N": accounting["RESOLVED_N"],
+            "F18_DEFINED_N": accounting["F18_DEFINED_N"],
+            "F18_UNDEFINED_N": accounting["F18_UNDEFINED_N"],
+            "ANALYSIS_DEFINED_N": accounting["F18_DEFINED_N"],
+            "PRIMARY_N_SUM": accounting["CONFLUENCE_N"] + accounting["NON_CONFLUENCE_N"],
+            "CONFLUENCE_N": accounting["CONFLUENCE_N"],
+            "NON_CONFLUENCE_N": accounting["NON_CONFLUENCE_N"],
+            "UNDEFINED_EXCLUDED_FROM_OUTCOME_ANALYSIS": True,
             "UNDEFINED_REASONS": reason_counts,
         },
         "PRIMARY_CONTRAST": {
@@ -388,7 +485,16 @@ def main(episodes_path: Path, daily_path: Path, out_dir: Path) -> dict:
             "STAGE": composition_direction(stage_rows),
             "TIMING": composition_direction(timing_rows),
         },
-        "VERDICT": verdict(delta_swr, delta_pr),
+        "VERDICT": result_verdict,
+        "CONCLUSION": {
+            "F18_OUTCOME_VALIDATION_V01": result_verdict,
+            "PREDICTIVE_VALUE": (
+                "global main effect not supported" if result_verdict == "REJECT"
+                else "directional evidence only; not validated"
+            ),
+            "VALIDATED": False,
+            "PROMOTED": False,
+        },
         "NEW_HYPOTHESES": [],
         "OUTCOME_AWARE_CONTRACT_CHANGE": False,
         "THRESHOLD_SEARCH": False,
@@ -415,7 +521,10 @@ def render_report(result: dict) -> str:
         f"- EPISODES_TOTAL = {p['episodes_total']}；RESOLVED_N = {p['resolved_n']}（WIN_S1+LOSS_INVALID+CANCEL_GAP_INVALID）",
         "",
         "## ACCOUNTING",
-        f"- F18_DEFINED_N = {a['F18_DEFINED_N']}；F18_UNDEFINED_N = {a['F18_UNDEFINED_N']}",
+        f"- RESOLVED_N = {a['RESOLVED_N']}；F18_DEFINED_N = {a['F18_DEFINED_N']}；F18_UNDEFINED_N = {a['F18_UNDEFINED_N']}",
+        f"- ANALYSIS_DEFINED_N = {a['ANALYSIS_DEFINED_N']}；PRIMARY_N_SUM = {a['PRIMARY_N_SUM']}",
+        f"- CONFLUENCE_N = {a['CONFLUENCE_N']}；NON_CONFLUENCE_N = {a['NON_CONFLUENCE_N']}",
+        f"- UNDEFINED_EXCLUDED_FROM_OUTCOME_ANALYSIS = {a['UNDEFINED_EXCLUDED_FROM_OUTCOME_ANALYSIS']}",
         f"- UNDEFINED_REASONS = {a['UNDEFINED_REASONS']}",
         "",
         "## PRIMARY CONTRAST（CONFLUENCE F18>=2 vs NON_CONFLUENCE F18<=1）",
@@ -456,6 +565,12 @@ def render_report(result: dict) -> str:
         f"- delta_strict_win_rate = {result['PRIMARY_CONTRAST']['DELTA_STRICT_WIN_RATE']}",
         f"- delta_p_r_gt_0 = {result['PRIMARY_CONTRAST']['DELTA_P_R_GT_0']}",
         f"- **H4C = {result['VERDICT']}**（SUPPORTED_DIRECTIONALLY != VALIDATED != PROMOTED）",
+        "",
+        "## CONCLUSION（frozen validation V01 最终记录）",
+        f"- F18 OUTCOME VALIDATION V01 = {result['CONCLUSION']['F18_OUTCOME_VALIDATION_V01']}",
+        f"- PREDICTIVE_VALUE: {result['CONCLUSION']['PREDICTIVE_VALUE']}",
+        f"- VALIDATED = {result['CONCLUSION']['VALIDATED']}；PROMOTED = {result['CONCLUSION']['PROMOTED']}",
+        "- timing 分层观察仅作 OBSERVATION / NEW HYPOTHESIS，不升级为规则",
         "",
         "## LIMITATIONS",
         "- GitHub 无 CI；本报告为作者本地验证（SHA 门禁通过）",

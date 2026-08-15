@@ -5,16 +5,22 @@ from __future__ import annotations
 import math
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
+from pathlib import Path
 
 import pandas as pd
 import pytest
 
 from research.f18_validation_v01 import (
     bars_pit,
+    check_accounting_counts,
     classify_group,
     group_daily,
     compute_f18,
     group_metrics,
+    load_daily,
+    load_episodes,
+    main,
+    primary_analysis,
     robust_r_diagnostics,
     timing_bucket,
     to_daily_bar,
@@ -161,3 +167,115 @@ def test_classify_group_undefined_not_in_primary() -> None:
     assert classify_group(1) == "NON_CONFLUENCE"
     assert classify_group(2) == "CONFLUENCE"
     assert classify_group(3) == "CONFLUENCE"
+
+
+# ---- F18 validation final hardening v01: fail-closed accounting + isolation ----
+
+def _synthetic_resolved(rows: list[dict]) -> pd.DataFrame:
+    """Build a synthetic resolved frame with the columns main() relies on."""
+    df = pd.DataFrame(rows)
+    df["r_multiple_num"] = pd.to_numeric(df["r_multiple"], errors="coerce")
+    df["group"] = df["f18"].apply(classify_group)
+    return df
+
+
+def test_accounting_invariant_defined_plus_undefined_equals_resolved() -> None:
+    # A. defined + undefined == resolved (invariant holds)
+    check_accounting_counts(resolved_n=100, defined_n=95, undefined_n=5, con_n=60, non_n=35, frozen=None)
+    # Broken: 95 + 6 != 100
+    with pytest.raises(RuntimeError, match="ACCOUNTING INVARIANT"):
+        check_accounting_counts(resolved_n=100, defined_n=95, undefined_n=6, con_n=60, non_n=35, frozen=None)
+
+
+def test_primary_invariant_confluence_plus_non_confluence_equals_defined() -> None:
+    # B. confluence + non_confluence == defined (invariant holds)
+    check_accounting_counts(resolved_n=100, defined_n=95, undefined_n=5, con_n=60, non_n=35, frozen=None)
+    # Broken: 60 + 36 != 95
+    with pytest.raises(RuntimeError, match="ACCOUNTING INVARIANT"):
+        check_accounting_counts(resolved_n=100, defined_n=95, undefined_n=5, con_n=60, non_n=36, frozen=None)
+
+
+def test_frozen_materialization_locks() -> None:
+    # Frozen V01 numbers must be locked: any drift raises (no artifact written).
+    from research.f18_validation_v01 import FROZEN_ACCOUNTING
+    check_accounting_counts(resolved_n=9625, defined_n=9594, undefined_n=31,
+                            con_n=6634, non_n=2960, frozen=FROZEN_ACCOUNTING)
+    with pytest.raises(RuntimeError, match="FROZEN MATERIALIZATION LOCK"):
+        check_accounting_counts(resolved_n=9625, defined_n=9594, undefined_n=31,
+                                con_n=6635, non_n=2959, frozen=FROZEN_ACCOUNTING)
+
+
+def test_undefined_isolation_primary_unchanged() -> None:
+    # C. A single F18=None episode with extreme outcome/R must not move
+    # primary metrics or verdict: undefined is accounting-only.
+    base_rows = [
+        {"f18": 0, "outcome": "LOSS_INVALID", "r_multiple": "-1.0"},
+        {"f18": 1, "outcome": "WIN_S1", "r_multiple": "1.5"},
+        {"f18": 1, "outcome": "LOSS_INVALID", "r_multiple": "-0.5"},
+        {"f18": 2, "outcome": "WIN_S1", "r_multiple": "2.0"},
+        {"f18": 2, "outcome": "LOSS_INVALID", "r_multiple": "-1.2"},
+        {"f18": 3, "outcome": "WIN_S1", "r_multiple": "3.0"},
+    ]
+    base = _synthetic_resolved(base_rows)
+    base_primary = primary_analysis(base[base["group"] != "UNDEFINED"])
+    assert base_primary["VERDICT"] in ("SUPPORTED_DIRECTIONALLY", "REJECT")
+
+    # Identical defined population + one undefined episode: WIN_S1 with huge +R
+    df_pos = _synthetic_resolved(base_rows + [{"f18": None, "outcome": "WIN_S1", "r_multiple": "9999.0"}])
+    assert (df_pos["group"] == "UNDEFINED").sum() == 1
+    defined_pos = df_pos[df_pos["group"] != "UNDEFINED"]
+    primary_pos = primary_analysis(defined_pos)
+
+    # Same defined population + one undefined episode: LOSS_INVALID with huge -R
+    df_neg = _synthetic_resolved(base_rows + [{"f18": None, "outcome": "LOSS_INVALID", "r_multiple": "-9999.0"}])
+    defined_neg = df_neg[df_neg["group"] != "UNDEFINED"]
+    primary_neg = primary_analysis(defined_neg)
+
+    assert primary_pos == primary_neg == base_primary
+    # Undefined row only affects ACCOUNTING, never metrics
+    check_accounting_counts(
+        resolved_n=len(df_pos), defined_n=len(defined_pos),
+        undefined_n=1, con_n=len(defined_pos[defined_pos["group"] == "CONFLUENCE"]),
+        non_n=len(defined_pos[defined_pos["group"] == "NON_CONFLUENCE"]),
+        frozen=None,
+    )
+
+
+def test_load_daily_wrong_sha_fail_closed(tmp_path, monkeypatch) -> None:
+    # D. Wrong daily SHA must raise; authoritative main() writes no artifact.
+    bad_daily = tmp_path / "daily_bad.parquet"
+    pd.DataFrame({"code": ["600000"], "trade_date": [date(2026, 2, 2)],
+                  "open": ["10.0"], "high": ["10.5"], "low": ["9.9"], "close": ["10.2"],
+                  "preclose": ["10.0"], "volume": ["1000"], "trade_status": [True]}).to_parquet(bad_daily)
+    with pytest.raises(RuntimeError, match="daily SHA mismatch"):
+        load_daily(bad_daily)
+
+    # Authoritative main: load_episodes gate satisfied via monkeypatch (episodes
+    # SHA is not under test here); daily SHA mismatch -> fail closed, no artifact.
+    def fake_load_episodes(_path: object) -> pd.DataFrame:
+        return _synthetic_resolved([
+            {"f18": 1, "outcome": "WIN_S1", "r_multiple": "1.0"},
+            {"f18": 2, "outcome": "LOSS_INVALID", "r_multiple": "-1.0"},
+        ])
+    monkeypatch.setattr("research.f18_validation_v01.load_episodes", fake_load_episodes)
+    out_dir = tmp_path / "out"
+    with pytest.raises(RuntimeError, match="daily SHA mismatch"):
+        main(episodes_path=tmp_path / "episodes.parquet", daily_path=bad_daily, out_dir=out_dir)
+    # No formal JSON/report generated on failure
+    assert not out_dir.exists()
+    assert not list(tmp_path.glob("*.json"))
+    assert not list(tmp_path.glob("*.md"))
+
+
+def test_main_signature_no_daily_bypass() -> None:
+    # E. main() accepts only paths — no caller-supplied DataFrame daily/episodes.
+    import inspect
+    sig = inspect.signature(main)
+    assert list(sig.parameters) == ["episodes_path", "daily_path", "out_dir"]
+    assert all(p.annotation is Path or p.default is inspect.Parameter.empty
+               for p in sig.parameters.values())
+    # load_daily/load_episodes refuse DataFrame arguments outright
+    with pytest.raises(TypeError, match="bypass forbidden"):
+        load_daily(pd.DataFrame())
+    with pytest.raises(TypeError, match="bypass forbidden"):
+        load_episodes(pd.DataFrame())
