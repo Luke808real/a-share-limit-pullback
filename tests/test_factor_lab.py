@@ -117,6 +117,67 @@ def test_b2_volume_ratio_exact() -> None:
     assert fl.b2_volume_vs_pullback_mean(bars, anchor, b2_date) == Decimal("300") / Decimal("65")
 
 
+def test_b2_volume_vs_20d_mean_exact() -> None:
+    # F20: vol(B2) / mean(vol, 20 visible sessions before B2)
+    vols = [str(100 + i * 10) for i in range(20)]  # 100..290 over 20 pre-B2 sessions
+    bars = _series(["10.00"] * 21, vols + ["500"])
+    anchor = bars[0].trade_date
+    b2_date = bars[-1].trade_date
+    mean_vol = sum(Decimal(v) for v in vols) / Decimal(20)
+    assert fl.b2_volume_vs_20d_mean(bars, anchor, b2_date) == Decimal("500") / mean_vol
+
+
+def test_b2_volume_vs_20d_mean_uses_exactly_last_20() -> None:
+    # 25 visible sessions before B2: only the last 20 may enter the mean.
+    vols = [str(100 + i) for i in range(25)]  # 100..124
+    bars = _series(["10.00"] * 26, vols + ["999"])
+    anchor = bars[0].trade_date
+    b2_date = bars[-1].trade_date
+    window = vols[-20:]
+    mean_vol = sum(Decimal(v) for v in window) / Decimal(20)
+    assert fl.b2_volume_vs_20d_mean(bars, anchor, b2_date) == Decimal("999") / mean_vol
+
+
+def test_b2_volume_vs_20d_mean_insufficient_history_is_none() -> None:
+    # Zero visible sessions before B2 -> undefined (None).
+    bars = _series(["10.00"], ["500"])
+    anchor = bars[0].trade_date
+    b2_date = bars[-1].trade_date
+    assert fl.b2_volume_vs_20d_mean(bars, anchor, b2_date) is None
+
+
+def test_b2_volume_vs_20d_mean_zero_mean_volume_is_none() -> None:
+    # Mean volume of the 20-session window is zero -> undefined (None).
+    bars = _series(["10.00"] * 21, ["0"] * 20 + ["500"])
+    anchor = bars[0].trade_date
+    b2_date = bars[-1].trade_date
+    assert fl.b2_volume_vs_20d_mean(bars, anchor, b2_date) is None
+
+
+def test_b2_volume_vs_20d_mean_b2_missing_raises() -> None:
+    bars = _series(["10.00"] * 21, [str(100)] * 20 + ["500"])
+    anchor = bars[0].trade_date
+    with pytest.raises(ValueError, match="b2 bar missing"):
+        fl.b2_volume_vs_20d_mean(bars, anchor, date(2030, 1, 1))
+
+
+def test_b2_volume_vs_20d_mean_anchor_missing_raises() -> None:
+    bars = _series(["10.00"] * 21, [str(100)] * 20 + ["500"])
+    b2_date = bars[-1].trade_date
+    with pytest.raises(ValueError, match="anchor bar missing"):
+        fl.b2_volume_vs_20d_mean(bars, date(2030, 1, 1), b2_date)
+
+
+def test_b2_volume_vs_20d_mean_future_bars_do_not_leak() -> None:
+    # PIT: bars after B2 (already truncated by caller) must never enter the window.
+    vols = [str(100 + i * 10) for i in range(20)]
+    bars = _series(["10.00"] * 22, vols + ["500", "700"])
+    anchor = bars[0].trade_date
+    b2_date = bars[20].trade_date  # B2 = 21st session; session 22 is future
+    mean_vol = sum(Decimal(v) for v in vols) / Decimal(20)
+    assert fl.b2_volume_vs_20d_mean(bars, anchor, b2_date) == Decimal("500") / mean_vol
+
+
 def test_b2_next_day_back_under_platform() -> None:
     bars = _series(
         ["10.00", "10.00", "9.80", "10.50", "10.20"],

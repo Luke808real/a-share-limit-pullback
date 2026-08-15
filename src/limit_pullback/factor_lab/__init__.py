@@ -185,6 +185,28 @@ def b2_volume_vs_pullback_mean(bars, anchor_date: date, b2_date: date) -> Decima
     return b2_bar.volume / mean_vol
 
 
+def b2_volume_vs_20d_mean(bars, anchor_date: date, b2_date: date) -> Decimal | None:
+    """F20: vol(B2 day) / mean(vol, 20 visible sessions before B2).
+
+    Contract (FACTOR_CATALOG F20): vol(B2) / mean(vol, B2-20 .. B2-1), where
+    the window is the 20 visible trading sessions strictly before B2 (the B2
+    session itself is never part of the mean). None when the pre-B2 window is
+    empty or its mean volume is zero (undefined: insufficient history / zero
+    denominator). Fail closed like F19: anchor or B2 bar missing -> ValueError.
+    """
+    ordered = _ordered(bars)
+    _require_anchor(ordered, anchor_date)
+    by_date = _by_date(ordered)
+    b2_bar = by_date.get(b2_date)
+    if b2_bar is None:
+        raise ValueError(f"b2 bar missing: {b2_date}")
+    window = tuple(bar for bar in ordered if bar.trade_date < b2_date)[-20:]
+    mean_vol = _mean(bar.volume for bar in window)
+    if mean_vol is None or mean_vol == ZERO:
+        return None
+    return b2_bar.volume / mean_vol
+
+
 def b2_next_day_back_under_platform(
     bars,
     anchor_date: date,
