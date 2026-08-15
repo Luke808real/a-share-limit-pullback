@@ -118,7 +118,7 @@ def test_b2_volume_ratio_exact() -> None:
 
 
 def test_b2_volume_vs_20d_mean_exact() -> None:
-    # F20: vol(B2) / mean(vol, 20 visible sessions before B2)
+    # F20: vol(B2) / mean(vol, exactly 20 visible sessions before B2)
     vols = [str(100 + i * 10) for i in range(20)]  # 100..290 over 20 pre-B2 sessions
     bars = _series(["10.00"] * 21, vols + ["500"])
     anchor = bars[0].trade_date
@@ -138,9 +138,26 @@ def test_b2_volume_vs_20d_mean_uses_exactly_last_20() -> None:
     assert fl.b2_volume_vs_20d_mean(bars, anchor, b2_date) == Decimal("999") / mean_vol
 
 
-def test_b2_volume_vs_20d_mean_insufficient_history_is_none() -> None:
-    # Zero visible sessions before B2 -> undefined (None).
+def test_b2_volume_vs_20d_mean_zero_pre20_sessions_is_none() -> None:
+    # 0 pre-B2 sessions -> None (PRE20_N < 20)
     bars = _series(["10.00"], ["500"])
+    anchor = bars[0].trade_date
+    b2_date = bars[-1].trade_date
+    assert fl.b2_volume_vs_20d_mean(bars, anchor, b2_date) is None
+
+
+def test_b2_volume_vs_20d_mean_one_pre20_session_is_none() -> None:
+    # 1 pre-B2 session -> None (PRE20_N < 20; short window must NOT yield a ratio)
+    bars = _series(["10.00", "11.00"], ["100", "500"])
+    anchor = bars[0].trade_date
+    b2_date = bars[-1].trade_date
+    assert fl.b2_volume_vs_20d_mean(bars, anchor, b2_date) is None
+
+
+def test_b2_volume_vs_20d_mean_nineteen_pre20_sessions_is_none() -> None:
+    # 19 pre-B2 sessions -> None (PRE20_N < 20; short window must NOT yield a ratio)
+    vols = [str(100 + i) for i in range(19)]
+    bars = _series(["10.00"] * 20, vols + ["500"])
     anchor = bars[0].trade_date
     b2_date = bars[-1].trade_date
     assert fl.b2_volume_vs_20d_mean(bars, anchor, b2_date) is None
@@ -201,9 +218,13 @@ def test_b2_volume_vs_20d_mean_multi_code_fail_closed() -> None:
                      volume="999", code="600001")
     with pytest.raises(ValueError, match="exactly one code"):
         fl.b2_volume_vs_20d_mean(bars + [other], bars[0].trade_date, bars[-1].trade_date)
-    # PIT: bars after B2 (already truncated by caller) must never enter the window.
+
+
+def test_b2_volume_vs_20d_mean_future_bars_do_not_leak() -> None:
+    # PIT: a huge-volume future bar after B2 must not change F20 (only
+    # trade_date < b2_date participates in the PRE20 window internally).
     vols = [str(100 + i * 10) for i in range(20)]
-    bars = _series(["10.00"] * 22, vols + ["500", "700"])
+    bars = _series(["10.00"] * 22, vols + ["500", "99999"])
     anchor = bars[0].trade_date
     b2_date = bars[20].trade_date  # B2 = 21st session; session 22 is future
     mean_vol = sum(Decimal(v) for v in vols) / Decimal(20)

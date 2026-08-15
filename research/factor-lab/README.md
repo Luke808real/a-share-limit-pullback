@@ -70,9 +70,18 @@ L2 研究因子层 + L3 统计验证层的落点。目标见 docs/ARCHITECTURE_G
   产物：runs/f18-support-confluence-validation-v01/f18-validation-v01.json
   + f18-validation-report-v01.md + research/f18_validation_v01.py
 - f20-b2-volume-20d-contract-v01（2026-08-16，F20 B2 VOLUME VS 20D MEAN
-  CONTRACT V01；CONTRACT = FROZEN / CLOSED，HEAD 见本分支）：F20 =
-  vol(B2 日) / mean(vol, B2−20..B2−1)，窗口为 B2 之前最近 20 个可见交易
-  日（B2 当日不进入分母）。实现：factor_lab.b2_volume_vs_20d_mean
-  （含 7 个测试：精确值、恰好最后 20 根、窗口不足、零均量、B2/anchor
-  缺失 fail closed、PIT 未来不泄漏）。无 outcome、无阈值、无合同外语义。
+  CONTRACT V01；CONTRACT = FROZEN / IMPLEMENTED，审计后状态见下方
+  insufficient-history audit fix 条目）：F20 = vol(B2 日) / mean(vol,
+  B2−20..B2−1)，窗口为 B2 之前最近 20 个可见交易日（B2 当日不进入分母）。
+  实现：factor_lab.b2_volume_vs_20d_mean。无 outcome、无阈值、无合同外语义。
   待 outcome validation
+- fix/f20-contract-insufficient-history-v01（2026-08-16，F20 CONTRACT
+  INSUFFICIENT-HISTORY AUDIT FIX V01；audit CHANGES_REQUIRED 修复）：
+  **PRE20 = strictly last 20 visible trading sessions before B2**（仅
+  trade_date < b2_date 参与；future rows 内部自动排除）；**PRE20_N < 20
+  -> None**（0/1/19 个 pre-B2 session 均返回 None，短窗口不再求均值）；
+  F20 其余语义不变（B2 不进分母、恰好 20 根、21 根取最后 20、零均量
+  -> None、missing B2/anchor/duplicate/multi-code -> ValueError）。
+  测试拆出独立 future-leak 测试（B2 后巨大 volume bar 不影响 F20）。
+  F20 CONTRACT = **NOT CLOSED，pending audit fix 独立审计**；
+  不写 SUPPORTED / VALIDATED / PROMOTED。无 outcome、无阈值、F19 未改
