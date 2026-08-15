@@ -45,15 +45,24 @@ factor_lab._ma10）；不足 10 个 session 的日子 MA10 未定义。
 
 ## 4. 语义边界（对 Sol 字段清单的逐项声明）
 
-- TOLERANCE：无。±2% 废弃（LEGACY CATALOG DRAFT / NOT FROZEN，
-  h4-support-zone-v01 报告 §5 备注）。
+- ZONE_MA10 = [MA10(D), MA10(D)]；ZONE_BODY = [min(o,c)(T0), max(o,c)(T0)]；
+  ZONE_PLATFORM = [support_low, support_high]（均取已冻结定义）。
+- SAME_DAY_SEMANTICS：区间当日被市场触发 = K 线区间与区间相交
+  （low<=Z.high 且 high>=Z.low）；c(D) 只统计同日触发的区间子集。
+- PRICE_OVERLAP_SEMANTICS：两两真实公共交集（区间对交集非空，退化区间按
+  单点参与）；F18=3 必须 Z_MA10∩Z_BODY∩Z_PLATFORM≠∅。
+- ACROSS_DAY_ACCUMULATION：NO——不同交易日分别触发的区间绝不累计
+  （F18 = max_D c(D)，非跨日拼接）。
+- TOLERANCE：无。±2% 废弃（LEGACY CATALOG DRAFT / NOT FROZEN）。
 - MISSING_SUPPORT：support_low/high 任一为 None → 返回 None。
-- INSUFFICIENT_MA10：窗口内没有任何可见日 MA10 已定义（不足 10 个
-  session）→ 返回 None；部分日子 MA10 未定义时只跳过那些日子。
-- FAIL_CLOSED：冻结区间非正/倒挂 → ValueError；anchor 缺失 → ValueError；
-  多 code / 重复日期 → ValueError（_ordered）。
-- 无 T0 后 bar → None（与 E04/E05 一致）。
-- OUTCOME_READ = NO；THRESHOLD_SEARCH = NO。
+- INSUFFICIENT_MA10：窗口内无任何可见日 MA10 已定义（不足 10 个
+  session）→ 返回 None；部分日 MA10 未定义时只跳过那些日子。
+- MALFORMED_BARS_PRECEDENCE：结构完整性优先——多 code / 重复日期在
+  任何语义短路（含 missing support → None）之前 fail closed（ValueError）；
+  然后才是 missing support → None、区间非正/倒挂 → ValueError、
+  anchor 缺失 → ValueError。
+- FAIL_CLOSED：同 MALFORMED_BARS_PRECEDENCE + 区间非法/anchor 缺失。
+- OUTCOME_READ = NO；THRESHOLD_SEARCH = NO；MA5_MA20_READ = NO。
 
 ## 5. 实现
 
@@ -63,19 +72,23 @@ support_low, support_high) -> int | None`
 - 复用 _ordered / _require_anchor / _after / _ma10 / _candle_intersects。
 - 逐日判断 SAME_DAY_TRIGGER ∧ PRICE_OVERLAP，累计计数。
 
-## 6. 测试（tests/test_factor_lab.py，F18 共 10 例）
+## 6. 测试（tests/test_factor_lab.py，F18 共 14 例）
 
-1. test_f18_max_depth_three_all_intersect — 三重共振 → 3
-2. test_f18_all_active_but_no_common_intersection_depth_two — Sol 裁决用例：
-   三区间全 active 但 Z_MA10∩Z_BODY∩Z_PLATFORM=∅ → 2（不允许 3）
-3. test_f18_ma_body_pair_depth_two — MA10∩实体 对 → 2
-4. test_f18_single_zone_active_depth_one — 仅实体触发 → 1
-5. test_f18_no_active_day_zero — 无触发 → 0
-6. test_f18_pit_cutoff_no_future_leak — as_of 截止（1→3 的 max 语义）
-7. test_f18_missing_support_returns_none — missing → None
-8. test_f18_insufficient_ma10_returns_none — MA10 不足 → None
-9. test_f18_no_post_anchor_bar_is_none — 无 T0 后 bar → None
-10. test_f18_invalid_zone_fail_closed — 倒挂/零价/anchor 缺失 → ValueError
+- THREE_WAY_TEST：test_f18_max_depth_three_all_intersect（三重共振 → 3）
+- TWO_WAY_TEST：test_f18_all_active_but_no_common_intersection_depth_two
+  （Sol 裁决用例：全 active 无公共交集 → 2）+ test_f18_ma_body_pair_depth_two
+- ACROSS_DAY_TEST：test_f18_across_day_no_accumulation（跨日不累计 → 2，非 3）
+- NO_OVERLAP_TEST：test_f18_no_overlap_depth_one（active 但零对交集 → 1）
+- BOUNDARY_TEST：test_f18_boundary_closed_interval_and_degenerate_platform
+  （闭合区间含端点 + 退化实体/退化平台单点精确命中 → 3）
+- FUTURE_LEAK_TEST：test_f18_pit_cutoff_no_future_leak（as_of 截止，1→3 max）
+- MISSING_SUPPORT_TEST：test_f18_missing_support_returns_none（low=None /
+  high=None）
+- INSUFFICIENT_MA10_TEST：test_f18_insufficient_ma10_returns_none（<10
+  session → None）+ test_f18_no_post_anchor_bar_is_none
+- BAD_BARS_WITH_MISSING_SUPPORT_TEST：test_f18_bad_bars_with_missing_support_fail_closed
+  （重复日期 + support=None → ValueError，结构校验优先）
+- FAIL_CLOSED：test_f18_invalid_zone_fail_closed（倒挂/零价/anchor 缺失）
 
 ## 7. 结论状态
 

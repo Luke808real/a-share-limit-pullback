@@ -429,14 +429,19 @@ def f18_support_confluence(
     are skipped. None when no post-anchor session is visible at as_of, or
     no visible session has a defined MA10. Missing frozen support (either
     bound None) returns None. Non-positive or reversed frozen zone fails
-    closed. Duplicate dates / multi-code / missing anchor fail closed."""
+    closed. Duplicate dates / multi-code / missing anchor fail closed.
+
+    Validation precedence (MALFORMED_BARS_PRECEDENCE): structural bar
+    integrity first (_ordered: multi-code / duplicate dates -> ValueError),
+    then missing frozen support -> None, then zone validity (non-positive /
+    reversed -> ValueError), then missing anchor -> ValueError."""
+    ordered = _ordered(bars)
     if support_low is None or support_high is None:
         return None
     if support_low <= ZERO or support_high <= ZERO:
         raise ValueError("frozen support zone requires positive prices")
     if support_low > support_high:
         raise ValueError("frozen support zone is reversed")
-    ordered = _ordered(bars)
     anchor = _require_anchor(ordered, anchor_date)
     after = _after(ordered, anchor_date, as_of)
     if not after:

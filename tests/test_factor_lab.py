@@ -554,10 +554,11 @@ def test_e05_invalid_frozen_zone_fail_closed() -> None:
 # --- F18: support confluence (same-day trigger + true price overlap) ---
 
 
-def _f18_series(pre_close: str, post: list[tuple[str, str, str]], n_pre: int = 12) -> list:
+def _f18_series(pre_close: str, post: list[tuple[str, str, str]], n_pre: int = 12, t0_close: str = "11.00") -> list:
     """F18 helper: n_pre pre-anchor days closing at pre_close (MA10 = pre_close
-    when post closes equal pre_close), T0 anchor (open 10.00 / close 11.00,
-    body zone [10.00, 11.00]), then post days as (low, high, close)."""
+    when post closes equal pre_close), T0 anchor (open 10.00 / close t0_close,
+    body zone [min(10.00,t0_close), max(10.00,t0_close)]), then post days as
+    (low, high, close)."""
     days = business_dates(date(2026, 2, 2), n_pre + 1 + len(post))
     bars = []
     p = Decimal(pre_close)
@@ -577,7 +578,7 @@ def _f18_series(pre_close: str, post: list[tuple[str, str, str]], n_pre: int = 1
         open_price="10.00",
         high="11.05",
         low="9.95",
-        close="11.00",
+        close=t0_close,
         preclose=pre_close,
         volume="1000",
     ))
@@ -713,3 +714,56 @@ def test_f18_invalid_zone_fail_closed() -> None:
         fl.f18_support_confluence(bars, anchor, bars[-1].trade_date, Decimal("0"), Decimal("10.60"))
     with pytest.raises(ValueError):
         fl.f18_support_confluence(bars, date(2030, 1, 1), bars[-1].trade_date, Decimal("10.20"), Decimal("10.60"))
+
+
+def test_f18_across_day_no_accumulation() -> None:
+    # day1 只有 MA10∩实体 对（深度 2），day2 也只有 MA10∩实体 对（深度 2），
+    # 没有任何一天达到三区间公共交集 → 结果为 2，绝不允许跨日拼出 3
+    # （ACROSS_DAY_ACCUMULATION = NO）。
+    bars = _f18_series("10.40", [("10.20", "10.80", "10.40"), ("10.20", "11.70", "10.40")])
+    anchor = bars[12].trade_date
+    assert (
+        fl.f18_support_confluence(
+            bars, anchor, bars[-1].trade_date, Decimal("11.20"), Decimal("11.60")
+        )
+        == 2
+    )
+
+
+def test_f18_no_overlap_depth_one() -> None:
+    # 实体 [10.00,10.30] 与平台 [10.60,10.90] 不相交，MA10=10.50 也不在两者
+    # 内；K 线 [10.10,11.00] 触发全部三区间，但任何区间对都无公共交集
+    # → 深度 1（NO_OVERLAP：active 但无真实交集）。
+    bars = _f18_series("10.50", [("10.10", "11.00", "10.50")], t0_close="10.30")
+    anchor = bars[12].trade_date
+    assert (
+        fl.f18_support_confluence(
+            bars, anchor, bars[-1].trade_date, Decimal("10.60"), Decimal("10.90")
+        )
+        == 1
+    )
+
+
+def test_f18_boundary_closed_interval_and_degenerate_platform() -> None:
+    # 闭合区间边界 + 退化区间：T0 实体退化单点 [10.40,10.40]（t0_close=10.40），
+    # 平台退化单点 [10.40,10.40]，MA10=10.40（pre_close=10.40 且 T0 收盘同为
+    # 10.40，窗口均值恒为 10.40）；K 线 low 恰好等于三个单点 → 全部按触及计
+    # → 三重共振 3（BOUNDARY，闭合区间含端点）。
+    bars = _f18_series("10.40", [("10.40", "10.80", "10.40")], t0_close="10.40")
+    anchor = bars[12].trade_date
+    assert (
+        fl.f18_support_confluence(
+            bars, anchor, bars[-1].trade_date, Decimal("10.40"), Decimal("10.40")
+        )
+        == 3
+    )
+
+
+def test_f18_bad_bars_with_missing_support_fail_closed() -> None:
+    # MALFORMED_BARS_PRECEDENCE：重复日期（结构坏 bar）即使 support 缺失
+    # 也优先 fail closed（ValueError），而不是短路返回 None。
+    bars = _f18_series("10.40", [("10.10", "10.80", "10.40")])
+    bars = bars + [bars[-1]]  # 重复最后一个交易日
+    anchor = bars[12].trade_date
+    with pytest.raises(ValueError):
+        fl.f18_support_confluence(bars, anchor, bars[-1].trade_date, None, None)
