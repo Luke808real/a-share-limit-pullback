@@ -55,13 +55,14 @@ vol(D) = 当日成交量；turn(D) = 当日换手；close/low/high 为原始价�
   high(i) >= support_low（K 线区间与冻结支撑区间相交）；support_low/high
   复用冻结 SupportSnapshot（冻结口径，不另定义新平台；缺失 → None，
   audit fix v01 恢复该定义）
-- F18 支撑共振计数（F18 SUPPORT CONFLUENCE CONTRACT V01，2026-08-15 冻结）：
-  存在 D ∈ (anchor_date, as_of] 使三个支撑区间同日被触发且价格真实重合：
-  Z_MA10(D)=[MA10(D),MA10(D)]、Z_T0=[min(open,close)(T0),max(open,close)(T0)]、
-  Z_PLATFORM=[support_low,support_high]；同日触发 = 当日 K 线区间与三个区间
-  均相交（low<=Z.high 且 high>=Z.low）；价格重合 = MA10(D) ∈ Z_T0 且
-  MA10(D) ∈ Z_PLATFORM。计数满足条件的 D 数。无容差（±2% 已废弃，
-  仅存于 h4-support-zone-v01 报告 §5 的 LEGACY CATALOG DRAFT 备注）。
+- F18 支撑共振深度（F18 SUPPORT CONFLUENCE CONTRACT V01，2026-08-15 冻结）：
+  对交易日 D，c(D) = 三个支撑区间（Z_MA10(D)=[MA10(D),MA10(D)]、
+  Z_BODY=[min(open,close)(T0),max(open,close)(T0)]、Z_PLATFORM=
+  [support_low,support_high]）中「当日被 K 线触发（区间相交）且区间两两
+  存在真实公共交集」的最大子集大小（0–3）。F18 = max_D c(D)。
+  三区间全 active ≠ 三重共振：必须 Z_MA10 ∩ Z_BODY ∩ Z_PLATFORM ≠ ∅
+  才允许 c=3。无容差（±2% 废弃，仅存于 h4-support-zone-v01 报告 §5 的
+  LEGACY CATALOG DRAFT 备注）。
 
 现状（2026-08-15，H4 SUPPORT ZONE CONTRACT V01）：
 - E01-E03 → IMPLEMENTED（factor_lab.ma10_touch_hold / ma10_close_break /

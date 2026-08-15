@@ -403,28 +403,33 @@ def f18_support_confluence(
     support_low: Decimal | None,
     support_high: Decimal | None,
 ) -> int | None:
-    """F18_SUPPORT_CONFLUENCE: number of days D in (anchor_date, as_of]
-    where all three support zones are triggered by D's candle on the SAME
-    day and the zones TRULY overlap in price (no tolerance, no ±2%).
+    """F18_SUPPORT_CONFLUENCE: the maximum confluence depth c(D) over days
+    D in (anchor_date, as_of], where c(D) is the size of the largest subset
+    of the three support zones that are all market-triggered on D AND have
+    a non-empty common price intersection (no tolerance, no ±2%).
 
-    Frozen zones (F18 SUPPORT CONFLUENCE CONTRACT V01):
+    Frozen zones (F18 SUPPORT CONFLUENCE CONTRACT V01, Sol authority):
       Z_MA10(D)   = [MA10(D), MA10(D)]                  (single price point)
-      Z_T0        = [min(open,close)(T0), max(open,close)(T0)]   (E04)
+      Z_BODY      = [min(open,close)(T0), max(open,close)(T0)]   (E04)
       Z_PLATFORM  = [support_low, support_high]         (E05 frozen values)
 
-    Same-day trigger: candle(D) intersects every zone, using the frozen
-    E05 intersection semantics low(D) <= Z.high and high(D) >= Z.low
-    applied to all three zones (a degenerate zone reduces to a point).
+    A zone is market-triggered on D when candle(D) intersects it
+    (low(D) <= Z.high and high(D) >= Z.low — frozen E05 intersection
+    semantics; a degenerate zone reduces to a point).
 
-    Price overlap: MA10(D) lies inside Z_T0 and inside Z_PLATFORM, so the
-    three zones share the price MA10(D) — true geometric overlap rather
-    than "touched on different days" reconstruction.
+    Depth: 3 requires all three zones triggered AND
+    Z_MA10 ∩ Z_BODY ∩ Z_PLATFORM ≠ ∅ (since Z_MA10 is a point: MA10(D) in
+    Z_BODY and MA10(D) in Z_PLATFORM). Depth 2 requires some triggered
+    pair with non-empty zone intersection (body∩platform overlap, or
+    MA10(D) inside body, or MA10(D) inside platform). Depth 1 requires at
+    least one triggered zone; 0 otherwise. The result is the MAXIMUM depth
+    over the window (a value in {0,1,2,3}), never a day count.
 
-    None when no post-anchor session is visible at as_of, or no visible
-    session has a defined MA10 (fewer than 10 sessions through that day).
-    Missing frozen support (either bound None) returns None. Non-positive
-    or reversed frozen zone fails closed. Duplicate dates / multi-code /
-    missing anchor fail closed (ValueError)."""
+    Days with undefined MA10 (fewer than 10 sessions through that day)
+    are skipped. None when no post-anchor session is visible at as_of, or
+    no visible session has a defined MA10. Missing frozen support (either
+    bound None) returns None. Non-positive or reversed frozen zone fails
+    closed. Duplicate dates / multi-code / missing anchor fail closed."""
     if support_low is None or support_high is None:
         return None
     if support_low <= ZERO or support_high <= ZERO:
@@ -439,19 +444,34 @@ def f18_support_confluence(
     t0_low = min(anchor.open, anchor.close)
     t0_high = max(anchor.open, anchor.close)
     ma = _ma10(ordered)
-    count = 0
+    best = 0
     evaluated = False
     for bar in after:
         m = ma[bar.trade_date]
         if m is None:
             continue
         evaluated = True
-        triggered = (
-            _candle_intersects(bar, t0_low, t0_high)
-            and _candle_intersects(bar, support_low, support_high)
-            and _candle_intersects(bar, m, m)
+        active_body = _candle_intersects(bar, t0_low, t0_high)
+        active_plat = _candle_intersects(bar, support_low, support_high)
+        active_ma = _candle_intersects(bar, m, m)
+        if not (active_body or active_plat or active_ma):
+            continue
+        triple = (
+            active_body
+            and active_plat
+            and active_ma
+            and t0_low <= m <= t0_high
+            and support_low <= m <= support_high
         )
-        overlap = t0_low <= m <= t0_high and support_low <= m <= support_high
-        if triggered and overlap:
-            count += 1
-    return count if evaluated else None
+        pair_body_plat = (
+            active_body
+            and active_plat
+            and t0_low <= support_high
+            and support_low <= t0_high
+        )
+        pair_ma_body = active_ma and active_body and t0_low <= m <= t0_high
+        pair_ma_plat = active_ma and active_plat and support_low <= m <= support_high
+        depth = 3 if triple else (2 if (pair_body_plat or pair_ma_body or pair_ma_plat) else 1)
+        if depth > best:
+            best = depth
+    return best if evaluated else None

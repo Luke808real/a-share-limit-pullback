@@ -594,21 +594,24 @@ def _f18_series(pre_close: str, post: list[tuple[str, str, str]], n_pre: int = 1
     return bars
 
 
-def test_f18_confluence_same_day_count_one() -> None:
-    # MA10 = 10.40 ∈ T0 实体 [10.00, 11.00] 且 ∈ 平台 [10.20, 10.60]；
-    # 当日 K 线 [10.10, 10.80] 同时触及三个区间 → 共振 1 天。
+def test_f18_max_depth_three_all_intersect() -> None:
+    # MA10=10.40 ∈ 实体 [10.00,11.00] 且 ∈ 平台 [10.20,10.60]，当日 K 线
+    # [10.10,10.80] 同时触及三区间 → 三重共振 → F18 = 3
     bars = _f18_series("10.40", [("10.10", "10.80", "10.40")])
     anchor = bars[12].trade_date
     assert (
         fl.f18_support_confluence(
             bars, anchor, bars[-1].trade_date, Decimal("10.20"), Decimal("10.60")
         )
-        == 1
+        == 3
     )
 
 
-def test_f18_two_confluence_days_count_two() -> None:
-    bars = _f18_series("10.40", [("10.10", "10.80", "10.40"), ("10.30", "10.70", "10.40")])
+def test_f18_all_active_but_no_common_intersection_depth_two() -> None:
+    # Sol 裁决用例：三个 support 同日全部 active，但 MA10=11.50 不在实体
+    # [10.00,11.00] 内也不在平台 [10.20,10.60] 内（Z_MA10 ∩ Z_BODY ∩
+    # Z_PLATFORM = ∅）→ 不允许 F18=3；实体∩平台有真实公共交集 → 2
+    bars = _f18_series("11.50", [("10.50", "11.80", "11.50")])
     anchor = bars[12].trade_date
     assert (
         fl.f18_support_confluence(
@@ -618,24 +621,34 @@ def test_f18_two_confluence_days_count_two() -> None:
     )
 
 
-def test_f18_partial_trigger_days_not_counted() -> None:
-    # day1 只触及 T0/MA10（high 10.05 < 平台下沿 10.20，未触平台），
-    # day2 触及 T0/MA10 但 low 10.70 > 平台上沿 10.60（未触平台）
-    # → 非同日均触发，计数 0。
-    bars = _f18_series("10.40", [("9.50", "10.05", "10.00"), ("10.70", "11.10", "10.90")])
+def test_f18_ma_body_pair_depth_two() -> None:
+    # 平台 [11.20,11.60] 未被触及；MA10=10.40 ∈ 实体 [10.00,11.00] 且 K 线
+    # 触及 MA10 与实体 → 深度 2（MA10∩实体对）
+    bars = _f18_series("10.40", [("10.20", "10.80", "10.40")])
+    anchor = bars[12].trade_date
+    assert (
+        fl.f18_support_confluence(
+            bars, anchor, bars[-1].trade_date, Decimal("11.20"), Decimal("11.60")
+        )
+        == 2
+    )
+
+
+def test_f18_single_zone_active_depth_one() -> None:
+    # 仅实体被触及（平台与 MA10 均未触发）→ 深度 1
+    bars = _f18_series("10.40", [("9.50", "10.05", "10.00")])
     anchor = bars[12].trade_date
     assert (
         fl.f18_support_confluence(
             bars, anchor, bars[-1].trade_date, Decimal("10.20"), Decimal("10.60")
         )
-        == 0
+        == 1
     )
 
 
-def test_f18_trigger_but_no_price_overlap_zero() -> None:
-    # MA10 = 10.10 触发三区间但不在平台区间内（10.10 < 10.20）→ 价格未真实
-    # 重合 → 计数 0（触发与重合是且关系）。
-    bars = _f18_series("10.10", [("9.90", "10.80", "10.10")])
+def test_f18_no_active_day_zero() -> None:
+    # K 线 [12.00,12.50] 完全高于所有区间，未触发任何支撑 → 0
+    bars = _f18_series("10.40", [("12.00", "12.50", "12.00")])
     anchor = bars[12].trade_date
     assert (
         fl.f18_support_confluence(
@@ -646,11 +659,16 @@ def test_f18_trigger_but_no_price_overlap_zero() -> None:
 
 
 def test_f18_pit_cutoff_no_future_leak() -> None:
-    bars = _f18_series("10.40", [("10.10", "10.80", "10.40"), ("10.30", "10.70", "10.40")])
+    # day1 深度 1，day2 深度 3；as_of=day1 → 1，as_of=day2 → 3（max 语义）
+    bars = _f18_series("10.40", [("9.50", "10.05", "10.00"), ("10.10", "10.80", "10.40")])
     anchor = bars[12].trade_date
     assert (
         fl.f18_support_confluence(bars, anchor, bars[13].trade_date, Decimal("10.20"), Decimal("10.60"))
         == 1
+    )
+    assert (
+        fl.f18_support_confluence(bars, anchor, bars[14].trade_date, Decimal("10.20"), Decimal("10.60"))
+        == 3
     )
 
 

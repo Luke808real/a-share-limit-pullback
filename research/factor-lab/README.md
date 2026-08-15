@@ -45,8 +45,9 @@ L2 研究因子层 + L3 统计验证层的落点。目标见 docs/ARCHITECTURE_G
 - f18-support-confluence-v01（2026-08-15，F18 SUPPORT CONFLUENCE CONTRACT
   V01）：F18 支撑共振 PIT 数学合同冻结 + 纯函数实现（contract/
   implementation only，无统计、无 outcome、无阈值搜索）：Z_MA10(D)=
-  [MA10(D),MA10(D)]、Z_T0=[min(o,c)(T0),max(o,c)(T0)]、Z_PLATFORM=
-  [support_low,support_high]；共振 = 同交易日三区间均被 K 线触及（区间
-  相交）且价格真实重合（MA10(D)∈Z_T0∩Z_PLATFORM）；计数满足条件的
-  D ∈ (anchor,as_of]。无容差（±2% 废弃）。missing support / MA10 不足 →
-  None；非法区间/anchor/多 code/重复日期 fail closed
+  [MA10(D),MA10(D)]、Z_BODY=[min(o,c)(T0),max(o,c)(T0)]、Z_PLATFORM=
+  [support_low,support_high]；单日深度 c(D)=当日被触发的支撑区间中「两两
+  真实公共交集」的最大子集大小（0–3），F18=max_D c(D)；三区间全 active
+  必须 Z_MA10∩Z_BODY∩Z_PLATFORM≠∅ 才允许 c=3。无容差（±2% 废弃）。
+  missing support / MA10 不足 → None；非法区间/anchor/多 code/重复日期
+  fail closed
