@@ -32,21 +32,21 @@
       "P(R>=2)": 0.048082
     },
     "NON_CONFLUENCE": {
-      "N": 2991,
+      "N": 2960,
       "WIN_S1": 742,
-      "LOSS_INVALID": 1770,
-      "CANCEL_GAP_INVALID": 479,
-      "win_share": 0.248078,
-      "strict_win_rate": 0.295382,
-      "R_DEFINED_N": 2512,
-      "mean_R": -0.029919,
+      "LOSS_INVALID": 1745,
+      "CANCEL_GAP_INVALID": 473,
+      "win_share": 0.250676,
+      "strict_win_rate": 0.298351,
+      "R_DEFINED_N": 2487,
+      "mean_R": -0.020167,
       "median_R": -1.0,
-      "P(R>0)": 0.246019,
-      "P(R>=2)": 0.035828
+      "P(R>0)": 0.248492,
+      "P(R>=2)": 0.036188
     },
-    "DELTA_STRICT_WIN_RATE": 0.001344,
-    "DELTA_P_R_GT_0": -0.004485,
-    "DELTA_MEAN_R": -0.04259,
+    "DELTA_STRICT_WIN_RATE": -0.001625,
+    "DELTA_P_R_GT_0": -0.006958,
+    "DELTA_MEAN_R": -0.052342,
     "DELTA_MEDIAN_R": 0.0
   },
   "ROBUST_R": {
@@ -59,12 +59,12 @@
       "trim_top1pct_mean_R": -0.335223
     },
     "NON_CONFLUENCE": {
-      "p90_R": 0.57707,
-      "p95_R": 1.235985,
-      "p99_R": 19.654107,
+      "p90_R": 0.57824,
+      "p95_R": 1.25346,
+      "p99_R": 19.806062,
       "max_R": 109.0,
-      "top1pct_R_contribution": -11.834059,
-      "trim_top1pct_mean_R": -0.387837
+      "top1pct_R_contribution": -17.337097,
+      "trim_top1pct_mean_R": -0.37341
     }
   },
   "RAW_DEPTH_TABLE": [
@@ -109,9 +109,9 @@
     {
       "stratum": "B1_READY",
       "N_CONFLUENCE": 4400,
-      "N_NON_CONFLUENCE": 2011,
-      "delta_strict_win_rate": 0.015104,
-      "delta_p_r_gt_0": 0.015104,
+      "N_NON_CONFLUENCE": 1980,
+      "delta_strict_win_rate": 0.014315,
+      "delta_p_r_gt_0": 0.014315,
       "eligible": true,
       "SMALL_CELL": false
     },
@@ -138,27 +138,27 @@
     {
       "stratum": "T1-2",
       "N_CONFLUENCE": 4790,
-      "N_NON_CONFLUENCE": 2029,
-      "delta_strict_win_rate": 0.005032,
-      "delta_p_r_gt_0": 0.005032,
+      "N_NON_CONFLUENCE": 2000,
+      "delta_strict_win_rate": 0.003161,
+      "delta_p_r_gt_0": 0.003161,
       "eligible": true,
       "SMALL_CELL": false
     },
     {
       "stratum": "T3",
       "N_CONFLUENCE": 782,
-      "N_NON_CONFLUENCE": 467,
-      "delta_strict_win_rate": -0.008915,
-      "delta_p_r_gt_0": -0.023719,
+      "N_NON_CONFLUENCE": 466,
+      "delta_strict_win_rate": -0.010167,
+      "delta_p_r_gt_0": -0.02488,
       "eligible": true,
       "SMALL_CELL": false
     },
     {
       "stratum": "T4-5",
       "N_CONFLUENCE": 615,
-      "N_NON_CONFLUENCE": 307,
-      "delta_strict_win_rate": 0.080719,
-      "delta_p_r_gt_0": 0.049071,
+      "N_NON_CONFLUENCE": 306,
+      "delta_strict_win_rate": 0.078612,
+      "delta_p_r_gt_0": 0.047571,
       "eligible": true,
       "SMALL_CELL": false
     },

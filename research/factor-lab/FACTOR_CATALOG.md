@@ -79,11 +79,13 @@ vol(D) = 当日成交量；turn(D) = 当日换手；close/low/high 为原始价�
 - F18 → CONTRACT FROZEN / CLOSED（Sol audit PASS，HEAD e37c57b；修订链
   7062990 否决 → 7400dc7 主体修复 → e37c57b final semantics；
   factor_lab.support_confluence_max_count，F18 = max_D C(D) ∈ {0,1,2,3}）。
-  OUTCOME VALIDATION V01（frozen episodes，N=9625 resolved）：H4C = REJECT
-  ——CONFLUENCE(F18>=2) vs NON_CONFLUENCE(F18<=1)：Δstrict_win_rate
-  +0.0013、ΔP(R>0) -0.0045、Δmean_R -0.043、Δmedian_R 0.0；深度表
-  （0/1/2/3）无单调性（F18=0 层 strict_win_rate 0.312 最优，F18=3 层
-  mean_R -0.279 最差）；stage 方向 1/3、timing 方向 3/4。
+  OUTCOME VALIDATION V01（frozen episodes，N=9625 resolved，审计修正后
+  primary population = F18 定义样本 9594）：H4C = REJECT——CONFLUENCE
+  (F18>=2, N6634) vs NON_CONFLUENCE(F18<=1, N2960)：Δstrict_win_rate
+  −0.0016、ΔP(R>0) −0.0070、Δmean_R −0.052、Δmedian_R 0.0（undefined
+  F18 已按审计排除，Δswr 符号修正后为负）；深度表（0/1/2/3）无单调性
+  （F18=0 层 strict_win_rate 0.312 最优，F18=3 层 mean_R −0.279 最差）；
+  stage 方向 1/3、timing 方向 3/4。
   F18 PREDICTIVE VALUE = UNKNOWN；VALIDATED = NO；PROMOTED = NO（不得进入
   策略打分）。见 runs/f18-support-confluence-validation-v01/
 

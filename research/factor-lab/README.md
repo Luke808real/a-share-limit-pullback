@@ -56,10 +56,12 @@ L2 研究因子层 + L3 统计验证层的落点。目标见 docs/ARCHITECTURE_G
   V01；F18 CONTRACT = FROZEN / CLOSED，HEAD e37c57b）：预注册 outcome
   验证（frozen episodes SHA 门禁通过，EPISODES_TOTAL=31422，
   RESOLVED_N=9625，F18_DEFINED_N=9594，UNDEFINED=31 全为 NO_DEFINED_MA10，
-  OTHER_ERROR=0）：primary contrast F18>=2 vs F18<=1，
-  Δstrict_win_rate=+0.0013、ΔP(R>0)=-0.0045 → **H4C = REJECT**；深度表无
+  OTHER_ERROR=0；undefined 按审计排除出 primary population）：
+  primary contrast F18>=2(N6634) vs F18<=1(N2960)，
+  Δstrict_win_rate=−0.0016、ΔP(R>0)=−0.0070 → **H4C = REJECT**；深度表无
   单调性；robust R 显示双方尾部均极端（max_R 69/109，top1pct 贡献为负）。
   F18 PREDICTIVE VALUE = UNKNOWN；VALIDATED = NO；PROMOTED = NO。
-  预注册纪律：未做 outcome-aware 调参、未搜索阈值、合同未改。
+  预注册纪律：未做 outcome-aware 调参、未搜索阈值、合同未改；审计修正
+  （undefined 分组、SHA gate 无 bypass）已并入脚本。
   产物：runs/f18-support-confluence-validation-v01/f18-validation-v01.json
   + f18-validation-report-v01.md + research/f18_validation_v01.py

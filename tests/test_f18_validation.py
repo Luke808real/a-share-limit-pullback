@@ -11,6 +11,7 @@ import pytest
 
 from research.f18_validation_v01 import (
     bars_pit,
+    classify_group,
     group_daily,
     compute_f18,
     group_metrics,
@@ -150,3 +151,13 @@ def test_compute_f18_missing_support() -> None:
     f18, reason = compute_f18(group_daily(df), episode)
     assert f18 is None
     assert reason == "MISSING_SUPPORT"
+
+
+def test_classify_group_undefined_not_in_primary() -> None:
+    # Audited fix: None/NaN must not fall into NON_CONFLUENCE
+    assert classify_group(None) == "UNDEFINED"
+    assert classify_group(float("nan")) == "UNDEFINED"
+    assert classify_group(0) == "NON_CONFLUENCE"
+    assert classify_group(1) == "NON_CONFLUENCE"
+    assert classify_group(2) == "CONFLUENCE"
+    assert classify_group(3) == "CONFLUENCE"

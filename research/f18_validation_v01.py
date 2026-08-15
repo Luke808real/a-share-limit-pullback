@@ -256,11 +256,24 @@ def _round(value: float) -> float | None:
     return round(float(value), 6)
 
 
-def main(episodes_path: Path, daily_path: Path, out_dir: Path, daily: pd.DataFrame | None = None) -> dict:
-    """Full pre-registered pipeline. Returns the result dict (and writes JSON + MD)."""
+def classify_group(value: object) -> str:
+    """Pre-registered group assignment: CONFLUENCE = F18 >= 2,
+    NON_CONFLUENCE = F18 <= 1, UNDEFINED otherwise (None/NaN must NOT
+    fall into either primary group — audited fix)."""
+    if value is None or (isinstance(value, float) and value != value):
+        return "UNDEFINED"
+    return "CONFLUENCE" if value >= 2 else "NON_CONFLUENCE"
+
+
+def main(episodes_path: Path, daily_path: Path, out_dir: Path) -> dict:
+    """Full pre-registered pipeline. Returns the result dict (and writes JSON + MD).
+
+    No input bypass: episodes and daily are ALWAYS loaded through their SHA
+    gates inside this function (audited: no caller-supplied DataFrame can
+    claim a frozen hash it never verified).
+    """
     episodes = load_episodes(episodes_path)
-    if daily is None:
-        daily = load_daily(daily_path)
+    daily = load_daily(daily_path)
 
     groups = group_daily(daily)
     resolved = episodes[episodes["outcome"].isin(RESOLVED_OUTCOMES)].copy()
@@ -282,10 +295,14 @@ def main(episodes_path: Path, daily_path: Path, out_dir: Path, daily: pd.DataFra
     resolved["f18"] = f18_vals
     resolved["undefined_reason"] = reasons
     resolved["r_multiple_num"] = pd.to_numeric(resolved["r_multiple"], errors="coerce")
-    resolved["group"] = resolved["f18"].apply(lambda v: "CONFLUENCE" if v is not None and v >= 2 else "NON_CONFLUENCE")
+    # Pre-registered groups: CONFLUENCE = F18 >= 2, NON_CONFLUENCE = F18 <= 1.
+    # Undefined F18 belongs to NEITHER group and is excluded from the primary
+    # population (audited fix: undefined must not fall into NON_CONFLUENCE).
+    resolved["group"] = resolved["f18"].apply(classify_group)
 
-    con = resolved[resolved["group"] == "CONFLUENCE"]
-    non = resolved[resolved["group"] == "NON_CONFLUENCE"]
+    defined = resolved[resolved["group"] != "UNDEFINED"]
+    con = defined[defined["group"] == "CONFLUENCE"]
+    non = defined[defined["group"] == "NON_CONFLUENCE"]
     con_m = group_metrics(con["outcome"], con["r_multiple_num"])
     non_m = group_metrics(non["outcome"], non["r_multiple_num"])
 
@@ -301,7 +318,7 @@ def main(episodes_path: Path, daily_path: Path, out_dir: Path, daily: pd.DataFra
 
     stage_rows = []
     for stage in ("B1_READY", "B2_READY", "B2_CONFIRMED"):
-        sub = resolved[resolved["setup_stage"] == stage]
+        sub = defined[defined["setup_stage"] == stage]
         c = sub[sub["group"] == "CONFLUENCE"]
         n = sub[sub["group"] == "NON_CONFLUENCE"]
         cm, nm = group_metrics(c["outcome"], c["r_multiple_num"]), group_metrics(n["outcome"], n["r_multiple_num"])
@@ -317,7 +334,7 @@ def main(episodes_path: Path, daily_path: Path, out_dir: Path, daily: pd.DataFra
         })
     timing_rows = []
     for bucket in ("T1-2", "T3", "T4-5", "T6-10"):
-        sub = resolved[resolved["days_since_anchor"].apply(timing_bucket) == bucket]
+        sub = defined[defined["days_since_anchor"].apply(timing_bucket) == bucket]
         c = sub[sub["group"] == "CONFLUENCE"]
         n = sub[sub["group"] == "NON_CONFLUENCE"]
         cm, nm = group_metrics(c["outcome"], c["r_multiple_num"]), group_metrics(n["outcome"], n["r_multiple_num"])
