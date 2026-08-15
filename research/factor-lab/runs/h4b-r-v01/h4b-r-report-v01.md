@@ -28,7 +28,7 @@ NO_RECLAIM_N     = 960（strict WIN/LOSS = 90/681）
 
 | 指标 | RECLAIM (n=467) | NO_RECLAIM (n=771) |
 | --- | --- | --- |
-| win_count / loss_count | 228 / 238 | 83 / 687 |
+| win_count / loss_count（R 符号口径） | 228 / 238（+1 零值） | 83 / 687（+1 零值） |
 | mean_R | +0.1866 | +0.2474 |
 | median_R | **-0.0218** | **-1.0** |
 | p10 / p25 / p75 | -1.0 / -1.0 / 0.4667 | -1.0 / -1.0 / -1.0 |
@@ -42,6 +42,22 @@ NO_RECLAIM_N     = 960（strict WIN/LOSS = 90/681）
 | mean_positive_R | 1.2213 | 10.5271 |
 | median_positive_R | 0.4815 | 3.5641 |
 | mean_negative_R | -0.8038 | -0.9942 |
+
+**Outcome vs payoff 口径核对（Sol 评审发现，已修正）**：本脚本的
+`winner_payoff()` 按 **R>0**（payoff-positive）而非 `outcome==WIN_S1` 定义
+"winner"。核对结果如实记录：
+
+| 项 | RECLAIM | NO_RECLAIM |
+| --- | --- | --- |
+| WIN_S1（frozen outcome） | 290 | 90 |
+| payoff_positive（R>0） | 228 | 83 |
+| r==0 | 1 | 1 |
+| WIN_S1 且 r<=0 | **62**（61 负 + 1 零） | **7**（6 负 + 1 零） |
+| LOSS_INVALID 且 r>0 | 0 | 0 |
+
+即：frozen outcome 标签与 r_multiple 符号存在系统性分歧——**WIN_S1 行可能
+携带 r<=0**（RECLAIM 62 行 / NO_RECLAIM 7 行）；LOSS_INVALID 全部为负。
+两口径各自独立报告，绝不混用。此分歧不影响 tail analysis（完整 R 向量）。
 
 **LOSS_INVALID R 口径核查**：并非全部为 -1 —— RECLAIM 组有 61 个不同的
 非 (-1) 负 R 值（-0.0149…-0.7173，部分亏损），NO_RECLAIM 组有 7 个
@@ -65,25 +81,39 @@ NO_RECLAIM 的 top1%（8 行）贡献 **1.89× 总 R**，top5%（39 行）贡献
 4.31× —— 即去掉 top1% 后总 R 转负（trimmed mean -0.2234）。均值完全由
 极端右尾撑起。
 
-## 4. Winner Payoff Decomposition
+## 4. Winner Payoff Decomposition（双口径，绝不混用）
 
-| 指标 | RECLAIM | NO_RECLAIM |
+### 4a. payoff-positive 口径（R>0 行）
+
+| 指标 | RECLAIM (n=228) | NO_RECLAIM (n=83) |
 | --- | --- | --- |
-| n_positive | 228 | 83 |
-| mean_win_R | **1.2213** | **10.5271** |
-| median_win_R | 0.4815 | 3.5641 |
-| p90_win_R | 2.125 | 26.3529 |
-| max_win_R | 26.381 | 69.25 |
+| mean_payoff_positive_R | **1.2213** | **10.5271** |
+| median_payoff_positive_R | 0.4815 | 3.5641 |
+| p90_payoff_positive_R | 2.125 | 26.3529 |
+| max_payoff_positive_R | 26.381 | 69.25 |
 
-mean_win_R ratio（NO_RECLAIM / RECLAIM）= **8.62×**
+mean ratio（NO_RECLAIM / RECLAIM）= **8.62×**
 
-低命中的 NO_RECLAIM 完全依赖少数巨大 winner：83 个 WIN 平均 R 10.53
-（中位 3.56），且 p90 达 26.35。RECLAIM 的 228 个 WIN 平均 R 仅 1.22
-（中位 0.48）——胜在"多而小"。
+### 4b. WIN_S1 outcome 口径（frozen outcome 标签）
 
-## 5. Pre-registered Strata（stage / timing，N<20 不解释）
+| 指标 | RECLAIM (n=290) | NO_RECLAIM (n=90) |
+| --- | --- | --- |
+| mean_win_s1_R | **0.9108** | **9.6861** |
+| median_win_s1_R | 0.2923 | 3.1678 |
+| p90_win_s1_R | 1.8822 | 26.3529 |
+| max_win_s1_R | 26.381 | 69.25 |
 
-| stratum | RECLAIM n / swr / mean_R / mean_win_R | NO_RECLAIM n / swr / mean_R / mean_win_R |
+mean ratio（NO_RECLAIM / RECLAIM）= **10.63×**
+
+**两个口径方向完全一致**：NO_RECLAIM 的 winner 平均 R 是 RECLAIM 的
+8.6–10.6 倍。低命中的 NO_RECLAIM 依赖少数巨大 winner（83/90 个
+R>0/WIN_S1 行平均 R 10.53/9.69，中位 3.56/3.17，p90 26.35）。RECLAIM
+的 winner 多而小（228/290 行平均 R 1.22/0.91，中位 0.48/0.29）。
+"winner payoff 反向"的解释在两种口径下均成立，且 WIN_S1 口径下更强。
+
+## 5. Pre-registered Strata（stage / timing，N<20 不解释；mean_payoff_positive_r 为 R>0 口径）
+
+| stratum | RECLAIM n / swr / mean_R / mean_pos_R | NO_RECLAIM n / swr / mean_R / mean_pos_R |
 | --- | --- | --- |
 | B1_READY | 181 / 0.1029 / +0.0588 / null | 888 / 0.0636 / +0.2537 / 18.7251 |
 | B2_READY | 114 / 0.6634 / +0.0634 / 0.603 | 39 / 0.5667 / -0.0449 / null |
@@ -94,8 +124,8 @@ mean_win_R ratio（NO_RECLAIM / RECLAIM）= **8.62×**
 | T+6~10 | 92 / 0.8556 / -0.0527 / 0.3878 | 87 / 0.3506 / +0.2535 / 3.5764 |
 
 胜率方向：RECLAIM 在全部 7 个分层中 strict_win_rate 更高（与 H4 V01
-一致）；mean_win_R 在可解释 cell 中 RECLAIM 全部更低 —— winner payoff
-反向在分层中同样成立。
+一致）；mean_payoff_positive_R 在可解释 cell 中 RECLAIM 全部更低 ——
+winner payoff 反向在分层中同样成立。
 
 ## 6. Conclusion
 
@@ -105,7 +135,8 @@ A. NO_RECLAIM +0.2474 mean_R 是否由 tail concentration 驱动？
 
 B. RECLAIM 优势是否主要为 hit probability / median outcome，而非右尾 payoff？
    YES —— median_R -0.0218 vs -1.0，P(R>0) 48.8% vs 10.8%，
-   mean_win_R 1.22 vs 10.53（ratio 8.62×）。
+   winner payoff 双口径均反向（R>0 口径 1.22 vs 10.53 ratio 8.62×；
+   WIN_S1 口径 0.91 vs 9.69 ratio 10.63×）。
 
 C. 去除 top1% / top5% 后两组 mean_R 相对方向？
    翻转：top1% 去除后 +0.0226 vs -0.2234；top5% 去除后 -0.162 vs -0.862
@@ -118,15 +149,16 @@ H4B_VERDICT_UNCHANGED = REJECT
 结论：H4B 的 mean_R 矛盾被完整解释——**NO_RECLAIM 的正 mean_R 是极端
 右尾集中（少数超级赢家）的产物，不是稳健收益**；**RECLAIM 的优势体现在
 命中概率与中位结果**（快速收回 MA10 的样本胜率更高、亏损更浅），而非
-赔率结构。任何"快速收回 = 更好"的表述仍停留在 OBSERVATION 层面：
-不改 E01/E02/E03 合同、不搜索阈值、不升级 E03、不做 production
-promotion。
+赔率结构。winner payoff 反向在 payoff-positive 与 WIN_S1 双口径下均成立
+（ratio 8.62× / 10.63×）。任何"快速收回 = 更好"的表述仍停留在
+OBSERVATION 层面：不改 E01/E02/E03 合同、不搜索阈值、不升级 E03、不做
+production promotion。
 
 ## 7. Artifacts
 
 | 项 | 值 |
 | --- | --- |
 | 研究脚本 | `research/factor-lab/h4b_r_distribution_reconciliation_v01.py` |
-| script SHA256 | `50e37bc649deb38256b91bf4c67c09b00e026d8901a9af2786c5dd43385ba5e1` |
+| script SHA256 | `bdf80502cf9ca34d559b5b8eca393b44964bc5bee880d7873c13fca266093797` |
 | 输出 JSON | `research/factor-lab/runs/h4b-r-v01/h4b-r-v01.json` |
-| output JSON SHA256 | `2fcaa967406acb3242c82802c97353d36eae1251b69f71239c13c75798ab7075` |
+| output JSON SHA256 | `1dd15748abcc1fd672cb433cb4b37a009bb6ec8961fb50fd5db931f05ba14fd1` |

@@ -171,15 +171,56 @@ def tail_driver(values: list[float]) -> dict:
 
 
 def winner_payoff(values: list[float]) -> dict:
+    """Payoff stats over PAYOFF-POSITIVE rows (r > 0), NOT outcome==WIN_S1.
+
+    The frozen outcome label and r_multiple are not perfectly aligned (some
+    WIN_S1 rows carry r <= 0 and some LOSS_INVALID rows carry r > 0); the
+    reconciliation therefore reports BOTH definitions explicitly and never
+    conflates them. Keys are named payoff_positive_* to keep the 口径 distinct.
+    """
     pos = sorted(v for v in values if v > 0)
     if not pos:
-        return {"n_positive": 0}
+        return {"n_payoff_positive": 0}
     return {
-        "n_positive": len(pos),
-        "mean_win_r": round(_mean(pos), 4),
-        "median_win_r": round(_median(pos), 4),
-        "p90_win_r": round(_quantile(pos, 0.90), 4),
-        "max_win_r": round(max(pos), 4),
+        "n_payoff_positive": len(pos),
+        "mean_payoff_positive_r": round(_mean(pos), 4),
+        "median_payoff_positive_r": round(_median(pos), 4),
+        "p90_payoff_positive_r": round(_quantile(pos, 0.90), 4),
+        "max_payoff_positive_r": round(max(pos), 4),
+    }
+
+
+def winner_payoff_by_outcome(rows: list[dict]) -> dict:
+    """Payoff stats over rows with outcome == WIN_S1 (frozen label口径).
+
+    Kept separate from winner_payoff(): the outcome label is the frozen
+    semantic definition of a win, while payoff_positive is the P&L sign.
+    """
+    wins = [r["r"] for r in rows if r["outcome"] == WIN and r["r"] is not None]
+    if not wins:
+        return {"n_win_s1": 0}
+    return {
+        "n_win_s1": len(wins),
+        "mean_win_s1_r": round(_mean(wins), 4),
+        "median_win_s1_r": round(_median(wins), 4),
+        "p90_win_s1_r": round(_quantile(wins, 0.90), 4),
+        "max_win_s1_r": round(max(wins), 4),
+    }
+
+
+def outcome_vs_payoff_reconciliation(rows: list[dict]) -> dict:
+    """Document the divergence between the outcome label and the R sign."""
+    win_s1 = [r["r"] for r in rows if r["outcome"] == WIN and r["r"] is not None]
+    loss_inv = [r["r"] for r in rows if r["outcome"] == LOSS and r["r"] is not None]
+    r_values = [r["r"] for r in rows if r["outcome"] in (WIN, LOSS) and r["r"] is not None]
+    return {
+        "win_s1_n": len(win_s1),
+        "loss_invalid_n": len(loss_inv),
+        "payoff_positive_n": sum(1 for v in r_values if v > 0),
+        "payoff_negative_n": sum(1 for v in r_values if v < 0),
+        "r_zero_n": sum(1 for v in r_values if v == 0),
+        "win_s1_with_r_le0_n": sum(1 for v in win_s1 if v <= 0),
+        "loss_invalid_with_r_gt0_n": sum(1 for v in loss_inv if v > 0),
     }
 
 
@@ -189,13 +230,13 @@ def _cell_diag(rows: list[dict]) -> dict:
     n = len(rows)
     strict_denom = wins + losses
     r_values = [r["r"] for r in rows if r["outcome"] in (WIN, LOSS) and r["r"] is not None]
+    pos = [v for v in r_values if v > 0]
     cell = {
         "n": n,
         "strict_win_rate": round(wins / strict_denom, 4) if strict_denom >= MIN_N else None,
         "mean_r": round(sum(r_values) / len(r_values), 4) if len(r_values) >= MIN_N else None,
         "median_r": round(_median(r_values), 4) if len(r_values) >= MIN_N else None,
-        "mean_win_r": round(_mean([v for v in r_values if v > 0]), 4)
-        if len([v for v in r_values if v > 0]) >= MIN_N else None,
+        "mean_payoff_positive_r": round(_mean(pos), 4) if len(pos) >= MIN_N else None,
     }
     return cell
 
@@ -349,10 +390,19 @@ def main() -> int:
     tail_no = tail_driver(rv_no)
     win_reclaim = winner_payoff(rv_reclaim)
     win_no = winner_payoff(rv_no)
+    win_s1_reclaim = winner_payoff_by_outcome(reclaim)
+    win_s1_no = winner_payoff_by_outcome(no_reclaim)
+    recon_reclaim = outcome_vs_payoff_reconciliation(reclaim)
+    recon_no = outcome_vs_payoff_reconciliation(no_reclaim)
 
-    mean_win_ratio = (
-        round(win_no["mean_win_r"] / win_reclaim["mean_win_r"], 4)
-        if win_reclaim.get("mean_win_r") and win_no.get("mean_win_r")
+    payoff_ratio = (
+        round(win_no["mean_payoff_positive_r"] / win_reclaim["mean_payoff_positive_r"], 4)
+        if win_reclaim.get("mean_payoff_positive_r") and win_no.get("mean_payoff_positive_r")
+        else None
+    )
+    win_s1_ratio = (
+        round(win_s1_no["mean_win_s1_r"] / win_s1_reclaim["mean_win_s1_r"], 4)
+        if win_s1_reclaim.get("mean_win_s1_r") and win_s1_no.get("mean_win_s1_r")
         else None
     )
 
@@ -438,9 +488,14 @@ def main() -> int:
         "no_reclaim_r_distribution": dist_no,
         "reclaim_tail_driver": tail_reclaim,
         "no_reclaim_tail_driver": tail_no,
-        "reclaim_winner_payoff": win_reclaim,
-        "no_reclaim_winner_payoff": win_no,
-        "mean_win_r_ratio_no_over_reclaim": mean_win_ratio,
+        "reclaim_winner_payoff_payoff_positive": win_reclaim,
+        "no_reclaim_winner_payoff_payoff_positive": win_no,
+        "reclaim_winner_payoff_win_s1_outcome": win_s1_reclaim,
+        "no_reclaim_winner_payoff_win_s1_outcome": win_s1_no,
+        "reclaim_outcome_vs_payoff": recon_reclaim,
+        "no_reclaim_outcome_vs_payoff": recon_no,
+        "mean_payoff_positive_ratio_no_over_reclaim": payoff_ratio,
+        "mean_win_s1_ratio_no_over_reclaim": win_s1_ratio,
         "strata_diagnostics": strata_diag,
         "question_answers": question_answers,
         "conclusion": conclusion,
