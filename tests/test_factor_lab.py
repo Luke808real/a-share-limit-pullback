@@ -551,13 +551,15 @@ def test_e05_invalid_frozen_zone_fail_closed() -> None:
         )
 
 
-# --- F18: support confluence (same-day trigger + true price overlap) ---
+# --- F18: support confluence (audit fix v01: max daily depth 0-3, frozen activation) ---
 
 
-def _f18_series(pre_close: str, post: list[tuple[str, str, str]], n_pre: int = 12) -> list:
-    """F18 helper: n_pre pre-anchor days closing at pre_close (MA10 = pre_close
-    when post closes equal pre_close), T0 anchor (open 10.00 / close 11.00,
-    body zone [10.00, 11.00]), then post days as (low, high, close)."""
+def _f18_series(pre_close: str, post: list[tuple[str, str, str]], n_pre: int = 12, t0_close: str = "11.00") -> list:
+    """F18 helper: n_pre pre-anchor days closing at pre_close, T0 anchor
+    (open 10.00 / close t0_close, body zone [min(10.00,t0_close),
+    max(10.00,t0_close)]), then post days as (low, high, close). MA10 at a
+    post day = mean of the last 10 closes ending at that day (includes the
+    T0 close)."""
     days = business_dates(date(2026, 2, 2), n_pre + 1 + len(post))
     bars = []
     p = Decimal(pre_close)
@@ -577,7 +579,7 @@ def _f18_series(pre_close: str, post: list[tuple[str, str, str]], n_pre: int = 1
         open_price="10.00",
         high="11.05",
         low="9.95",
-        close="11.00",
+        close=t0_close,
         preclose=pre_close,
         volume="1000",
     ))
@@ -594,85 +596,141 @@ def _f18_series(pre_close: str, post: list[tuple[str, str, str]], n_pre: int = 1
     return bars
 
 
-def test_f18_confluence_same_day_count_one() -> None:
-    # MA10 = 10.40 ∈ T0 实体 [10.00, 11.00] 且 ∈ 平台 [10.20, 10.60]；
-    # 当日 K 线 [10.10, 10.80] 同时触及三个区间 → 共振 1 天。
-    bars = _f18_series("10.40", [("10.10", "10.80", "10.40")])
+def test_f18_max_depth_three_all_intersect() -> None:
+    # E01/E04/E05 激活全成立且 MA10∈实体∩平台 → 三重共振 3
+    # m=(10.50+11.00+8×10.40)/10=10.47
+    bars = _f18_series("10.40", [("10.10", "10.80", "10.50")])
     anchor = bars[12].trade_date
     assert (
-        fl.f18_support_confluence(
+        fl.support_confluence_max_count(
             bars, anchor, bars[-1].trade_date, Decimal("10.20"), Decimal("10.60")
         )
-        == 1
+        == 3
     )
 
 
-def test_f18_two_confluence_days_count_two() -> None:
-    bars = _f18_series("10.40", [("10.10", "10.80", "10.40"), ("10.30", "10.70", "10.40")])
+def test_f18_all_active_no_common_intersection_depth_two() -> None:
+    # Sol 裁决用例：三区间同日全 active，但 MA10=11.45∉实体∉平台
+    # （公共交集为空）→ 2，不允许 3
+    bars = _f18_series("11.50", [("10.50", "11.80", "11.50")])
     anchor = bars[12].trade_date
     assert (
-        fl.f18_support_confluence(
+        fl.support_confluence_max_count(
             bars, anchor, bars[-1].trade_date, Decimal("10.20"), Decimal("10.60")
         )
         == 2
     )
 
 
-def test_f18_partial_trigger_days_not_counted() -> None:
-    # day1 只触及 T0/MA10（high 10.05 < 平台下沿 10.20，未触平台），
-    # day2 触及 T0/MA10 但 low 10.70 > 平台上沿 10.60（未触平台）
-    # → 非同日均触发，计数 0。
-    bars = _f18_series("10.40", [("9.50", "10.05", "10.00"), ("10.70", "11.10", "10.90")])
+def test_f18_ma_body_pair_depth_two() -> None:
+    # MA10∈实体 且 MA+实体 激活、平台未激活 → 2
+    bars = _f18_series("10.40", [("10.20", "10.80", "10.50")])
     anchor = bars[12].trade_date
     assert (
-        fl.f18_support_confluence(
-            bars, anchor, bars[-1].trade_date, Decimal("10.20"), Decimal("10.60")
+        fl.support_confluence_max_count(
+            bars, anchor, bars[-1].trade_date, Decimal("11.20"), Decimal("11.60")
         )
-        == 0
+        == 2
     )
 
 
-def test_f18_trigger_but_no_price_overlap_zero() -> None:
-    # MA10 = 10.10 触发三区间但不在平台区间内（10.10 < 10.20）→ 价格未真实
-    # 重合 → 计数 0（触发与重合是且关系）。
-    bars = _f18_series("10.10", [("9.90", "10.80", "10.10")])
+def test_f18_ma_plat_pair_depth_two() -> None:
+    # MA10∈平台 且 MA+平台 激活、实体未激活（low 跌破实体下沿）→ 2
+    bars = _f18_series("10.40", [("9.90", "10.80", "10.50")])
     anchor = bars[12].trade_date
     assert (
-        fl.f18_support_confluence(
+        fl.support_confluence_max_count(
             bars, anchor, bars[-1].trade_date, Decimal("10.20"), Decimal("10.60")
         )
-        == 0
+        == 2
     )
 
 
-def test_f18_pit_cutoff_no_future_leak() -> None:
-    bars = _f18_series("10.40", [("10.10", "10.80", "10.40"), ("10.30", "10.70", "10.40")])
+def test_f18_body_plat_pair_depth_two() -> None:
+    # Blocker 2 明确用例：BODY+PLATFORM 同日 active 且两区间重叠，
+    # MA 不构成共同交集（close<MA10 且 m∉平台）→ 2
+    # m=(11.30+11.00+8×11.50)/10=11.43，close 11.30 < m → MA 不激活
+    bars = _f18_series("11.50", [("10.50", "11.80", "11.30")])
     anchor = bars[12].trade_date
     assert (
-        fl.f18_support_confluence(bars, anchor, bars[13].trade_date, Decimal("10.20"), Decimal("10.60"))
+        fl.support_confluence_max_count(
+            bars, anchor, bars[-1].trade_date, Decimal("10.20"), Decimal("10.60")
+        )
+        == 2
+    )
+
+
+def test_f18_across_day_no_accumulation() -> None:
+    # 平台为窗口内固定冻结输入（10.20,10.60）：day1 实体+平台对（close<m，
+    # MA 不激活 → 2），day2 MA+平台对（low 跌破实体下沿，实体不激活 → 2）；
+    # 没有任何一天达到三重 → max=2，绝不允许跨日拼出 3
+    bars = _f18_series("10.40", [("10.10", "10.80", "10.20"), ("9.90", "10.80", "10.50")])
+    anchor = bars[12].trade_date
+    assert (
+        fl.support_confluence_max_count(
+            bars, anchor, bars[-1].trade_date, Decimal("10.20"), Decimal("10.60")
+        )
+        == 2
+    )
+
+
+def test_f18_no_overlap_depth_one() -> None:
+    # 实体 [10.00,10.30] 与平台 [10.60,10.90] 不相交，MA10=10.48 不在两者内；
+    # 三区间同日全激活但任何区间对无公共交集 → 1
+    bars = _f18_series("10.50", [("10.10", "11.00", "10.50")], t0_close="10.30")
+    anchor = bars[12].trade_date
+    assert (
+        fl.support_confluence_max_count(
+            bars, anchor, bars[-1].trade_date, Decimal("10.60"), Decimal("10.90")
+        )
         == 1
     )
 
 
-def test_f18_missing_support_returns_none() -> None:
-    bars = _f18_series("10.40", [("10.10", "10.80", "10.40")])
+def test_f18_boundary_closed_interval_and_degenerate_zones() -> None:
+    # 闭合区间含端点 + 退化实体/退化平台单点精确命中 → 3
+    bars = _f18_series("10.40", [("10.40", "10.80", "10.40")], t0_close="10.40")
     anchor = bars[12].trade_date
     assert (
-        fl.f18_support_confluence(bars, anchor, bars[-1].trade_date, None, Decimal("10.60"))
+        fl.support_confluence_max_count(
+            bars, anchor, bars[-1].trade_date, Decimal("10.40"), Decimal("10.40")
+        )
+        == 3
+    )
+
+
+def test_f18_pit_cutoff_no_future_leak() -> None:
+    # day1 仅实体激活（1），day2 三重（3）；as_of 截止 → 1 / 3
+    bars = _f18_series("10.40", [("10.10", "10.50", "10.30"), ("10.10", "10.80", "10.50")])
+    anchor = bars[12].trade_date
+    assert (
+        fl.support_confluence_max_count(bars, anchor, bars[13].trade_date, Decimal("11.20"), Decimal("11.60"))
+        == 1
+    )
+    assert (
+        fl.support_confluence_max_count(bars, anchor, bars[14].trade_date, Decimal("10.20"), Decimal("10.60"))
+        == 3
+    )
+
+
+def test_f18_missing_support_returns_none() -> None:
+    bars = _f18_series("10.40", [("10.10", "10.80", "10.50")])
+    anchor = bars[12].trade_date
+    assert (
+        fl.support_confluence_max_count(bars, anchor, bars[-1].trade_date, None, Decimal("10.60"))
         is None
     )
     assert (
-        fl.f18_support_confluence(bars, anchor, bars[-1].trade_date, Decimal("10.20"), None)
+        fl.support_confluence_max_count(bars, anchor, bars[-1].trade_date, Decimal("10.20"), None)
         is None
     )
 
 
 def test_f18_insufficient_ma10_returns_none() -> None:
-    # 仅 5 个 anchor 前 session → 所有可见日 MA10 未定义 → None
-    bars = _f18_series("10.40", [("10.10", "10.80", "10.40")], n_pre=5)
+    bars = _f18_series("10.40", [("10.10", "10.80", "10.50")], n_pre=5)
     anchor = bars[5].trade_date
     assert (
-        fl.f18_support_confluence(bars, anchor, bars[-1].trade_date, Decimal("10.20"), Decimal("10.60"))
+        fl.support_confluence_max_count(bars, anchor, bars[-1].trade_date, Decimal("10.20"), Decimal("10.60"))
         is None
     )
 
@@ -681,17 +739,63 @@ def test_f18_no_post_anchor_bar_is_none() -> None:
     bars = _f18_series("10.40", [])
     anchor = bars[12].trade_date
     assert (
-        fl.f18_support_confluence(bars, anchor, bars[12].trade_date, Decimal("10.20"), Decimal("10.60"))
+        fl.support_confluence_max_count(bars, anchor, bars[12].trade_date, Decimal("10.20"), Decimal("10.60"))
         is None
     )
 
 
 def test_f18_invalid_zone_fail_closed() -> None:
-    bars = _f18_series("10.40", [("10.10", "10.80", "10.40")])
+    bars = _f18_series("10.40", [("10.10", "10.80", "10.50")])
     anchor = bars[12].trade_date
     with pytest.raises(ValueError):
-        fl.f18_support_confluence(bars, anchor, bars[-1].trade_date, Decimal("10.60"), Decimal("10.20"))
+        fl.support_confluence_max_count(bars, anchor, bars[-1].trade_date, Decimal("10.60"), Decimal("10.20"))
     with pytest.raises(ValueError):
-        fl.f18_support_confluence(bars, anchor, bars[-1].trade_date, Decimal("0"), Decimal("10.60"))
+        fl.support_confluence_max_count(bars, anchor, bars[-1].trade_date, Decimal("0"), Decimal("10.60"))
     with pytest.raises(ValueError):
-        fl.f18_support_confluence(bars, date(2030, 1, 1), bars[-1].trade_date, Decimal("10.20"), Decimal("10.60"))
+        fl.support_confluence_max_count(bars, date(2030, 1, 1), bars[-1].trade_date, Decimal("10.20"), Decimal("10.60"))
+
+
+def test_f18_bad_bars_with_missing_support_fail_closed() -> None:
+    # MALFORMED_BARS_PRECEDENCE：重复日期（结构坏 bar）+ support=None →
+    # 结构校验优先，ValueError（不得被 missing 短路掩盖）
+    bars = _f18_series("10.40", [("10.10", "10.80", "10.50")])
+    bars = bars + [bars[-1]]
+    anchor = bars[12].trade_date
+    with pytest.raises(ValueError):
+        fl.support_confluence_max_count(bars, anchor, bars[-1].trade_date, None, None)
+
+
+def test_f18_missing_anchor_with_missing_support_fail_closed() -> None:
+    # anchor 校验先于 missing support：anchor 缺失 + support=None →
+    # ValueError
+    bars = _f18_series("10.40", [("10.10", "10.80", "10.50")])
+    with pytest.raises(ValueError):
+        fl.support_confluence_max_count(
+            bars, date(2030, 1, 1), bars[-1].trade_date, None, None
+        )
+
+
+def test_f18_e01_activation_requires_close_above_ma() -> None:
+    # Blocker 3 回归：K 线穿过 MA10 价格但 close < MA10（close 10.20 < m 10.42）
+    # → E01 激活为 False；若按错误的"区间相交"会算 3，冻结语义应为 2
+    bars = _f18_series("10.40", [("10.10", "10.80", "10.20")])
+    anchor = bars[12].trade_date
+    assert (
+        fl.support_confluence_max_count(
+            bars, anchor, bars[-1].trade_date, Decimal("10.20"), Decimal("10.60")
+        )
+        == 2
+    )
+
+
+def test_f18_e04_activation_requires_low_inside_body() -> None:
+    # Blocker 3 回归：low 9.50 跌破实体下沿 10.00 → E04 激活为 False
+    # （错误的区间相交会算实体激活 → 2；冻结语义应为 1）
+    bars = _f18_series("10.40", [("9.50", "10.50", "10.30")])
+    anchor = bars[12].trade_date
+    assert (
+        fl.support_confluence_max_count(
+            bars, anchor, bars[-1].trade_date, Decimal("10.20"), Decimal("10.60")
+        )
+        == 1
+    )

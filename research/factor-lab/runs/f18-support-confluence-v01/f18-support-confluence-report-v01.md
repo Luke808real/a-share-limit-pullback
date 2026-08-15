@@ -72,10 +72,38 @@ support_low, support_high) -> int | None`
 8. test_f18_no_post_anchor_bar_is_none — 无 T0 后 bar → None
 9. test_f18_invalid_zone_fail_closed — 倒挂/零价/anchor 缺失 → ValueError
 
-## 7. 结论状态
+## 7. 结论状态（已被 §8 审计修复撤销）
 
 | 项 | 结论 |
 | --- | --- |
-| F18 | CONTRACT FROZEN + IMPLEMENTED（PIT 纯函数 + 合成测试 9 例） |
+| F18 | ~~CONTRACT FROZEN + IMPLEMENTED~~ → 见 §8（NOT CLOSED，待复审） |
 | outcome / threshold / ±2% / MA5 / MA20 | 未读取、未搜索、未使用 |
 | strategy / score / setup_stage / production / forward / TradePlan | 未改动 |
+
+## 8. AUDIT FIX V01（2026-08-15，Sol 审计 CHANGES_REQUIRED 修复）
+
+Sol 审计 7062990 否决（AUDIT_STATUS: CHANGES_REQUIRED），5 个 blocker
+修复（分支 fix/f18-support-confluence-contract-audit-v01，BASE_HEAD
+7062990；不得重新设计 F18）：
+
+1. **F18 数学量（Blocker 1）**：错误实现"三重共振天数计数"→ 规范函数
+   `support_confluence_max_count`，F18 = max_D C(D) ∈ {0,1,2,3}。
+2. **双支撑共振（Blocker 2）**：实现 MA+BODY / MA+PLATFORM /
+   BODY+PLATFORM 三种深度 2 语义（active 对 + 区间公共交集）。
+3. **日级激活复用冻结谓词（Blocker 3）**：MA_ACTIVE = low<=MA10<=close
+   （E01 touch-hold）；BODY_ACTIVE = BODY_LOW<=low<=BODY_HIGH（E04）；
+   PLATFORM_ACTIVE = low<=support_high 且 high>=support_low（E05）。
+   不再把 E05 区间相交语义推广到 MA/实体。
+4. **MALFORMED_BARS_PRECEDENCE（Blocker 4）**：_ordered + _require_anchor
+   先于 missing support 短路（坏 bar / anchor 缺失 + support=None →
+   ValueError，不被静默掩盖）。
+5. **撤销文档 FROZEN 标记（Blocker 5）**：F18 CONTRACT = NOT CLOSED，
+   7062990 implementation = REJECTED BY AUDIT；本报告 §7 结论撤销，
+   FACTOR_CATALOG / README 同步。
+
+测试：17 个 F18 用例（THREE_WAY / TWO_WAY×3 / ACROSS_DAY / NO_OVERLAP /
+BOUNDARY / FUTURE_LEAK / MISSING_SUPPORT / INSUFFICIENT_MA10 / 无 T0 后
+bar / FAIL_CLOSED / 坏 bar+missing / anchor 缺失+missing / E01 激活回归 /
+E04 激活回归），factor_lab 56 passed；compileall 与 git diff --check
+通过。待 Sol 复审 exact commit 通过后 F18 才可标记 CONTRACT FROZEN，
+随后进入 outcome validation design。

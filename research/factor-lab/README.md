@@ -43,10 +43,12 @@ L2 研究因子层 + L3 统计验证层的落点。目标见 docs/ARCHITECTURE_G
   相交口径（low<=support_high 且 high>=support_low）+ missing→None；
   F18 的 ±2% 标记为 LEGACY CATALOG DRAFT / NOT FROZEN
 - f18-support-confluence-v01（2026-08-15，F18 SUPPORT CONFLUENCE CONTRACT
-  V01）：F18 支撑共振 PIT 数学合同冻结 + 纯函数实现（contract/
-  implementation only，无统计、无 outcome、无阈值搜索）：Z_MA10(D)=
-  [MA10(D),MA10(D)]、Z_T0=[min(o,c)(T0),max(o,c)(T0)]、Z_PLATFORM=
-  [support_low,support_high]；共振 = 同交易日三区间均被 K 线触及（区间
-  相交）且价格真实重合（MA10(D)∈Z_T0∩Z_PLATFORM）；计数满足条件的
-  D ∈ (anchor,as_of]。无容差（±2% 废弃）。missing support / MA10 不足 →
-  None；非法区间/anchor/多 code/重复日期 fail closed
+  V01；CONTRACT = NOT CLOSED，7062990 实现被 Sol 审计否决后 audit fix v01
+  已应用，待复审）：F18 = max_D C(D) ∈ {0,1,2,3}，C(D)=当日激活支撑区间
+  中两两真实公共交集的最大子集大小；激活谓词逐因子复用冻结定义（MA=E01
+  low<=MA10<=close；BODY=E04 low∈实体；PLATFORM=E05 区间相交）；跨日不
+  累计；三区间全 active 必须 Z_MA10∩Z_BODY∩Z_PLATFORM≠∅ 才允许 C=3。
+  实现函数：factor_lab.support_confluence_max_count（audit fix v01 规范名，
+  17 个 F18 测试）。无容差（±2% 废弃）。missing support / MA10 不足 →
+  None；结构坏 bar/anchor 缺失优先于 missing 短路 fail closed；非法区间/
+  多 code/重复日期 fail closed

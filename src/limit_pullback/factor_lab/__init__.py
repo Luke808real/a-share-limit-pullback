@@ -392,66 +392,95 @@ def platform_support_touch(
 
 
 def _candle_intersects(bar, zone_low: Decimal, zone_high: Decimal) -> bool:
-    """True when the candle range intersects the closed zone [zone_low, zone_high]."""
+    """True when the candle range intersects the closed zone [zone_low, zone_high]
+    (the frozen E05 platform activation predicate)."""
     return bar.low <= zone_high and bar.high >= zone_low
 
 
-def f18_support_confluence(
+def support_confluence_max_count(
     bars,
     anchor_date: date,
     as_of: date,
     support_low: Decimal | None,
     support_high: Decimal | None,
 ) -> int | None:
-    """F18_SUPPORT_CONFLUENCE: number of days D in (anchor_date, as_of]
-    where all three support zones are triggered by D's candle on the SAME
-    day and the zones TRULY overlap in price (no tolerance, no ±2%).
+    """F18_SUPPORT_CONFLUENCE (canonical name, audit fix v01): the maximum
+    confluence depth over days D in (anchor_date, as_of]:
+        F18 = max_D C(D),   C(D) in {0,1,2,3}
+    where C(D) is the size of the largest subset of the three support
+    zones that are day-level ACTIVE on D and have a non-empty common
+    price intersection (no tolerance, no across-day accumulation).
 
-    Frozen zones (F18 SUPPORT CONFLUENCE CONTRACT V01):
-      Z_MA10(D)   = [MA10(D), MA10(D)]                  (single price point)
-      Z_T0        = [min(open,close)(T0), max(open,close)(T0)]   (E04)
-      Z_PLATFORM  = [support_low, support_high]         (E05 frozen values)
+    Frozen zones:
+      Z_MA10(D)   = [MA10(D), MA10(D)]                (single price point)
+      Z_BODY      = [min(open,close)(T0), max(open,close)(T0)]   (E04)
+      Z_PLATFORM  = [support_low, support_high]       (E05 frozen values)
 
-    Same-day trigger: candle(D) intersects every zone, using the frozen
-    E05 intersection semantics low(D) <= Z.high and high(D) >= Z.low
-    applied to all three zones (a degenerate zone reduces to a point).
+    Day-level activation REUSES the frozen per-factor predicates (never
+    the range-intersection generalization):
+      MA_ACTIVE(D)     = low(D) <= MA10(D) <= close(D)              (E01)
+      BODY_ACTIVE(D)   = BODY_LOW <= low(D) <= BODY_HIGH            (E04)
+      PLATFORM_ACTIVE(D) = low(D) <= support_high AND high(D) >=
+                           support_low                              (E05)
 
-    Price overlap: MA10(D) lies inside Z_T0 and inside Z_PLATFORM, so the
-    three zones share the price MA10(D) — true geometric overlap rather
-    than "touched on different days" reconstruction.
+    C(D) = 3 requires all three zones ACTIVE and
+    Z_MA10 ∩ Z_BODY ∩ Z_PLATFORM ≠ ∅ (Z_MA10 is a point, so MA10(D) in
+    Z_BODY and MA10(D) in Z_PLATFORM). C(D) = 2 requires some ACTIVE pair
+    with non-empty zone intersection (BODY∩PLATFORM overlap, MA10(D) in
+    Z_BODY, or MA10(D) in Z_PLATFORM). C(D) = 1 requires at least one
+    ACTIVE zone; 0 otherwise.
 
-    None when no post-anchor session is visible at as_of, or no visible
-    session has a defined MA10 (fewer than 10 sessions through that day).
-    Missing frozen support (either bound None) returns None. Non-positive
-    or reversed frozen zone fails closed. Duplicate dates / multi-code /
-    missing anchor fail closed (ValueError)."""
+    Days with undefined MA10 are skipped. None when no post-anchor
+    session is visible at as_of, or no visible session has a defined
+    MA10. Missing frozen support (either bound None) returns None.
+    Non-positive or reversed frozen zone fails closed.
+
+    Validation precedence (frozen): structural bar integrity first
+    (_ordered: multi-code / duplicate dates -> ValueError), then anchor
+    presence (_require_anchor -> ValueError), THEN missing frozen support
+    -> None, then zone validity (non-positive / reversed -> ValueError)."""
+    ordered = _ordered(bars)
+    anchor = _require_anchor(ordered, anchor_date)
     if support_low is None or support_high is None:
         return None
     if support_low <= ZERO or support_high <= ZERO:
         raise ValueError("frozen support zone requires positive prices")
     if support_low > support_high:
         raise ValueError("frozen support zone is reversed")
-    ordered = _ordered(bars)
-    anchor = _require_anchor(ordered, anchor_date)
     after = _after(ordered, anchor_date, as_of)
     if not after:
         return None
     t0_low = min(anchor.open, anchor.close)
     t0_high = max(anchor.open, anchor.close)
     ma = _ma10(ordered)
-    count = 0
+    best = 0
     evaluated = False
     for bar in after:
         m = ma[bar.trade_date]
         if m is None:
             continue
         evaluated = True
-        triggered = (
-            _candle_intersects(bar, t0_low, t0_high)
-            and _candle_intersects(bar, support_low, support_high)
-            and _candle_intersects(bar, m, m)
+        ma_active = bar.low <= m <= bar.close
+        body_active = t0_low <= bar.low <= t0_high
+        plat_active = _candle_intersects(bar, support_low, support_high)
+        if not (ma_active or body_active or plat_active):
+            continue
+        triple = (
+            ma_active
+            and body_active
+            and plat_active
+            and t0_low <= m <= t0_high
+            and support_low <= m <= support_high
         )
-        overlap = t0_low <= m <= t0_high and support_low <= m <= support_high
-        if triggered and overlap:
-            count += 1
-    return count if evaluated else None
+        pair_body_plat = (
+            body_active
+            and plat_active
+            and t0_low <= support_high
+            and support_low <= t0_high
+        )
+        pair_ma_body = ma_active and body_active and t0_low <= m <= t0_high
+        pair_ma_plat = ma_active and plat_active and support_low <= m <= support_high
+        depth = 3 if triple else (2 if (pair_body_plat or pair_ma_body or pair_ma_plat) else 1)
+        if depth > best:
+            best = depth
+    return best if evaluated else None
