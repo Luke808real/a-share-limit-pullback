@@ -127,6 +127,17 @@ def test_b2_volume_vs_20d_mean_exact() -> None:
     assert fl.b2_volume_vs_20d_mean(bars, anchor, b2_date) == Decimal("500") / mean_vol
 
 
+def test_b2_volume_vs_20d_mean_b2_huge_volume_not_in_denominator() -> None:
+    # F. B2's own volume is huge and must never enter the denominator
+    # (denominator = mean of exactly the 20 pre-B2 sessions only).
+    vols = [str(100)] * 20  # mean = 100
+    bars = _series(["10.00"] * 21, vols + ["999999"])
+    anchor = bars[0].trade_date
+    b2_date = bars[-1].trade_date
+    # If B2 (999999) leaked into the mean, the ratio would be tiny; it must be 999999/100.
+    assert fl.b2_volume_vs_20d_mean(bars, anchor, b2_date) == Decimal("999999") / Decimal("100")
+
+
 def test_b2_volume_vs_20d_mean_uses_exactly_last_20() -> None:
     # 25 visible sessions before B2: only the last 20 may enter the mean.
     vols = [str(100 + i) for i in range(25)]  # 100..124

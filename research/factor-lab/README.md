@@ -78,7 +78,8 @@ L2 研究因子层 + L3 统计验证层的落点。目标见 docs/ARCHITECTURE_G
 - fix/f20-contract-insufficient-history-v01（2026-08-16，F20 CONTRACT
   INSUFFICIENT-HISTORY AUDIT FIX V01；audit CHANGES_REQUIRED 修复）：
   **PRE20 = strictly last 20 visible trading sessions before B2**（仅
-  trade_date < b2_date 参与；future rows 内部自动排除）；**PRE20_N < 20
+  trade_date < b2_date 参与；future rows 内部自动排除——PIT 正确性由
+  函数内部保证，caller pre-truncation 只是上层 PIT hygiene）；**PRE20_N < 20
   -> None**（0/1/19 个 pre-B2 session 均返回 None，短窗口不再求均值）；
   F20 其余语义不变（B2 不进分母、恰好 20 根、21 根取最后 20、零均量
   -> None、missing B2/anchor/duplicate/multi-code -> ValueError）。

@@ -100,7 +100,7 @@ vol(D) = 当日成交量；turn(D) = 当日换手；close/low/high 为原始价�
   不进入分母；anchor 位于 PRE20 内或外均不改变该定义）；
   **PRE20_N < 20 -> None**（0/1/19 个 pre-B2 session 均返回 None，
   audit fix v01）；窗口均量为 0 → None；anchor/B2 bar 缺失、重复日期、
-  多 code → ValueError fail closed；PIT 由调用方截断 bars。
+  多 code → ValueError fail closed。**PIT：F20 内部保证 future rows 不参与（PRE20 仅取 trade_date < b2_date）；caller pre-truncation 只是上层 PIT hygiene，不是正确性依赖**。
   见 tests/test_factor_lab.py）
   **F20 != F19**：F19 = B2 / pullback mean(T+1..B2−1)（事件段长度可变）；
   F20 = B2 / fixed 20 visible sessions immediately before B2（固定 20 根）。
