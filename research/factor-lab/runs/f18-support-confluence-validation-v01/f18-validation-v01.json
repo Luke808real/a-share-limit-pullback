@@ -10,8 +10,14 @@
     "as_of": "signal_date"
   },
   "ACCOUNTING": {
+    "RESOLVED_N": 9625,
     "F18_DEFINED_N": 9594,
     "F18_UNDEFINED_N": 31,
+    "ANALYSIS_DEFINED_N": 9594,
+    "PRIMARY_N_SUM": 9594,
+    "CONFLUENCE_N": 6634,
+    "NON_CONFLUENCE_N": 2960,
+    "UNDEFINED_EXCLUDED_FROM_OUTCOME_ANALYSIS": true,
     "UNDEFINED_REASONS": {
       "DEFINED": 9594,
       "NO_DEFINED_MA10": 31
@@ -187,6 +193,12 @@
     }
   },
   "VERDICT": "REJECT",
+  "CONCLUSION": {
+    "F18_OUTCOME_VALIDATION_V01": "REJECT",
+    "PREDICTIVE_VALUE": "global main effect not supported",
+    "VALIDATED": false,
+    "PROMOTED": false
+  },
   "NEW_HYPOTHESES": [],
   "OUTCOME_AWARE_CONTRACT_CHANGE": false,
   "THRESHOLD_SEARCH": false
