@@ -104,9 +104,14 @@ vol(D) = 当日成交量；turn(D) = 当日换手；close/low/high 为原始价�
   见 tests/test_factor_lab.py）
   **F20 != F19**：F19 = B2 / pullback mean(T+1..B2−1)（事件段长度可变）；
   F20 = B2 / fixed 20 visible sessions immediately before B2（固定 20 根）。
-- 现状：**CONTRACT FROZEN / IMPLEMENTED，pending audit fix 独立审计；
-  NOT CLOSED**；不得写 SUPPORTED / VALIDATED / PROMOTED；三倍量（H9）=
-  F19/F20 的特例，作为交互项验证，不做主效应。
+- 现状：**CONTRACT FROZEN / CLOSED（Sol audit PASS，fix/
+  f20-contract-insufficient-history-v01）；OUTCOME VALIDATION =
+  PREREGISTERED / NOT RUN**（pre-registration v01：连续 Spearman
+  rho_strict + rho_R_positive 双 gate → SUPPORTED_DIRECTIONALLY 否则
+  REJECT；quartile 仅描述；禁止 threshold mining；见
+  runs/f20-outcome-prereg-v01/）；不得写 SUPPORTED / REJECT /
+  VALIDATED / PROMOTED（验证未运行）；三倍量（H9）= F19/F20 的
+  特例，作为交互项验证，不做主效应。
 - v01 实证（2026-08-14，runs/h9-v01/，fail-closed 审计版）：B2 阶段
   resolved n=3,214，F19 p50=0.85 / p90=1.36 / p99=1.73 / max=3.34；
   F19≥3 仅 1 例（0.03%）→ H9 = REJECT (event-frequency level)。

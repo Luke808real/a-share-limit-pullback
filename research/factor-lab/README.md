@@ -86,3 +86,13 @@ L2 研究因子层 + L3 统计验证层的落点。目标见 docs/ARCHITECTURE_G
   测试拆出独立 future-leak 测试（B2 后巨大 volume bar 不影响 F20）。
   F20 CONTRACT = **NOT CLOSED，pending audit fix 独立审计**；
   不写 SUPPORTED / VALIDATED / PROMOTED。无 outcome、无阈值、F19 未改
+- research/f20-outcome-prereg-v01（2026-08-16，F20 OUTCOME VALIDATION
+  PREREGISTRATION V01；**F20 CONTRACT = CLOSED**，Sol audit PASS 于
+  ff4ea77）：只冻结统计设计，未读取 outcome、未运行正式验证。
+  设计：H5A 连续 Spearman 双 gate（rho_strict > 0 AND rho_R_positive >
+  0 → SUPPORTED_DIRECTIONALLY 否则 REJECT）；undefined F20 仅 accounting
+  不进 primary；quartile Q1-Q4 仅描述；stage/timing composition 只报告
+  方向、N<20 SMALL_CELL；禁止 threshold mining（1.2/1.5/2/3/top decile）。
+  产物：runs/f20-outcome-prereg-v01/f20-outcome-prereg-v01.md。
+  OUTCOME VALIDATION = **PREREGISTERED / NOT RUN**；不得写 SUPPORTED /
+  REJECT / VALIDATED
