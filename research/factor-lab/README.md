@@ -52,3 +52,14 @@ L2 研究因子层 + L3 统计验证层的落点。目标见 docs/ARCHITECTURE_G
   17 个 F18 测试）。无容差（±2% 废弃）。missing support / MA10 不足 →
   None；结构坏 bar/anchor 缺失优先于 missing 短路 fail closed；非法区间/
   多 code/重复日期 fail closed
+- f18-support-confluence-validation-v01（2026-08-15，OUTCOME VALIDATION
+  V01；F18 CONTRACT = FROZEN / CLOSED，HEAD e37c57b）：预注册 outcome
+  验证（frozen episodes SHA 门禁通过，EPISODES_TOTAL=31422，
+  RESOLVED_N=9625，F18_DEFINED_N=9594，UNDEFINED=31 全为 NO_DEFINED_MA10，
+  OTHER_ERROR=0）：primary contrast F18>=2 vs F18<=1，
+  Δstrict_win_rate=+0.0013、ΔP(R>0)=-0.0045 → **H4C = REJECT**；深度表无
+  单调性；robust R 显示双方尾部均极端（max_R 69/109，top1pct 贡献为负）。
+  F18 PREDICTIVE VALUE = UNKNOWN；VALIDATED = NO；PROMOTED = NO。
+  预注册纪律：未做 outcome-aware 调参、未搜索阈值、合同未改。
+  产物：runs/f18-support-confluence-validation-v01/f18-validation-v01.json
+  + f18-validation-report-v01.md + research/f18_validation_v01.py

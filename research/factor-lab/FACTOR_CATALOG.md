@@ -76,12 +76,16 @@ vol(D) = 当日成交量；turn(D) = 当日换手；close/low/high 为原始价�
   单调承继，随 frozen states/replay 与 episodes 的 support_low/high 列
   落盘；函数只接收冻结值，不重算平台；audit fix v01 恢复冻结相交口径
   low(D)<=support_high 且 high(D)>=support_low，missing → None）
-- F18 → CONTRACT NOT CLOSED（7062990 实现被 Sol 审计否决：max 深度 0–3
-  被错误实现为三重天数计数、双支撑对未实现、日级激活未复用 E01/E04、
-  校验顺序错误、文档误标 FROZEN；audit fix v01 已应用：
-  factor_lab.support_confluence_max_count + 17 个 F18 测试，见
-  fix/f18-support-confluence-contract-audit-v01 与报告 §9；待 Sol 复审
-  exact commit 通过后才可标记 CONTRACT FROZEN）
+- F18 → CONTRACT FROZEN / CLOSED（Sol audit PASS，HEAD e37c57b；修订链
+  7062990 否决 → 7400dc7 主体修复 → e37c57b final semantics；
+  factor_lab.support_confluence_max_count，F18 = max_D C(D) ∈ {0,1,2,3}）。
+  OUTCOME VALIDATION V01（frozen episodes，N=9625 resolved）：H4C = REJECT
+  ——CONFLUENCE(F18>=2) vs NON_CONFLUENCE(F18<=1)：Δstrict_win_rate
+  +0.0013、ΔP(R>0) -0.0045、Δmean_R -0.043、Δmedian_R 0.0；深度表
+  （0/1/2/3）无单调性（F18=0 层 strict_win_rate 0.312 最优，F18=3 层
+  mean_R -0.279 最差）；stage 方向 1/3、timing 方向 3/4。
+  F18 PREDICTIVE VALUE = UNKNOWN；VALIDATED = NO；PROMOTED = NO（不得进入
+  策略打分）。见 runs/f18-support-confluence-validation-v01/
 
 ## 5. B2 放量类（H5）
 
