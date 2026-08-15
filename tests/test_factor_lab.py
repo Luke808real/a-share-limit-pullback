@@ -168,7 +168,39 @@ def test_b2_volume_vs_20d_mean_anchor_missing_raises() -> None:
         fl.b2_volume_vs_20d_mean(bars, date(2030, 1, 1), b2_date)
 
 
-def test_b2_volume_vs_20d_mean_future_bars_do_not_leak() -> None:
+def test_b2_volume_vs_20d_mean_anchor_inside_or_outside_pre20() -> None:
+    # J. Anchor inside PRE20 vs outside PRE20 must not change the definition
+    # "last 20 visible sessions before B2" (anchor is existence-checked only).
+    vols = [str(100 + i * 10) for i in range(22)]  # 100..310 over 22 pre-B2 sessions
+    bars = _series(["10.00"] * 23, vols + ["500"])
+    b2_date = bars[-1].trade_date
+    mean_vol = sum(Decimal(v) for v in vols[-20:]) / Decimal(20)
+    expected = Decimal("500") / mean_vol
+    # anchor deep inside PRE20 (session 5 of 22 pre-B2)
+    anchor_inside = bars[5].trade_date
+    # anchor before the whole history (outside PRE20)
+    anchor_outside = bars[0].trade_date
+    assert fl.b2_volume_vs_20d_mean(bars, anchor_inside, b2_date) == expected
+    assert fl.b2_volume_vs_20d_mean(bars, anchor_outside, b2_date) == expected
+
+
+def test_b2_volume_vs_20d_mean_duplicate_dates_fail_closed() -> None:
+    # I. duplicate trade dates -> ValueError (via _ordered)
+    bars = _series(["10.00"] * 22, [str(100)] * 21 + ["500"])
+    dup = make_bar(bars[0].trade_date, open_price="10.00", high="10.10", low="9.90",
+                   close="10.00", preclose="10.00", volume="999")
+    with pytest.raises(ValueError, match="duplicate trade dates"):
+        fl.b2_volume_vs_20d_mean(bars + [dup], bars[0].trade_date, bars[-1].trade_date)
+
+
+def test_b2_volume_vs_20d_mean_multi_code_fail_closed() -> None:
+    # I. multi-code bars -> ValueError (via _ordered)
+    bars = _series(["10.00"] * 22, [str(100)] * 21 + ["500"])
+    other = make_bar(business_dates(bars[-1].trade_date, 2)[-1], open_price="10.00",
+                     high="10.10", low="9.90", close="10.00", preclose="10.00",
+                     volume="999", code="600001")
+    with pytest.raises(ValueError, match="exactly one code"):
+        fl.b2_volume_vs_20d_mean(bars + [other], bars[0].trade_date, bars[-1].trade_date)
     # PIT: bars after B2 (already truncated by caller) must never enter the window.
     vols = [str(100 + i * 10) for i in range(20)]
     bars = _series(["10.00"] * 22, vols + ["500", "700"])

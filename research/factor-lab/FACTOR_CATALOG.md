@@ -95,11 +95,15 @@ vol(D) = 当日成交量；turn(D) = 当日换手；close/low/high 为原始价�
 - F20 B2 放量倍数（相对 20 日均量）：vol(B2 日) / mean(vol, B2−20..B2−1)
   （F20 B2 VOLUME VS 20D MEAN CONTRACT V01，2026-08-16：factor_lab.
   b2_volume_vs_20d_mean(bars, anchor_date, b2_date) -> Decimal | None；
-  窗口 = B2 之前最近 20 个可见交易日（严格 < b2_date，B2 当日不进入
-  分母）；空窗口或窗口均量为 0 → None；anchor/B2 bar 缺失 → ValueError
-  fail closed；PIT 由调用方截断 bars。见 tests/test_factor_lab.py）
-- 现状：F19 已实现 + H9 v01 实证；F20 合同已冻结待 outcome validation；
-  三倍量（H9）= F19/F20 的特例，作为交互项验证，不做主效应。
+  PRE20 = B2 之前最近 20 个可见交易日（严格 < b2_date，B2 当日不进入
+  分母；anchor 位于 PRE20 内或外均不改变该定义）；空窗口或窗口均量为
+  0 → None；anchor/B2 bar 缺失、重复日期、多 code → ValueError fail
+  closed；PIT 由调用方截断 bars。见 tests/test_factor_lab.py）
+  **F20 != F19**：F19 = B2 / pullback mean(T+1..B2−1)（事件段长度可变）；
+  F20 = B2 / fixed 20 visible sessions immediately before B2（固定 20 根）。
+- 现状：**CONTRACT FROZEN / IMPLEMENTED，pending outcome validation**；
+  不得写 SUPPORTED / VALIDATED / PROMOTED；三倍量（H9）= F19/F20 的
+  特例，作为交互项验证，不做主效应。
 - v01 实证（2026-08-14，runs/h9-v01/，fail-closed 审计版）：B2 阶段
   resolved n=3,214，F19 p50=0.85 / p90=1.36 / p99=1.73 / max=3.34；
   F19≥3 仅 1 例（0.03%）→ H9 = REJECT (event-frequency level)。
