@@ -28,7 +28,7 @@ NO_RECLAIM_N     = 960（strict WIN/LOSS = 90/681）
 
 | 指标 | RECLAIM (n=467) | NO_RECLAIM (n=771) |
 | --- | --- | --- |
-| win_count / loss_count（R 符号口径） | 228 / 238（+1 零值） | 83 / 687（+1 零值） |
+| positive_R / negative_R / zero_R | 228 / 238 / 1 | 83 / 687 / 1 |
 | mean_R | +0.1866 | +0.2474 |
 | median_R | **-0.0218** | **-1.0** |
 | p10 / p25 / p75 | -1.0 / -1.0 / 0.4667 | -1.0 / -1.0 / -1.0 |
@@ -59,10 +59,22 @@ NO_RECLAIM_N     = 960（strict WIN/LOSS = 90/681）
 携带 r<=0**（RECLAIM 62 行 / NO_RECLAIM 7 行）；LOSS_INVALID 全部为负。
 两口径各自独立报告，绝不混用。此分歧不影响 tail analysis（完整 R 向量）。
 
-**LOSS_INVALID R 口径核查**：并非全部为 -1 —— RECLAIM 组有 61 个不同的
-非 (-1) 负 R 值（-0.0149…-0.7173，部分亏损），NO_RECLAIM 组有 7 个
-（-0.0031…-0.6362）。现有 strict 口径按 episodes.r_multiple 原值使用，
-未改变 execution semantics；该事实如实记录。
+**LOSS_INVALID outcome-filtered R 核对（Sol final QC 要求：直接按
+outcome 统计，禁止从全体负 R 向量推断）**：
+
+| 项 | RECLAIM | NO_RECLAIM |
+| --- | --- | --- |
+| loss_invalid_n / r_defined_n / r_missing_n | 177 / 177 / 0 | 681 / 681 / 0 |
+| **loss_r_eq_minus1_n** | **177** | **681** |
+| **loss_r_non_minus1_n** | **0** | **0** |
+| loss_r_zero_n / positive_n / negative_n | 0 / 0 / 177 | 0 / 0 / 681 |
+
+**旧版断言"LOSS_INVALID 并非全部为 -1（61/7 个非(-1)负R）"是错误的，
+特此更正**：outcome-filtered 核对证明 **LOSS_INVALID 行全部 R == -1**
+（RECLAIM 177/177，NO_RECLAIM 681/681）。此前观察到的非 (-1) 负值
+（61/6 个）实际全部来自 **WIN_S1 的负 R 行**（win_s1_r_negative_n 61/6，
+win_s1_r_zero_n 1/1），与 outcome_vs_payoff 核对完全吻合。strict 口径按
+episodes.r_multiple 原值使用，未改变 execution semantics。
 
 ## 3. Tail Driver
 
@@ -154,11 +166,20 @@ H4B_VERDICT_UNCHANGED = REJECT
 OBSERVATION 层面：不改 E01/E02/E03 合同、不搜索阈值、不升级 E03、不做
 production promotion。
 
+**核心指标保持 gate（Sol final QC 第 4 节）**：RECLAIM_N=525 /
+NO_RECLAIM_N=960 / WIN·LOSS 290·177 vs 90·681 / WIN_S1 mean_R
+0.9108·9.6861 / payoff-positive mean_R 1.2213·10.5271 / top1 贡献
+0.8800·1.8937 / trim1 +0.0226·-0.2234 —— 全部与冻结 run（48081e3）
+exact 一致，任何漂移 FAIL CLOSED（PASS）。R 符号字段在 JSON authority
+中已改名 positive_r_count / negative_r_count / zero_r_count（不再用
+win/loss 命名）。
+
 ## 7. Artifacts
 
 | 项 | 值 |
 | --- | --- |
 | 研究脚本 | `research/factor-lab/h4b_r_distribution_reconciliation_v01.py` |
-| script SHA256 | `bdf80502cf9ca34d559b5b8eca393b44964bc5bee880d7873c13fca266093797` |
+| script SHA256 | `e0a59b8d63f07fa2f4e3a190fb87219d3180d29be26e3f577a41529d336eb5a2` |
 | 输出 JSON | `research/factor-lab/runs/h4b-r-v01/h4b-r-v01.json` |
-| output JSON SHA256 | `1dd15748abcc1fd672cb433cb4b37a009bb6ec8961fb50fd5db931f05ba14fd1` |
+| output JSON SHA256 | `93986818da050d2760af06a963675c82faaba920af73976649919f81c88ca537` |
+| 语义测试 | `tests/test_h4b_r_reconciliation_semantics.py` |

@@ -29,8 +29,9 @@
   },
   "reclaim_r_distribution": {
     "n": 467,
-    "win_count": 228,
-    "loss_count": 238,
+    "positive_r_count": 228,
+    "negative_r_count": 238,
+    "zero_r_count": 1,
     "mean_r": 0.1866,
     "median_r": -0.0218,
     "p10": -1.0,
@@ -48,7 +49,7 @@
     "mean_positive_r": 1.2213,
     "median_positive_r": 0.4815,
     "mean_negative_r": -0.8038,
-    "loss_r_unique": [
+    "negative_r_unique": [
       -1.0,
       -0.7173,
       -0.5714,
@@ -114,8 +115,9 @@
   },
   "no_reclaim_r_distribution": {
     "n": 771,
-    "win_count": 83,
-    "loss_count": 687,
+    "positive_r_count": 83,
+    "negative_r_count": 687,
+    "zero_r_count": 1,
     "mean_r": 0.2474,
     "median_r": -1.0,
     "p10": -1.0,
@@ -133,7 +135,7 @@
     "mean_positive_r": 10.5271,
     "median_positive_r": 3.5641,
     "mean_negative_r": -0.9942,
-    "loss_r_unique": [
+    "negative_r_unique": [
       -1.0,
       -0.6362,
       -0.5405,
@@ -231,8 +233,45 @@
     "win_s1_with_r_le0_n": 7,
     "loss_invalid_with_r_gt0_n": 0
   },
+  "reclaim_loss_invalid_check": {
+    "loss_invalid_n": 177,
+    "loss_r_defined_n": 177,
+    "loss_r_missing_n": 0,
+    "loss_r_eq_minus1_n": 177,
+    "loss_r_non_minus1_n": 0,
+    "loss_r_zero_n": 0,
+    "loss_r_positive_n": 0,
+    "loss_r_negative_n": 177
+  },
+  "no_reclaim_loss_invalid_check": {
+    "loss_invalid_n": 681,
+    "loss_r_defined_n": 681,
+    "loss_r_missing_n": 0,
+    "loss_r_eq_minus1_n": 681,
+    "loss_r_non_minus1_n": 0,
+    "loss_r_zero_n": 0,
+    "loss_r_positive_n": 0,
+    "loss_r_negative_n": 681
+  },
+  "reclaim_win_s1_check": {
+    "win_s1_n": 290,
+    "win_s1_r_defined_n": 290,
+    "win_s1_r_missing_n": 0,
+    "win_s1_r_positive_n": 228,
+    "win_s1_r_negative_n": 61,
+    "win_s1_r_zero_n": 1
+  },
+  "no_reclaim_win_s1_check": {
+    "win_s1_n": 90,
+    "win_s1_r_defined_n": 90,
+    "win_s1_r_missing_n": 0,
+    "win_s1_r_positive_n": 83,
+    "win_s1_r_negative_n": 6,
+    "win_s1_r_zero_n": 1
+  },
   "mean_payoff_positive_ratio_no_over_reclaim": 8.6196,
   "mean_win_s1_ratio_no_over_reclaim": 10.6347,
+  "core_metrics_gate": "PASS (exact vs frozen 48081e3)",
   "strata_diagnostics": {
     "stage_B1_READY": {
       "reclaim": {
@@ -354,5 +393,5 @@
   },
   "conclusion": "REJECT_EXPLANATION",
   "h4b_verdict_unchanged": "REJECT",
-  "script_sha256": "bdf80502cf9ca34d559b5b8eca393b44964bc5bee880d7873c13fca266093797"
+  "script_sha256": "e0a59b8d63f07fa2f4e3a190fb87219d3180d29be26e3f577a41529d336eb5a2"
 }

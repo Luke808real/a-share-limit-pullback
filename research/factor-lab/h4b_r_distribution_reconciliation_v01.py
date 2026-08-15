@@ -99,16 +99,22 @@ def _bucket(days: int) -> str:
 
 
 def r_distribution(values: list[float]) -> dict:
-    """Full R quantile / tail distribution for a strict-R group."""
+    """Full R quantile / tail distribution for a strict-R group.
+
+    R sign fields are named positive/negative/zero_r_count — NEVER win/loss:
+    the frozen outcome label and the R sign are two different 口径 and the
+    JSON authority must stay unambiguous without Markdown help."""
     n = len(values)
     if n == 0:
         return {"n": 0}
     pos = [v for v in values if v > 0]
     neg = [v for v in values if v < 0]
+    zero = [v for v in values if v == 0]
     return {
         "n": n,
-        "win_count": len(pos),
-        "loss_count": len(neg),
+        "positive_r_count": len(pos),
+        "negative_r_count": len(neg),
+        "zero_r_count": len(zero),
         "mean_r": round(sum(values) / n, 4),
         "median_r": round(_median(values), 4),
         "p10": round(_quantile(values, 0.10), 4),
@@ -126,7 +132,7 @@ def r_distribution(values: list[float]) -> dict:
         "mean_positive_r": round(_mean(pos), 4) if pos else None,
         "median_positive_r": round(_median(pos), 4) if pos else None,
         "mean_negative_r": round(_mean(neg), 4) if neg else None,
-        "loss_r_unique": sorted(set(neg)),
+        "negative_r_unique": sorted(set(neg)),
     }
 
 
@@ -221,6 +227,49 @@ def outcome_vs_payoff_reconciliation(rows: list[dict]) -> dict:
         "r_zero_n": sum(1 for v in r_values if v == 0),
         "win_s1_with_r_le0_n": sum(1 for v in win_s1 if v <= 0),
         "loss_invalid_with_r_gt0_n": sum(1 for v in loss_inv if v > 0),
+    }
+
+
+def loss_invalid_check(rows: list[dict]) -> dict:
+    """TRUE outcome-filtered LOSS_INVALID R accounting (never inferred from
+    the whole negative-R vector). Answers: how many LOSS_INVALID rows have
+    R == -1 vs R != -1, directly by outcome."""
+    rows = [r for r in rows if r["outcome"] == LOSS]
+    r_defined = [r["r"] for r in rows if r["r"] is not None]
+    non_minus1 = [v for v in r_defined if v != -1.0]
+    out = {
+        "loss_invalid_n": len(rows),
+        "loss_r_defined_n": len(r_defined),
+        "loss_r_missing_n": len(rows) - len(r_defined),
+        "loss_r_eq_minus1_n": sum(1 for v in r_defined if v == -1.0),
+        "loss_r_non_minus1_n": len(non_minus1),
+        "loss_r_zero_n": sum(1 for v in r_defined if v == 0),
+        "loss_r_positive_n": sum(1 for v in r_defined if v > 0),
+        "loss_r_negative_n": sum(1 for v in r_defined if v < 0),
+    }
+    if non_minus1:
+        out.update(
+            {
+                "non_minus1_min": round(min(non_minus1), 4),
+                "non_minus1_median": round(_median(non_minus1), 4),
+                "non_minus1_max": round(max(non_minus1), 4),
+                "non_minus1_examples": [round(v, 4) for v in sorted(non_minus1)[:10]],
+            }
+        )
+    return out
+
+
+def win_s1_check(rows: list[dict]) -> dict:
+    """TRUE outcome-filtered WIN_S1 R accounting (identity checkable)."""
+    rows = [r for r in rows if r["outcome"] == WIN]
+    r_defined = [r["r"] for r in rows if r["r"] is not None]
+    return {
+        "win_s1_n": len(rows),
+        "win_s1_r_defined_n": len(r_defined),
+        "win_s1_r_missing_n": len(rows) - len(r_defined),
+        "win_s1_r_positive_n": sum(1 for v in r_defined if v > 0),
+        "win_s1_r_negative_n": sum(1 for v in r_defined if v < 0),
+        "win_s1_r_zero_n": sum(1 for v in r_defined if v == 0),
     }
 
 
@@ -394,6 +443,45 @@ def main() -> int:
     win_s1_no = winner_payoff_by_outcome(no_reclaim)
     recon_reclaim = outcome_vs_payoff_reconciliation(reclaim)
     recon_no = outcome_vs_payoff_reconciliation(no_reclaim)
+    loss_check_reclaim = loss_invalid_check(reclaim)
+    loss_check_no = loss_invalid_check(no_reclaim)
+    win_check_reclaim = win_s1_check(reclaim)
+    win_check_no = win_s1_check(no_reclaim)
+
+    # HARD core-metrics preservation gate (Sol final QC section 4): every
+    # frozen headline number must stay EXACTLY as validated; any drift is
+    # FAIL CLOSED. Values are the 4-decimal rounded outputs of the frozen
+    # run at 48081e3.
+    core_expected = {
+        "win_s1_mean_reclaim": 0.9108,
+        "win_s1_mean_no": 9.6861,
+        "payoff_mean_reclaim": 1.2213,
+        "payoff_mean_no": 10.5271,
+        "top1_contribution_reclaim": 0.8800,
+        "top1_contribution_no": 1.8937,
+        "trim1_mean_reclaim": 0.0226,
+        "trim1_mean_no": -0.2234,
+    }
+    actual_core = {
+        "win_s1_mean_reclaim": win_s1_reclaim.get("mean_win_s1_r"),
+        "win_s1_mean_no": win_s1_no.get("mean_win_s1_r"),
+        "payoff_mean_reclaim": win_reclaim.get("mean_payoff_positive_r"),
+        "payoff_mean_no": win_no.get("mean_payoff_positive_r"),
+        "top1_contribution_reclaim": tail_reclaim.get("top1_contribution_to_total"),
+        "top1_contribution_no": tail_no.get("top1_contribution_to_total"),
+        "trim1_mean_reclaim": tail_reclaim.get("trimmed_mean_remove_top1pct"),
+        "trim1_mean_no": tail_no.get("trimmed_mean_remove_top1pct"),
+    }
+    drifted = {
+        k: actual_core.get(k)
+        for k, expected in core_expected.items()
+        if actual_core.get(k) is None or round(actual_core[k], 4) != expected
+    }
+    if drifted:
+        raise SystemExit(
+            f"FAIL CLOSED: core metrics drifted vs frozen 48081e3: {drifted}"
+        )
+    _log("core metrics preservation gate PASS")
 
     payoff_ratio = (
         round(win_no["mean_payoff_positive_r"] / win_reclaim["mean_payoff_positive_r"], 4)
@@ -494,8 +582,13 @@ def main() -> int:
         "no_reclaim_winner_payoff_win_s1_outcome": win_s1_no,
         "reclaim_outcome_vs_payoff": recon_reclaim,
         "no_reclaim_outcome_vs_payoff": recon_no,
+        "reclaim_loss_invalid_check": loss_check_reclaim,
+        "no_reclaim_loss_invalid_check": loss_check_no,
+        "reclaim_win_s1_check": win_check_reclaim,
+        "no_reclaim_win_s1_check": win_check_no,
         "mean_payoff_positive_ratio_no_over_reclaim": payoff_ratio,
         "mean_win_s1_ratio_no_over_reclaim": win_s1_ratio,
+        "core_metrics_gate": "PASS (exact vs frozen 48081e3)",
         "strata_diagnostics": strata_diag,
         "question_answers": question_answers,
         "conclusion": conclusion,
