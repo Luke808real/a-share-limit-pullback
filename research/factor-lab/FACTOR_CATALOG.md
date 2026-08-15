@@ -49,12 +49,23 @@ vol(D) = 当日成交量；turn(D) = 当日换手；close/low/high 为原始价�
 - E01 触及 MAx：存在 i 属于 T1..Tn 使 low(i) <= MAx(i) 且 close(i) >= MAx(i)（触及未破）
 - E02 收盘跌破 MAx：存在 i 使 close(i) < MAx(i)（破位）
 - E03 破位后收回：E02 后存在 j>i 使 close(j) >= MAx(j) 且 j−i <= 3
-- E04 触及 T0 实体：low(i) <= T0 实体上沿（max(open,close)）且 low(i) >= 实体下沿
-- E05 触及平台：复用冻结 support_low/high（冻结口径，不另定义新平台）
+- E04 触及 T0 实体：存在 i ∈ T1..Tn 使 min(open(T0),close(T0)) <= low(i) <=
+  max(open(T0),close(T0))（low 进入 T0 实体区间；跌破实体下沿不算触及）
+- E05 触及平台：存在 i ∈ T1..Tn 使 support_low <= low(i) <= support_high；
+  support_low/high 复用冻结 SupportSnapshot（冻结口径，不另定义新平台）
 - F18 支撑共振计数：E01/E04/E05 在相近价位（±2%）同时成立的数量
 
-现状：E01-E03 与 b2_confirmation 的 touched_below_ma5/10/18_7d 相关但口径
-不同（那是「7 日内曾跌破」，不是「触及未破」）→ GAP；E05/F18 → REUSE+GAP。
+现状（2026-08-15，H4 SUPPORT ZONE CONTRACT V01）：
+- E01-E03 → IMPLEMENTED（factor_lab.ma10_touch_hold / ma10_close_break /
+  ma10_reclaim_within_3d，commit 7741ba5；与 b2_confirmation 的
+  touched_below_ma5/10/18_7d 口径不同——那是「7 日内曾跌破」）
+- E04 → IMPLEMENTED（factor_lab.t0_body_touch，本轮 contract v01）
+- E05 → REUSE+IMPLEMENTED（factor_lab.platform_support_touch，冻结
+  provenance 已确认：SupportSnapshot 由冻结引擎在 B1_READY 首日冻结、
+  单调承继，随 frozen states/replay 与 episodes 的 support_low/high 列
+  落盘；函数只接收冻结值，不重算平台）
+- F18 → FEASIBLE（本轮只评估下一轮冻结 contract 的条件，见
+  runs/h4-support-zone-v01/h4-support-zone-report-v01.md）
 
 ## 5. B2 放量类（H5）
 

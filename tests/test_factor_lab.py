@@ -315,3 +315,190 @@ def test_ma10_fail_closed() -> None:
     bars = _series(["10.00"] * 10, ["100"] * 10)
     with pytest.raises(ValueError):
         fl.ma10_close_break(bars, date(2030, 1, 1), bars[-1].trade_date)
+
+
+def _zone_bars(t0_open: str, t0_close: str, post: list[tuple[str, str]]) -> list:
+    """T0 anchor (fixed high/low around body) + post days as (low, close)."""
+    days = business_dates(date(2026, 2, 2), 1 + len(post))
+    t0_high = max(Decimal(t0_open), Decimal(t0_close)) + Decimal("0.05")
+    t0_low = min(Decimal(t0_open), Decimal(t0_close)) - Decimal("0.05")
+    bars = [
+        make_bar(
+            days[0],
+            open_price=t0_open,
+            high=str(t0_high),
+            low=str(t0_low),
+            close=t0_close,
+            preclose="10.00",
+            volume="1000",
+        )
+    ]
+    for day, (low_s, close_s) in zip(days[1:], post, strict=True):
+        bars.append(
+            make_bar(
+                day,
+                open_price=close_s,
+                high=str(Decimal(close_s) + Decimal("0.05")),
+                low=low_s,
+                close=close_s,
+                preclose="10.00",
+                volume="500",
+            )
+        )
+    return bars
+
+
+# --- E04: T0 body touch ---
+
+
+def test_e04_touch_into_t0_body_true() -> None:
+    bars = _zone_bars("10.00", "11.00", [("10.50", "10.80")])
+    assert fl.t0_body_touch(bars, bars[0].trade_date, bars[-1].trade_date) is True
+
+
+def test_e04_low_below_body_is_break_not_touch() -> None:
+    bars = _zone_bars("10.00", "11.00", [("9.90", "10.20")])
+    assert fl.t0_body_touch(bars, bars[0].trade_date, bars[-1].trade_date) is False
+
+
+def test_e04_low_above_body_no_contact() -> None:
+    bars = _zone_bars("10.00", "11.00", [("11.10", "11.30")])
+    assert fl.t0_body_touch(bars, bars[0].trade_date, bars[-1].trade_date) is False
+
+
+def test_e04_degenerate_body_requires_exact_low() -> None:
+    bars = _zone_bars("11.00", "11.00", [("11.00", "11.20")])
+    assert fl.t0_body_touch(bars, bars[0].trade_date, bars[-1].trade_date) is True
+    bars = _zone_bars("11.00", "11.00", [("10.99", "11.20")])
+    assert fl.t0_body_touch(bars, bars[0].trade_date, bars[-1].trade_date) is False
+
+
+def test_e04_pit_cutoff_no_future_leak() -> None:
+    bars = _zone_bars("10.00", "11.00", [("9.90", "10.20"), ("10.50", "10.80")])
+    anchor = bars[0].trade_date
+    assert fl.t0_body_touch(bars, anchor, bars[1].trade_date) is False
+    assert fl.t0_body_touch(bars, anchor, bars[2].trade_date) is True
+
+
+def test_e04_no_post_anchor_bar_is_none() -> None:
+    bars = _zone_bars("10.00", "11.00", [])
+    assert fl.t0_body_touch(bars, bars[0].trade_date, bars[0].trade_date) is None
+
+
+def test_e04_fail_closed() -> None:
+    bars = _zone_bars("10.00", "11.00", [("10.50", "10.80")])
+    anchor = bars[0].trade_date
+    with pytest.raises(ValueError):
+        fl.t0_body_touch(bars, date(2030, 1, 1), bars[-1].trade_date)
+    multi = bars + [
+        make_bar(
+            bars[-1].trade_date,
+            code="600001",
+            open_price="10.80",
+            high="10.85",
+            low="10.50",
+            close="10.80",
+            preclose="10.00",
+            volume="500",
+        )
+    ]
+    with pytest.raises(ValueError):
+        fl.t0_body_touch(multi, anchor, bars[-1].trade_date)
+    duplicated = bars + [bars[-1]]
+    with pytest.raises(ValueError):
+        fl.t0_body_touch(duplicated, anchor, bars[-1].trade_date)
+
+
+# --- E05: frozen platform support touch ---
+
+
+def test_e05_low_inside_frozen_zone_true() -> None:
+    bars = _zone_bars("10.00", "11.00", [("10.40", "10.80")])
+    anchor = bars[0].trade_date
+    assert (
+        fl.platform_support_touch(
+            bars, anchor, bars[-1].trade_date, Decimal("10.20"), Decimal("10.60")
+        )
+        is True
+    )
+
+
+def test_e05_low_below_zone_is_break_not_touch() -> None:
+    bars = _zone_bars("10.00", "11.00", [("10.10", "10.30")])
+    anchor = bars[0].trade_date
+    assert (
+        fl.platform_support_touch(
+            bars, anchor, bars[-1].trade_date, Decimal("10.20"), Decimal("10.60")
+        )
+        is False
+    )
+
+
+def test_e05_low_above_zone_no_contact() -> None:
+    bars = _zone_bars("10.00", "11.00", [("10.70", "10.90")])
+    anchor = bars[0].trade_date
+    assert (
+        fl.platform_support_touch(
+            bars, anchor, bars[-1].trade_date, Decimal("10.20"), Decimal("10.60")
+        )
+        is False
+    )
+
+
+def test_e05_degenerate_zone_requires_exact_low() -> None:
+    zone = Decimal("10.40")
+    bars = _zone_bars("10.00", "11.00", [("10.40", "10.80")])
+    anchor = bars[0].trade_date
+    assert (
+        fl.platform_support_touch(bars, anchor, bars[-1].trade_date, zone, zone)
+        is True
+    )
+    bars = _zone_bars("10.00", "11.00", [("10.39", "10.80")])
+    assert (
+        fl.platform_support_touch(bars, anchor, bars[-1].trade_date, zone, zone)
+        is False
+    )
+
+
+def test_e05_pit_cutoff_no_future_leak() -> None:
+    bars = _zone_bars("10.00", "11.00", [("10.70", "10.90"), ("10.40", "10.80")])
+    anchor = bars[0].trade_date
+    args = (Decimal("10.20"), Decimal("10.60"))
+    assert (
+        fl.platform_support_touch(bars, anchor, bars[1].trade_date, *args) is False
+    )
+    assert (
+        fl.platform_support_touch(bars, anchor, bars[2].trade_date, *args) is True
+    )
+
+
+def test_e05_no_post_anchor_bar_is_none() -> None:
+    bars = _zone_bars("10.00", "11.00", [])
+    assert (
+        fl.platform_support_touch(
+            bars,
+            bars[0].trade_date,
+            bars[0].trade_date,
+            Decimal("10.20"),
+            Decimal("10.60"),
+        )
+        is None
+    )
+
+
+def test_e05_invalid_frozen_zone_fail_closed() -> None:
+    bars = _zone_bars("10.00", "11.00", [("10.40", "10.80")])
+    anchor = bars[0].trade_date
+    with pytest.raises(ValueError):
+        fl.platform_support_touch(
+            bars, anchor, bars[-1].trade_date, Decimal("10.60"), Decimal("10.20")
+        )
+    with pytest.raises(ValueError):
+        fl.platform_support_touch(
+            bars, anchor, bars[-1].trade_date, Decimal("0"), Decimal("10.60")
+        )
+    with pytest.raises(ValueError):
+        fl.platform_support_touch(
+            bars, date(2030, 1, 1), bars[-1].trade_date,
+            Decimal("10.20"), Decimal("10.60"),
+        )

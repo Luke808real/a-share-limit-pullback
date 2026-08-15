@@ -322,3 +322,64 @@ def ma10_reclaim_within_3d(bars, anchor_date: date, as_of: date) -> bool | None:
         if candidate.close >= m:
             return True
     return False
+
+
+def t0_body_touch(bars, anchor_date: date, as_of: date) -> bool | None:
+    """E04_T0_BODY_TOUCH: exists D in (anchor_date, as_of] with
+    min(open(T0), close(T0)) <= low(D) <= max(open(T0), close(T0)).
+
+    T0 is the anchor bar itself and must be visible in bars. The T0 body
+    zone is [min(open, close), max(open, close)] (catalog E04): a low that
+    enters the zone is a touch, a low strictly below the zone is a break
+    through the body (not an E04 touch), a low strictly above is no
+    contact. A degenerate body (open == close) reduces the zone to a
+    single price and requires an exact low.
+
+    None when no post-anchor session is visible at as_of. PIT: never reads
+    beyond as_of. Duplicate dates / multi-code / missing anchor fail
+    closed (ValueError)."""
+    ordered = _ordered(bars)
+    anchor = _require_anchor(ordered, anchor_date)
+    after = _after(ordered, anchor_date, as_of)
+    if not after:
+        return None
+    body_low = min(anchor.open, anchor.close)
+    body_high = max(anchor.open, anchor.close)
+    return any(body_low <= bar.low <= body_high for bar in after)
+
+
+def platform_support_touch(
+    bars,
+    anchor_date: date,
+    as_of: date,
+    support_low: Decimal,
+    support_high: Decimal,
+) -> bool | None:
+    """E05_PLATFORM_SUPPORT_TOUCH: exists D in (anchor_date, as_of] with
+    support_low <= low(D) <= support_high.
+
+    support_low / support_high are FROZEN inputs: they must come from the
+    frozen SupportSnapshot of the frozen engine (frozen states /
+    episodes support_low/support_high columns). This function never
+    recomputes a platform; it only tests daily-bar lows against the frozen
+    zone (catalog E05: 复用冻结 support_low/high，不另定义新平台).
+
+    The touch zone is closed [support_low, support_high]: a low below
+    support_low breaks the platform (not an E05 touch), a low above
+    support_high is no contact. A degenerate zone (support_low ==
+    support_high) requires an exact low. Non-positive or reversed frozen
+    zone fails closed (ValueError).
+
+    None when no post-anchor session is visible at as_of. PIT: never reads
+    beyond as_of. Duplicate dates / multi-code / missing anchor fail
+    closed (ValueError)."""
+    if support_low <= ZERO or support_high <= ZERO:
+        raise ValueError("frozen support zone requires positive prices")
+    if support_low > support_high:
+        raise ValueError("frozen support zone is reversed")
+    ordered = _ordered(bars)
+    _require_anchor(ordered, anchor_date)
+    after = _after(ordered, anchor_date, as_of)
+    if not after:
+        return None
+    return any(support_low <= bar.low <= support_high for bar in after)

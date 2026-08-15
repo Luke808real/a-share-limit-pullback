@@ -31,3 +31,8 @@ L2 研究因子层 + L3 统计验证层的落点。目标见 docs/ARCHITECTURE_G
   F23_ANY 与较低 mean_R 存在描述性关联（胜率未同步恶化，收益分布形态可能
   不同）；未经 tail quantile/significance 专门验证，非 validated tail effect。
   不得作为 B1/B2 排除规则或 production filter。
+- h4-support-zone-v01：H4 SUPPORT ZONE CONTRACT V01（contract/provenance/
+  implementation only，无统计）：E04 t0_body_touch、E05
+  platform_support_touch PIT 纯函数 + 合成测试；support_low/high 冻结
+  provenance 确认（SupportSnapshot 冻结语义 + episodes 列 schema）；
+  F18 = FEASIBLE_FOR_NEXT_ROUND_CONTRACT
