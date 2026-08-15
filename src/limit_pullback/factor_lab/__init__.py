@@ -352,27 +352,33 @@ def platform_support_touch(
     bars,
     anchor_date: date,
     as_of: date,
-    support_low: Decimal,
-    support_high: Decimal,
+    support_low: Decimal | None,
+    support_high: Decimal | None,
 ) -> bool | None:
     """E05_PLATFORM_SUPPORT_TOUCH: exists D in (anchor_date, as_of] with
-    support_low <= low(D) <= support_high.
+    low(D) <= support_high and high(D) >= support_low (frozen contract:
+    the candle range intersects the frozen support zone).
 
     support_low / support_high are FROZEN inputs: they must come from the
     frozen SupportSnapshot of the frozen engine (frozen states /
     episodes support_low/support_high columns). This function never
-    recomputes a platform; it only tests daily-bar lows against the frozen
-    zone (catalog E05: 复用冻结 support_low/high，不另定义新平台).
+    recomputes a platform; it only tests daily-bar ranges against the
+    frozen zone (catalog E05 frozen definition, restored by audit fix v01).
 
-    The touch zone is closed [support_low, support_high]: a low below
-    support_low breaks the platform (not an E05 touch), a low above
-    support_high is no contact. A degenerate zone (support_low ==
-    support_high) requires an exact low. Non-positive or reversed frozen
-    zone fails closed (ValueError).
+    A candle whose range intersects the closed zone [support_low,
+    support_high] is a touch — including a low below support_low when
+    high >= support_low. A degenerate zone (support_low == support_high)
+    requires the candle range to cover that single price. Missing frozen
+    support (either bound is None) yields None: an episode whose support
+    never reached its freeze point carries no platform and therefore no
+    touch answer. Non-positive or reversed frozen zone fails closed
+    (ValueError).
 
     None when no post-anchor session is visible at as_of. PIT: never reads
     beyond as_of. Duplicate dates / multi-code / missing anchor fail
     closed (ValueError)."""
+    if support_low is None or support_high is None:
+        return None
     if support_low <= ZERO or support_high <= ZERO:
         raise ValueError("frozen support zone requires positive prices")
     if support_low > support_high:
@@ -382,4 +388,4 @@ def platform_support_touch(
     after = _after(ordered, anchor_date, as_of)
     if not after:
         return None
-    return any(support_low <= bar.low <= support_high for bar in after)
+    return any(bar.low <= support_high and bar.high >= support_low for bar in after)

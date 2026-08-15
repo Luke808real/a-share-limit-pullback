@@ -78,28 +78,34 @@ corrected-b2-trigger-outcome/episodes.parquet）：
   support_low, support_high)`
 - 输入契约：support_low/high 必须是冻结 SupportSnapshot 的冻结值
   （frozen states / episodes 列），函数内**不重算任何平台**
-- 谓词：存在 D ∈ (anchor_date, as_of] 使
-  `support_low <= low(D) <= support_high`（闭合区间；low 低于
-  support_low 算跌破平台不算触及，高于 support_high 算未接触）
-- 退化区间（support_low == support_high）：要求 low 精确相等
+- 谓词（冻结口径，audit fix v01 恢复）：存在 D ∈ (anchor_date, as_of] 使
+  `low(D) <= support_high 且 high(D) >= support_low`（K 线区间与冻结区间
+  相交即触及；low 低于 support_low 但 high 进入区间仍算触及）
+- 退化区间（support_low == support_high）：K 线区间覆盖该单点价格
+- missing 语义（audit fix v01）：support_low/high 任一为 None（冻结样本
+  中支撑未到冻结时点的缺失行）→ 返回 None，不抛 TypeError
 - fail closed：support_low/high 非正或倒挂 → ValueError
 - PIT：同 E04；anchor 缺失 / 多 code / 重复日期 → ValueError；
   as_of 无 T0 后 bar → None
-- 测试：tests/test_factor_lab.py 新增 8 例（区内 True / 破位 False /
-  上方 False / 退化区间精确命中 / PIT 截止 / 无 T0 后 bar None /
+- 测试：tests/test_factor_lab.py E05 共 10 例（区内 True / 相交 True（low
+  低于下沿） / 整根在区间下方 False / 上方 False / 退化区间覆盖单点
+  True 与未覆盖 False / missing→None×3 / PIT 截止 / 无 T0 后 bar None /
   倒挂与零价 fail closed / anchor 缺失 fail closed）
 
 ## 5. F18 可行性评估（不计算）
 
-F18 := E01/E04/E05 在相近价位（±2%）同时成立的数量。
+F18 := E01/E04/E05 在相近价位同时成立的数量。
+（注：此前的 ±2% 表述为 LEGACY CATALOG DRAFT，NOT FROZEN；下一轮冻结
+contract 须显式定义价格代表与相近判定基准，见下方契约点 1。）
 
 - 输入可得性：E01 需要 MA10 序列（canonical daily bars，已有实现）；
   E04 需要 T0 实体（bars 可得）；E05 需要冻结 support_low/high
   （episodes 列已确认，物理列级复核为下一轮 gate）→ 全部可得。
 - 待下一轮冻结的契约点：
   1. 每个事件的价格代表（E01 用事件日 MA10 值 / E04 用 T0 实体区间
-     中心或上下沿 / E05 用冻结区间中心或上下沿）与 ±2% 的基准语义
-     （相对哪个参考价、区间与区间之间如何判定相近）；
+     中心或上下沿 / E05 用冻结区间中心或上下沿）与"相近"的基准语义
+     （相对哪个参考价、区间与区间之间如何判定相近；±2% 仅属 legacy
+     draft，未冻结）；
   2. 同时性窗口（同一天成立 vs 在 (T0, as_of] 内各自成立即计数）；
   3. 计数语义（最大同时数 vs 成对计数）与分层/verdict 协议、MIN_N；
   4. episodes 物理列级 provenance gate（见 §2 caveat）。
@@ -111,7 +117,27 @@ F18 := E01/E04/E05 在相近价位（±2%）同时成立的数量。
 | 项 | 结论 |
 | --- | --- |
 | E04 | IMPLEMENTED（PIT 纯函数 + 合成测试，contract v01 冻结） |
-| E05 | IMPLEMENTED（frozen provenance 确认 + PIT 纯函数 + 合成测试） |
-| F18 | FEASIBLE_FOR_NEXT_ROUND_CONTRACT（本轮不计算） |
+| E05 | IMPLEMENTED（frozen provenance 确认 + PIT 纯函数 + 合成测试；audit fix v01 恢复冻结相交口径与 missing→None） |
+| F18 | FEASIBLE_FOR_NEXT_ROUND_CONTRACT（本轮不计算；±2% 标记为 LEGACY CATALOG DRAFT / NOT FROZEN） |
 | production / forward / TradePlan | 未改动 |
 | strategy / score / setup_stage | 未改动 |
+
+## 7. AUDIT FIX V01（2026-08-15，CHANGES_REQUIRED 修复）
+
+Sol 审计（HEAD 7e70957）CHANGES_REQUIRED 的修复记录，见分支
+fix/h4-support-zone-contract-audit-v01：
+
+- **BLOCKER 1 修复**：E05 恢复冻结合同谓词
+  `low(D) <= support_high 且 high(D) >= support_low`（K 线区间相交），
+  替换此前被擅自改写的 low-only 语义；FACTOR_CATALOG.md E05 定义同步恢复。
+- **BLOCKER 2 修复**：missing support（support_low/high 为 None）→ 返回
+  None（冻结样本中确有 8 行缺失，语义为支撑未到冻结时点、无触碰答案），
+  不再抛 TypeError。
+- **BLOCKER 3 修复**：factor-lab README 补记 H4 closeout：
+  H4A = REJECT；H4B = REJECT（dual-metric hypothesis）；E03 quick reclaim =
+  strong hit-rate OBSERVATION（NOT VALIDATED / NOT PROMOTED）；
+  H4B reconciliation = CLOSED。
+- **F18 wording 修复**：±2% 标记为 LEGACY CATALOG DRAFT / NOT FROZEN，
+  下一轮冻结 contract 需显式定义价格代表与相近判定基准。
+- 测试：E05 用例从 8 例扩展为 10 例（含相交语义与 missing→None×3）；
+  E04 与其余合同未动。

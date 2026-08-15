@@ -423,8 +423,23 @@ def test_e05_low_inside_frozen_zone_true() -> None:
     )
 
 
-def test_e05_low_below_zone_is_break_not_touch() -> None:
-    bars = _zone_bars("10.00", "11.00", [("10.10", "10.30")])
+def test_e05_candle_intersects_zone_low_below_true() -> None:
+    # 冻结合同：K 线区间与冻结区间相交即触及 —— low 低于 support_low 但
+    # high >= support_low 仍算触及（Sol 审计示例：low=10.10, high=10.40,
+    # zone=[10.20, 10.60] → True）。
+    bars = _zone_bars("10.00", "11.00", [("10.10", "10.40")])
+    anchor = bars[0].trade_date
+    assert (
+        fl.platform_support_touch(
+            bars, anchor, bars[-1].trade_date, Decimal("10.20"), Decimal("10.60")
+        )
+        is True
+    )
+
+
+def test_e05_bar_fully_below_zone_false() -> None:
+    # 整根 K 线在冻结区间之下（high < support_low）→ 不相交 → False
+    bars = _zone_bars("10.00", "11.00", [("10.00", "10.10")])
     anchor = bars[0].trade_date
     assert (
         fl.platform_support_touch(
@@ -445,7 +460,8 @@ def test_e05_low_above_zone_no_contact() -> None:
     )
 
 
-def test_e05_degenerate_zone_requires_exact_low() -> None:
+def test_e05_degenerate_zone_requires_range_cover_price() -> None:
+    # 退化区间（support_low == support_high）：K 线区间覆盖该单点价格
     zone = Decimal("10.40")
     bars = _zone_bars("10.00", "11.00", [("10.40", "10.80")])
     anchor = bars[0].trade_date
@@ -453,10 +469,41 @@ def test_e05_degenerate_zone_requires_exact_low() -> None:
         fl.platform_support_touch(bars, anchor, bars[-1].trade_date, zone, zone)
         is True
     )
+    # low 低于单点但 high 覆盖单点 → 相交 → True
     bars = _zone_bars("10.00", "11.00", [("10.39", "10.80")])
     assert (
         fl.platform_support_touch(bars, anchor, bars[-1].trade_date, zone, zone)
+        is True
+    )
+    # 区间整体在单点上方 → False
+    bars = _zone_bars("10.00", "11.00", [("10.41", "10.80")])
+    assert (
+        fl.platform_support_touch(bars, anchor, bars[-1].trade_date, zone, zone)
         is False
+    )
+
+
+def test_e05_missing_support_returns_none() -> None:
+    # 冻结样本中 support 缺失（未到冻结时点）→ None，不抛 TypeError
+    bars = _zone_bars("10.00", "11.00", [("10.40", "10.80")])
+    anchor = bars[0].trade_date
+    assert (
+        fl.platform_support_touch(
+            bars, anchor, bars[-1].trade_date, None, Decimal("10.60")
+        )
+        is None
+    )
+    assert (
+        fl.platform_support_touch(
+            bars, anchor, bars[-1].trade_date, Decimal("10.20"), None
+        )
+        is None
+    )
+    assert (
+        fl.platform_support_touch(
+            bars, anchor, bars[-1].trade_date, None, None
+        )
+        is None
     )
 
 

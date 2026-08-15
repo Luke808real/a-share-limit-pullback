@@ -36,3 +36,9 @@ L2 研究因子层 + L3 统计验证层的落点。目标见 docs/ARCHITECTURE_G
   platform_support_touch PIT 纯函数 + 合成测试；support_low/high 冻结
   provenance 确认（SupportSnapshot 冻结语义 + episodes 列 schema）；
   F18 = FEASIBLE_FOR_NEXT_ROUND_CONTRACT
+- h4-closeout（2026-08-15，H4 SUPPORT ZONE CONTRACT AUDIT FIX V01 记录）：
+  H4A = REJECT；H4B = REJECT（dual-metric hypothesis）；E03「跌破 MA10 后
+  3 日内快速收回」= strong hit-rate OBSERVATION，NOT VALIDATED /
+  NOT PROMOTED；H4B R reconciliation = CLOSED。审计修复：E05 恢复冻结
+  相交口径（low<=support_high 且 high>=support_low）+ missing→None；
+  F18 的 ±2% 标记为 LEGACY CATALOG DRAFT / NOT FROZEN

@@ -51,9 +51,13 @@ vol(D) = 当日成交量；turn(D) = 当日换手；close/low/high 为原始价�
 - E03 破位后收回：E02 后存在 j>i 使 close(j) >= MAx(j) 且 j−i <= 3
 - E04 触及 T0 实体：存在 i ∈ T1..Tn 使 min(open(T0),close(T0)) <= low(i) <=
   max(open(T0),close(T0))（low 进入 T0 实体区间；跌破实体下沿不算触及）
-- E05 触及平台：存在 i ∈ T1..Tn 使 support_low <= low(i) <= support_high；
-  support_low/high 复用冻结 SupportSnapshot（冻结口径，不另定义新平台）
+- E05 触及平台（冻结口径）：存在 i ∈ T1..Tn 使 low(i) <= support_high 且
+  high(i) >= support_low（K 线区间与冻结支撑区间相交）；support_low/high
+  复用冻结 SupportSnapshot（冻结口径，不另定义新平台；缺失 → None，
+  audit fix v01 恢复该定义）
 - F18 支撑共振计数：E01/E04/E05 在相近价位（±2%）同时成立的数量
+  （±2% 为 LEGACY CATALOG DRAFT，NOT FROZEN，见
+  runs/h4-support-zone-v01/h4-support-zone-report-v01.md §5）
 
 现状（2026-08-15，H4 SUPPORT ZONE CONTRACT V01）：
 - E01-E03 → IMPLEMENTED（factor_lab.ma10_touch_hold / ma10_close_break /
@@ -63,7 +67,8 @@ vol(D) = 当日成交量；turn(D) = 当日换手；close/low/high 为原始价�
 - E05 → REUSE+IMPLEMENTED（factor_lab.platform_support_touch，冻结
   provenance 已确认：SupportSnapshot 由冻结引擎在 B1_READY 首日冻结、
   单调承继，随 frozen states/replay 与 episodes 的 support_low/high 列
-  落盘；函数只接收冻结值，不重算平台）
+  落盘；函数只接收冻结值，不重算平台；audit fix v01 恢复冻结相交口径
+  low(D)<=support_high 且 high(D)>=support_low，missing → None）
 - F18 → FEASIBLE（本轮只评估下一轮冻结 contract 的条件，见
   runs/h4-support-zone-v01/h4-support-zone-report-v01.md）
 
