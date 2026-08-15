@@ -107,3 +107,31 @@ bar / FAIL_CLOSED / 坏 bar+missing / anchor 缺失+missing / E01 激活回归 /
 E04 激活回归），factor_lab 56 passed；compileall 与 git diff --check
 通过。待 Sol 复审 exact commit 通过后 F18 才可标记 CONTRACT FROZEN，
 随后进入 outcome validation design。
+
+## 9. FINAL SEMANTICS FIX V01（2026-08-15，Sol 复审 7400dc7 后收尾）
+
+Sol 复审 7400dc7（AUDIT_STATUS: CHANGES_REQUIRED，主体修复正确），
+2 个真实语义缺口 + 1 个测试缺口修复（分支
+fix/f18-contract-final-semantics-v01，BASE_HEAD 7400dc7；不重做 F18
+主逻辑）：
+
+1. **MA10 UNDEFINED DAY（Blocker 1）**：MA10 未定义的日子不再整天
+   continue——MA support 当日 inactive，但 BODY/PLATFORM 仍按各自合同
+   参与（该日 BODY+PLATFORM 共振 → C(D)=2）；仅当整个 post-anchor
+   window 没有任何 defined MA10 时才整体返回 None。
+   回归测试：test_f18_ma10_undefined_day_still_counts_body_platform
+   （day1 MA10 未定义 BODY+PLATFORM→2，day2 MA10 已定义无激活→0，
+   F18=max(2,0)=2；旧实现为 0）。
+2. **NO-POST-BAR PRECEDENCE（Blocker 2）**：冻结顺序补全为
+   _ordered → _require_anchor → _after（无 post-anchor bar → None）→
+   support missing → None → support validity → ValueError。
+   回归测试：test_f18_no_post_bar_with_invalid_support_returns_none
+   （合法 bars + as_of=anchor + 倒挂/零价 support → None 而非 ValueError）。
+3. **PIT 测试修正（TEST GAP）**：test_f18_pit_cutoff 改为两次调用使用
+   完全相同的 support_low/high（10.20,10.60），只改变 as_of
+   （day1→1，day2→3），真正锁定"同一 frozen setup 下未来交易日不污染
+   earlier as_of"。
+
+测试：F18 19 例（新增 2 个语义回归 + PIT 修正），factor_lab 58 passed。
+F18 CONTRACT 仍为 NOT CLOSED，待 Sol 复审 exact commit 通过后才可
+标记 CONTRACT FROZEN / CLOSED，随后进入 F18 outcome validation design。

@@ -430,39 +430,53 @@ def support_confluence_max_count(
     Z_BODY, or MA10(D) in Z_PLATFORM). C(D) = 1 requires at least one
     ACTIVE zone; 0 otherwise.
 
-    Days with undefined MA10 are skipped. None when no post-anchor
-    session is visible at as_of, or no visible session has a defined
-    MA10. Missing frozen support (either bound None) returns None.
-    Non-positive or reversed frozen zone fails closed.
+    Days with undefined MA10 (fewer than 10 sessions through that day):
+    the MA support is inactive that day, but BODY and PLATFORM still
+    participate per their own contracts (a BODY+PLATFORM resonance on
+    such a day yields C(D) = 2). Only when NO day in the window has a
+    defined MA10 does the function return None. None also when no
+    post-anchor session is visible at as_of. Missing frozen support
+    (either bound None) returns None. Non-positive or reversed frozen
+    zone fails closed.
 
     Validation precedence (frozen): structural bar integrity first
     (_ordered: multi-code / duplicate dates -> ValueError), then anchor
-    presence (_require_anchor -> ValueError), THEN missing frozen support
-    -> None, then zone validity (non-positive / reversed -> ValueError)."""
+    presence (_require_anchor -> ValueError), then the observation
+    window (_after: no post-anchor bar -> None), THEN missing frozen
+    support -> None, then zone validity (non-positive / reversed ->
+    ValueError)."""
     ordered = _ordered(bars)
     anchor = _require_anchor(ordered, anchor_date)
+    after = _after(ordered, anchor_date, as_of)
+    if not after:
+        return None
     if support_low is None or support_high is None:
         return None
     if support_low <= ZERO or support_high <= ZERO:
         raise ValueError("frozen support zone requires positive prices")
     if support_low > support_high:
         raise ValueError("frozen support zone is reversed")
-    after = _after(ordered, anchor_date, as_of)
-    if not after:
-        return None
     t0_low = min(anchor.open, anchor.close)
     t0_high = max(anchor.open, anchor.close)
     ma = _ma10(ordered)
     best = 0
-    evaluated = False
+    has_ma10_day = False
     for bar in after:
         m = ma[bar.trade_date]
-        if m is None:
-            continue
-        evaluated = True
-        ma_active = bar.low <= m <= bar.close
         body_active = t0_low <= bar.low <= t0_high
         plat_active = _candle_intersects(bar, support_low, support_high)
+        if m is None:
+            # MA support inactive today; BODY/PLATFORM still participate
+            depth = 0
+            if body_active and plat_active and t0_low <= support_high and support_low <= t0_high:
+                depth = 2
+            elif body_active or plat_active:
+                depth = 1
+            if depth > best:
+                best = depth
+            continue
+        has_ma10_day = True
+        ma_active = bar.low <= m <= bar.close
         if not (ma_active or body_active or plat_active):
             continue
         triple = (
@@ -483,4 +497,4 @@ def support_confluence_max_count(
         depth = 3 if triple else (2 if (pair_body_plat or pair_ma_body or pair_ma_plat) else 1)
         if depth > best:
             best = depth
-    return best if evaluated else None
+    return best if has_ma10_day else None

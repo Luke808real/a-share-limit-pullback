@@ -700,16 +700,45 @@ def test_f18_boundary_closed_interval_and_degenerate_zones() -> None:
 
 
 def test_f18_pit_cutoff_no_future_leak() -> None:
-    # day1 仅实体激活（1），day2 三重（3）；as_of 截止 → 1 / 3
-    bars = _f18_series("10.40", [("10.10", "10.50", "10.30"), ("10.10", "10.80", "10.50")])
+    # 同一 frozen support 输入（10.20,10.60），只改 as_of：day1 仅实体激活
+    # （1），day2 三重（3）→ 1 / 3。未来交易日不污染 earlier as_of。
+    bars = _f18_series("10.40", [("10.10", "10.15", "10.10"), ("10.10", "10.80", "10.50")])
     anchor = bars[12].trade_date
     assert (
-        fl.support_confluence_max_count(bars, anchor, bars[13].trade_date, Decimal("11.20"), Decimal("11.60"))
+        fl.support_confluence_max_count(bars, anchor, bars[13].trade_date, Decimal("10.20"), Decimal("10.60"))
         == 1
     )
     assert (
         fl.support_confluence_max_count(bars, anchor, bars[14].trade_date, Decimal("10.20"), Decimal("10.60"))
         == 3
+    )
+
+
+def test_f18_ma10_undefined_day_still_counts_body_platform() -> None:
+    # BLOCKER 1：MA10 undefined 日不得整天跳过。day1（MA10 未定义）存在
+    # BODY+PLATFORM 共振 → C=2；day2（MA10 已定义）无任何激活 → 0；
+    # F18 = max(2,0) = 2（旧实现整天 continue 会得到 0）。
+    # n_pre=7：day1 是第 9 根 bar（<10）→ MA10 未定义；day2 起已定义。
+    bars = _f18_series("10.40", [("10.10", "10.80", "10.30"), ("12.00", "12.50", "12.00")], n_pre=7)
+    anchor = bars[7].trade_date
+    assert (
+        fl.support_confluence_max_count(bars, anchor, bars[-1].trade_date, Decimal("10.20"), Decimal("10.60"))
+        == 2
+    )
+
+
+def test_f18_no_post_bar_with_invalid_support_returns_none() -> None:
+    # BLOCKER 2：precedence——合法 bars + as_of=anchor（无 post-anchor bar）
+    # + 倒挂/零价 support：观察窗口不存在 → 先返回 None（不是 ValueError）
+    bars = _f18_series("10.40", [])
+    anchor = bars[12].trade_date
+    assert (
+        fl.support_confluence_max_count(bars, anchor, anchor, Decimal("10.60"), Decimal("10.20"))
+        is None
+    )
+    assert (
+        fl.support_confluence_max_count(bars, anchor, anchor, Decimal("0"), Decimal("10.60"))
+        is None
     )
 
 
