@@ -55,9 +55,13 @@ vol(D) = 当日成交量；turn(D) = 当日换手；close/low/high 为原始价�
   high(i) >= support_low（K 线区间与冻结支撑区间相交）；support_low/high
   复用冻结 SupportSnapshot（冻结口径，不另定义新平台；缺失 → None，
   audit fix v01 恢复该定义）
-- F18 支撑共振计数：E01/E04/E05 在相近价位（±2%）同时成立的数量
-  （±2% 为 LEGACY CATALOG DRAFT，NOT FROZEN，见
-  runs/h4-support-zone-v01/h4-support-zone-report-v01.md §5）
+- F18 支撑共振计数（F18 SUPPORT CONFLUENCE CONTRACT V01，2026-08-15 冻结）：
+  存在 D ∈ (anchor_date, as_of] 使三个支撑区间同日被触发且价格真实重合：
+  Z_MA10(D)=[MA10(D),MA10(D)]、Z_T0=[min(open,close)(T0),max(open,close)(T0)]、
+  Z_PLATFORM=[support_low,support_high]；同日触发 = 当日 K 线区间与三个区间
+  均相交（low<=Z.high 且 high>=Z.low）；价格重合 = MA10(D) ∈ Z_T0 且
+  MA10(D) ∈ Z_PLATFORM。计数满足条件的 D 数。无容差（±2% 已废弃，
+  仅存于 h4-support-zone-v01 报告 §5 的 LEGACY CATALOG DRAFT 备注）。
 
 现状（2026-08-15，H4 SUPPORT ZONE CONTRACT V01）：
 - E01-E03 → IMPLEMENTED（factor_lab.ma10_touch_hold / ma10_close_break /
@@ -69,8 +73,11 @@ vol(D) = 当日成交量；turn(D) = 当日换手；close/low/high 为原始价�
   单调承继，随 frozen states/replay 与 episodes 的 support_low/high 列
   落盘；函数只接收冻结值，不重算平台；audit fix v01 恢复冻结相交口径
   low(D)<=support_high 且 high(D)>=support_low，missing → None）
-- F18 → FEASIBLE（本轮只评估下一轮冻结 contract 的条件，见
-  runs/h4-support-zone-v01/h4-support-zone-report-v01.md）
+- F18 → CONTRACT FROZEN + IMPLEMENTED（factor_lab.f18_support_confluence，
+  F18 SUPPORT CONFLUENCE CONTRACT V01，2026-08-15：同日触发 + 价格真实
+  重合，无容差；见 runs/f18-support-confluence-v01/f18-support-confluence-
+  report-v01.md；h4-support-zone-v01 报告的 FEASIBLE 评估已被本 contract
+  取代）
 
 ## 5. B2 放量类（H5）
 

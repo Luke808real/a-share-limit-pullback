@@ -389,3 +389,69 @@ def platform_support_touch(
     if not after:
         return None
     return any(bar.low <= support_high and bar.high >= support_low for bar in after)
+
+
+def _candle_intersects(bar, zone_low: Decimal, zone_high: Decimal) -> bool:
+    """True when the candle range intersects the closed zone [zone_low, zone_high]."""
+    return bar.low <= zone_high and bar.high >= zone_low
+
+
+def f18_support_confluence(
+    bars,
+    anchor_date: date,
+    as_of: date,
+    support_low: Decimal | None,
+    support_high: Decimal | None,
+) -> int | None:
+    """F18_SUPPORT_CONFLUENCE: number of days D in (anchor_date, as_of]
+    where all three support zones are triggered by D's candle on the SAME
+    day and the zones TRULY overlap in price (no tolerance, no ±2%).
+
+    Frozen zones (F18 SUPPORT CONFLUENCE CONTRACT V01):
+      Z_MA10(D)   = [MA10(D), MA10(D)]                  (single price point)
+      Z_T0        = [min(open,close)(T0), max(open,close)(T0)]   (E04)
+      Z_PLATFORM  = [support_low, support_high]         (E05 frozen values)
+
+    Same-day trigger: candle(D) intersects every zone, using the frozen
+    E05 intersection semantics low(D) <= Z.high and high(D) >= Z.low
+    applied to all three zones (a degenerate zone reduces to a point).
+
+    Price overlap: MA10(D) lies inside Z_T0 and inside Z_PLATFORM, so the
+    three zones share the price MA10(D) — true geometric overlap rather
+    than "touched on different days" reconstruction.
+
+    None when no post-anchor session is visible at as_of, or no visible
+    session has a defined MA10 (fewer than 10 sessions through that day).
+    Missing frozen support (either bound None) returns None. Non-positive
+    or reversed frozen zone fails closed. Duplicate dates / multi-code /
+    missing anchor fail closed (ValueError)."""
+    if support_low is None or support_high is None:
+        return None
+    if support_low <= ZERO or support_high <= ZERO:
+        raise ValueError("frozen support zone requires positive prices")
+    if support_low > support_high:
+        raise ValueError("frozen support zone is reversed")
+    ordered = _ordered(bars)
+    anchor = _require_anchor(ordered, anchor_date)
+    after = _after(ordered, anchor_date, as_of)
+    if not after:
+        return None
+    t0_low = min(anchor.open, anchor.close)
+    t0_high = max(anchor.open, anchor.close)
+    ma = _ma10(ordered)
+    count = 0
+    evaluated = False
+    for bar in after:
+        m = ma[bar.trade_date]
+        if m is None:
+            continue
+        evaluated = True
+        triggered = (
+            _candle_intersects(bar, t0_low, t0_high)
+            and _candle_intersects(bar, support_low, support_high)
+            and _candle_intersects(bar, m, m)
+        )
+        overlap = t0_low <= m <= t0_high and support_low <= m <= support_high
+        if triggered and overlap:
+            count += 1
+    return count if evaluated else None
