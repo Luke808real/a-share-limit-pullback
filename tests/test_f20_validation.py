@@ -222,6 +222,25 @@ def test_other_error_reason_on_b2_bar_missing() -> None:
     assert reason is not None and reason.startswith("OTHER_ERROR:")
 
 
+def test_main_other_error_fails_closed_before_artifact(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """OTHER_ERROR must abort main() BEFORE any JSON/MD artifact is written
+    (fail-before-write; the most critical fail-closed layer).
+
+    SHA gates are deliberately bypassed here — this test targets the
+    fail-before-write layer, not the SHA gate (covered by dedicated tests).
+    """
+    ep = pd.DataFrame([_episode_row("000001", "2026-01-02", "2026-01-25", "WIN_S1")])
+    daily = _daily_frame([_bar_row("000001", "2026-01-02", 10.0, 100)])  # B2 bar (01-25) missing
+    monkeypatch.setattr(m, "RESOLVED_N", 1)
+    monkeypatch.setattr(m, "load_episodes", lambda path, expected_sha="", expected_total=1: ep)
+    monkeypatch.setattr(m, "load_daily", lambda path, expected_sha="": daily)
+    out_dir = tmp_path / "out"
+    with pytest.raises(RuntimeError, match="OTHER_ERROR count > 0"):
+        m.main(tmp_path / "episodes.parquet", tmp_path / "daily.parquet", out_dir)
+    assert not (out_dir / "f20-outcome-validation-v01.json").exists()
+    assert not (out_dir / "f20-outcome-validation-v01.md").exists()
+
+
 # ---------- 9d. verdict branches ----------
 
 def test_verdict_both_positive_supported() -> None:

@@ -6,10 +6,10 @@ F20 CONTRACT = CLOSED；F20 PREREG = CLOSED
 F20 VALIDATION LOGIC = CORRECTED / CORE PASS（Sol review @69a6a77：population/Spearman/
 fail-closed/undefined 拆分均确认）
 CORRECTED OBSERVED RESULT: rho_strict = -0.112699；rho_R_positive = -0.118177；H5A = REJECT
-FORMAL CLOSE = PENDING FINAL HARDENING AUDIT（本轮硬化后由 Sol 收口）
+FORMAL CLOSE = PENDING SOL FINAL AUDIT（audit-closeout v01 后由 Sol 正式冻结；不得写 FINAL_ACCEPTED）
 VALIDATED = NO；PROMOTED = NO
 
-branch: fix/f20-validation-final-hardening-v01
+branch: fix/f20-validation-audit-closeout-v01
 commit: （本轮提交后确定）
 PR: 无（本地 research 分支；推送 review 分支，未 merge）
 worktree: /Users/luke808/AI/V flash-f18-validation-v01
@@ -49,9 +49,9 @@ DECISIONS_NEEDED
 
 VALIDATION
 
-pytest: tests/test_f20_validation.py + tests/test_factor_lab.py（新增后全量）
-compileall: 待最终提交前执行
-diff-check: 待最终提交前执行
+pytest: tests/test_f20_validation.py + tests/test_factor_lab.py（全量，见提交时结果）
+compileall: OK（src/limit_pullback/factor_lab + f20_outcome_validation_v01.py，已固化）
+diff-check: OK（已固化）
 runtime validation: 相同 frozen inputs 确定性重跑；数字与 69a6a77 比对一致
 
 BLOCKERS
