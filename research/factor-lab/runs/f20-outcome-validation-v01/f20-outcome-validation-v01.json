@@ -1,0 +1,190 @@
+{
+  "PROVENANCE": {
+    "episodes_sha": "66d5943ffd4c83d8348d7b559ef9aa8ab9c041525471108a2f724fbedd84b093",
+    "daily_sha": "e7243dee3bafe46e725e2b6ee884b07ac97a01c0705b41df0562d35019593514",
+    "episodes_total": 31422,
+    "resolved_n": 9625,
+    "f20_contract_head": "ff4ea77a80c2144fda181b6e412a795b6c1952d9",
+    "prereg_commit": "758768e1dc0db16fa0d9d75a6c25652d2d789671",
+    "f20_function": "factor_lab.b2_volume_vs_20d_mean",
+    "b2_date_semantics": "signal_date for B2-stage episodes (frozen)",
+    "as_of": "signal_date",
+    "defined_population": "B2-stage episodes with PRE20_N == 20 and nonzero window mean"
+  },
+  "ACCOUNTING": {
+    "RESOLVED_N": 9625,
+    "F20_DEFINED_N": 3207,
+    "F20_UNDEFINED_N": 6418,
+    "STRICT_N": 2891,
+    "R_DEFINED_N": 2891,
+    "CANCEL_GAP_ACCOUNTING_N": 316,
+    "UNDEFINED_REASONS": {
+      "NON_B2_STAGE": 6411,
+      "DEFINED": 3207,
+      "F20_UNDEFINED": 7
+    }
+  },
+  "PRIMARY": {
+    "STRICT": {
+      "metric": "strict",
+      "rho": 0.033836,
+      "N": 2891,
+      "direction": "positive",
+      "p": 0.068906
+    },
+    "R_POSITIVE": {
+      "metric": "R>0",
+      "rho": -0.038309,
+      "N": 2891,
+      "direction": "nonpositive",
+      "p": 0.039431
+    },
+    "VERDICT": "REJECT",
+    "VERDICT_RULE": "rho_strict > 0 AND rho_R_positive > 0 -> SUPPORTED_DIRECTIONALLY else REJECT"
+  },
+  "QUARTILES": [
+    {
+      "quartile": "Q1",
+      "bounds": null,
+      "N": 802,
+      "strict_win_rate": 0.694678,
+      "P(R>0)": 0.595238,
+      "mean_R": 0.078148,
+      "median_R": 0.1588
+    },
+    {
+      "quartile": "Q2",
+      "bounds": 1.110322,
+      "N": 802,
+      "strict_win_rate": 0.664374,
+      "P(R>0)": 0.544704,
+      "mean_R": -0.0421,
+      "median_R": 0.0699
+    },
+    {
+      "quartile": "Q3",
+      "bounds": 1.48184,
+      "N": 801,
+      "strict_win_rate": 0.732218,
+      "P(R>0)": 0.562064,
+      "mean_R": -0.000343,
+      "median_R": 0.0824
+    },
+    {
+      "quartile": "Q4",
+      "bounds": 2.011692,
+      "N": 802,
+      "strict_win_rate": 0.716235,
+      "P(R>0)": 0.526603,
+      "mean_R": -0.077427,
+      "median_R": 0.0351
+    }
+  ],
+  "ROBUST": {
+    "F20_DISTRIBUTION": {
+      "p10": 0.844528,
+      "p25": 1.110322,
+      "p50": 1.48184,
+      "p75": 2.011692,
+      "p90": 2.666961,
+      "p95": 3.214998,
+      "p99": 4.334905,
+      "max": 6.52962
+    },
+    "R_TAIL": {
+      "p90_R": 0.9457,
+      "p95_R": 1.36035,
+      "p99_R": 2.32399,
+      "max_R": 5.878,
+      "top1pct_R_contribution": -2.949084,
+      "trim_top1pct_mean_R": -0.043876
+    }
+  },
+  "STAGE_STRATA": [
+    {
+      "stratum": "B2_READY",
+      "N": 1643,
+      "rho_strict": 0.056034,
+      "N_strict": 1329,
+      "rho_R_positive": 0.056034,
+      "N_R_positive": 1329,
+      "eligible": true,
+      "SMALL_CELL": false
+    },
+    {
+      "stratum": "B2_CONFIRMED",
+      "N": 1564,
+      "rho_strict": -0.01451,
+      "N_strict": 1562,
+      "rho_R_positive": -0.092593,
+      "N_R_positive": 1562,
+      "eligible": true,
+      "SMALL_CELL": false
+    }
+  ],
+  "TIMING_STRATA": [
+    {
+      "stratum": "T1-2",
+      "N": 865,
+      "rho_strict": 0.053912,
+      "N_strict": 683,
+      "rho_R_positive": 0.053912,
+      "N_R_positive": 683,
+      "eligible": true,
+      "SMALL_CELL": false
+    },
+    {
+      "stratum": "T3",
+      "N": 970,
+      "rho_strict": 0.084744,
+      "N_strict": 849,
+      "rho_R_positive": -0.011448,
+      "N_R_positive": 849,
+      "eligible": true,
+      "SMALL_CELL": false
+    },
+    {
+      "stratum": "T4-5",
+      "N": 799,
+      "rho_strict": 0.008228,
+      "N_strict": 786,
+      "rho_R_positive": -0.109695,
+      "N_R_positive": 786,
+      "eligible": true,
+      "SMALL_CELL": false
+    },
+    {
+      "stratum": "T6-10",
+      "N": 573,
+      "rho_strict": -0.041511,
+      "N_strict": 573,
+      "rho_R_positive": -0.109665,
+      "N_R_positive": 573,
+      "eligible": true,
+      "SMALL_CELL": false
+    }
+  ],
+  "COMPOSITION_DIRECTION": {
+    "STAGE": {
+      "STRICT_DIRECTION_POSITIVE_K": 1,
+      "STRICT_ELIGIBLE_K": 2,
+      "RPOS_DIRECTION_POSITIVE_K": 1,
+      "RPOS_ELIGIBLE_K": 2
+    },
+    "TIMING": {
+      "STRICT_DIRECTION_POSITIVE_K": 3,
+      "STRICT_ELIGIBLE_K": 4,
+      "RPOS_DIRECTION_POSITIVE_K": 1,
+      "RPOS_ELIGIBLE_K": 4
+    }
+  },
+  "CONCLUSION": {
+    "F20_OUTCOME_VALIDATION_V01": "REJECT",
+    "PREDICTIVE_VALUE": "global main effect not supported",
+    "VALIDATED": false,
+    "PROMOTED": false
+  },
+  "NEW_HYPOTHESES": [],
+  "OUTCOME_AWARE_CONTRACT_CHANGE": false,
+  "THRESHOLD_SEARCH": false
+}

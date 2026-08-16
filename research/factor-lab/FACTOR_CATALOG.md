@@ -106,11 +106,13 @@ vol(D) = 当日成交量；turn(D) = 当日换手；close/low/high 为原始价�
   F20 = B2 / fixed 20 visible sessions immediately before B2（固定 20 根）。
 - 现状：**CONTRACT FROZEN / CLOSED（Sol audit PASS，fix/
   f20-contract-insufficient-history-v01）；OUTCOME VALIDATION =
-  PREREGISTERED / NOT RUN**（pre-registration v01：连续 Spearman
-  rho_strict + rho_R_positive 双 gate → SUPPORTED_DIRECTIONALLY 否则
-  REJECT；quartile 仅描述；禁止 threshold mining；见
-  runs/f20-outcome-prereg-v01/）；不得写 SUPPORTED / REJECT /
-  VALIDATED / PROMOTED（验证未运行）；三倍量（H9）= F19/F20 的
+  **REJECT（V01，2026-08-16；预注册 758768e 后正式验证，
+  runs/f20-outcome-validation-v01/）**：H5A 连续 Spearman 双 gate
+  rho_strict=+0.0338（N=2891）AND rho_R_positive=-0.0383（N=2891）→
+  不满足（第二 gate 非正）→ **REJECT**；B2_READY 层两 rho 均为正
+  （+0.056，strict 编码与 R>0 在该层 100% 一致）但 B2_CONFIRMED 层为负
+  （-0.015/-0.093）；quartile Q1-Q4 无单调（Q2 strict_win_rate 最低）；
+  不得写 VALIDATED / PROMOTED；三倍量（H9）= F19/F20 的
   特例，作为交互项验证，不做主效应。
 - v01 实证（2026-08-14，runs/h9-v01/，fail-closed 审计版）：B2 阶段
   resolved n=3,214，F19 p50=0.85 / p90=1.36 / p99=1.73 / max=3.34；

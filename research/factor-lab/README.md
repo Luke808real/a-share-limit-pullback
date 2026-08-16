@@ -96,3 +96,16 @@ L2 研究因子层 + L3 统计验证层的落点。目标见 docs/ARCHITECTURE_G
   产物：runs/f20-outcome-prereg-v01/f20-outcome-prereg-v01.md。
   OUTCOME VALIDATION = **PREREGISTERED / NOT RUN**；不得写 SUPPORTED /
   REJECT / VALIDATED
+- research/f20-outcome-validation-v01（2026-08-16，F20 OUTCOME VALIDATION
+  V01；预注册 758768e 后正式验证）：H5A 连续 Spearman 双 gate——
+  rho_strict = +0.0338（N=2891）AND rho_R_positive = -0.0383（N=2891）
+  → 第二 gate 非正 → **OUTCOME VALIDATION = REJECT**。defined
+  population：B2 阶段（B2_READY/B2_CONFIRMED）且 PRE20_N==20 且窗口均量
+  非零，N=3207；undefined 6418（NON_B2_STAGE 6411 + F20_UNDEFINED 7）；
+  STRICT_N=2891 + CANCEL_GAP 316 = defined 3207（accounting fail closed）。
+  B2_READY 层两 rho 均为正（+0.056，strict 编码与 R>0 在该层 100% 一致），
+  B2_CONFIRMED 层为负（-0.015/-0.093）；quartile Q1-Q4 无单调
+  （Q2 strict_win_rate 最低 0.664）；stage/timing composition 只报告方向。
+  产物：runs/f20-outcome-validation-v01/f20-outcome-validation-v01.{json,md}。
+  VALIDATED = NO；PROMOTED = NO；禁止 threshold mining；不得写
+  SUPPORTED / VALIDATED。
