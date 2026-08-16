@@ -10,98 +10,114 @@
     "f20_function": "factor_lab.b2_volume_vs_20d_mean",
     "b2_date": "episode.signal_date (frozen)",
     "as_of": "episode.signal_date",
-    "defined_population": "B2-stage episodes with PRE20_N == 20 and nonzero window mean"
+    "defined_population": "all resolved episodes; F20 itself decides defined/undefined (PRE20_N==20 & nonzero window mean)",
+    "spearman_implementation": "frozen: average ranks (method=average) then Pearson of ranks; PRIMARY_RHO_UNDEFINED fails closed"
   },
   "ACCOUNTING": {
     "RESOLVED_N": 9625,
-    "F20_DEFINED_N": 3207,
-    "F20_UNDEFINED_N": 6418,
-    "STRICT_N": 2891,
-    "R_DEFINED_N": 2891,
-    "CANCEL_GAP_ACCOUNTING_N": 316,
+    "F20_DEFINED_N": 9508,
+    "F20_UNDEFINED_N": 117,
+    "STRICT_N": 7765,
+    "R_DEFINED_N": 7765,
+    "CANCEL_GAP_ACCOUNTING_N": 1743,
     "UNDEFINED_REASONS": {
-      "NON_B2_STAGE": 6411,
-      "DEFINED": 3207,
-      "F20_UNDEFINED": 7
+      "DEFINED": 9508,
+      "INSUFFICIENT_PRE20": 117
     }
   },
   "PRIMARY": {
     "STRICT": {
       "metric": "strict",
-      "rho": 0.033836,
-      "N": 2891,
-      "direction": "positive",
-      "p": 0.068906
+      "rho": -0.112699,
+      "N": 7765,
+      "direction": "nonpositive"
     },
     "R_POSITIVE": {
       "metric": "R>0",
-      "rho": -0.038309,
-      "N": 2891,
-      "direction": "nonpositive",
-      "p": 0.039431
+      "rho": -0.118177,
+      "N": 7765,
+      "direction": "nonpositive"
     },
     "VERDICT": "REJECT",
-    "VERDICT_RULE": "rho_strict > 0 AND rho_R_positive > 0 -> SUPPORTED_DIRECTIONALLY else REJECT"
+    "VERDICT_RULE": "rho_strict > 0 AND rho_R_positive > 0 -> SUPPORTED_DIRECTIONALLY else REJECT; PRIMARY_RHO_UNDEFINED -> fail closed (no artifact)"
   },
   "QUARTILES": [
     {
       "quartile": "Q1",
       "bounds": null,
-      "N": 802,
-      "strict_win_rate": 0.694678,
-      "P(R>0)": 0.595238,
-      "mean_R": 0.078148,
-      "median_R": 0.1588
+      "N": 2377,
+      "STRICT_N": 2006,
+      "strict_win_rate": 0.347458,
+      "R_DEFINED_N": 2006,
+      "P(R>0)": 0.298106,
+      "mean_R": 0.017468,
+      "median_R": -1.0
     },
     {
       "quartile": "Q2",
-      "bounds": 1.110322,
-      "N": 802,
-      "strict_win_rate": 0.664374,
-      "P(R>0)": 0.544704,
-      "mean_R": -0.0421,
-      "median_R": 0.0699
+      "bounds": 1.204124,
+      "N": 2377,
+      "STRICT_N": 2012,
+      "strict_win_rate": 0.333499,
+      "R_DEFINED_N": 2012,
+      "P(R>0)": 0.273857,
+      "mean_R": -0.038693,
+      "median_R": -1.0
     },
     {
       "quartile": "Q3",
-      "bounds": 1.48184,
-      "N": 801,
-      "strict_win_rate": 0.732218,
-      "P(R>0)": 0.562064,
-      "mean_R": -0.000343,
-      "median_R": 0.0824
+      "bounds": 1.697379,
+      "N": 2377,
+      "STRICT_N": 1962,
+      "strict_win_rate": 0.296126,
+      "R_DEFINED_N": 1962,
+      "P(R>0)": 0.234964,
+      "mean_R": -0.05008,
+      "median_R": -1.0
     },
     {
       "quartile": "Q4",
-      "bounds": 2.011692,
-      "N": 802,
-      "strict_win_rate": 0.716235,
-      "P(R>0)": 0.526603,
-      "mean_R": -0.077427,
-      "median_R": 0.0351
+      "bounds": 2.498667,
+      "N": 2377,
+      "STRICT_N": 1785,
+      "strict_win_rate": 0.210084,
+      "R_DEFINED_N": 1785,
+      "P(R>0)": 0.165266,
+      "mean_R": -0.132638,
+      "median_R": -1.0
     }
   ],
   "ROBUST": {
     "F20_DISTRIBUTION": {
-      "p10": 0.844528,
-      "p25": 1.110322,
-      "p50": 1.48184,
-      "p75": 2.011692,
-      "p90": 2.666961,
-      "p95": 3.214998,
-      "p99": 4.334905,
-      "max": 6.52962
+      "p10": 0.896134,
+      "p25": 1.204124,
+      "p50": 1.697379,
+      "p75": 2.498667,
+      "p90": 3.726653,
+      "p95": 4.666875,
+      "p99": 6.678837,
+      "max": 13.144185
     },
     "R_TAIL": {
-      "p90_R": 0.9457,
-      "p95_R": 1.36035,
-      "p99_R": 2.32399,
-      "max_R": 5.878,
-      "top1pct_R_contribution": -2.949084,
-      "trim_top1pct_mean_R": -0.043876
+      "p90_R": 0.6452,
+      "p95_R": 1.59932,
+      "p99_R": 17.586628,
+      "max_R": 109.0,
+      "top1pct_R_contribution": -5.991301,
+      "trim_top1pct_mean_R": -0.343587
     }
   },
   "STAGE_STRATA": [
+    {
+      "stratum": "B1_READY",
+      "N": 6301,
+      "rho_strict": -0.009732,
+      "N_strict": 4874,
+      "rho_R_positive": -0.009732,
+      "N_R_positive": 4874,
+      "eligible": true,
+      "SMALL_CELL": false
+    },
     {
       "stratum": "B2_READY",
       "N": 1643,
@@ -126,41 +142,41 @@
   "TIMING_STRATA": [
     {
       "stratum": "T1-2",
-      "N": 865,
-      "rho_strict": 0.053912,
-      "N_strict": 683,
-      "rho_R_positive": 0.053912,
-      "N_R_positive": 683,
+      "N": 6723,
+      "rho_strict": -0.059124,
+      "N_strict": 5195,
+      "rho_R_positive": -0.059124,
+      "N_R_positive": 5195,
       "eligible": true,
       "SMALL_CELL": false
     },
     {
       "stratum": "T3",
-      "N": 970,
-      "rho_strict": 0.084744,
-      "N_strict": 849,
-      "rho_R_positive": -0.011448,
-      "N_R_positive": 849,
+      "N": 1244,
+      "rho_strict": 0.069638,
+      "N_strict": 1067,
+      "rho_R_positive": -0.006228,
+      "N_R_positive": 1067,
       "eligible": true,
       "SMALL_CELL": false
     },
     {
       "stratum": "T4-5",
-      "N": 799,
-      "rho_strict": 0.008228,
-      "N_strict": 786,
-      "rho_R_positive": -0.109695,
-      "N_R_positive": 786,
+      "N": 911,
+      "rho_strict": 0.099904,
+      "N_strict": 884,
+      "rho_R_positive": -0.044738,
+      "N_R_positive": 884,
       "eligible": true,
       "SMALL_CELL": false
     },
     {
       "stratum": "T6-10",
-      "N": 573,
-      "rho_strict": -0.041511,
-      "N_strict": 573,
-      "rho_R_positive": -0.109665,
-      "N_R_positive": 573,
+      "N": 630,
+      "rho_strict": 0.118439,
+      "N_strict": 619,
+      "rho_R_positive": -0.022971,
+      "N_R_positive": 619,
       "eligible": true,
       "SMALL_CELL": false
     }
@@ -168,14 +184,14 @@
   "COMPOSITION_DIRECTION": {
     "STAGE": {
       "STRICT_DIRECTION_POSITIVE_K": 1,
-      "STRICT_ELIGIBLE_K": 2,
+      "STRICT_ELIGIBLE_K": 3,
       "RPOS_DIRECTION_POSITIVE_K": 1,
-      "RPOS_ELIGIBLE_K": 2
+      "RPOS_ELIGIBLE_K": 3
     },
     "TIMING": {
       "STRICT_DIRECTION_POSITIVE_K": 3,
       "STRICT_ELIGIBLE_K": 4,
-      "RPOS_DIRECTION_POSITIVE_K": 1,
+      "RPOS_DIRECTION_POSITIVE_K": 0,
       "RPOS_ELIGIBLE_K": 4
     }
   },

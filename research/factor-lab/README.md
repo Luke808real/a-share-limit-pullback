@@ -97,15 +97,18 @@ L2 研究因子层 + L3 统计验证层的落点。目标见 docs/ARCHITECTURE_G
   OUTCOME VALIDATION = **PREREGISTERED / NOT RUN**；不得写 SUPPORTED /
   REJECT / VALIDATED
 - research/f20-outcome-validation-v01（2026-08-16，F20 OUTCOME VALIDATION
-  V01；预注册 758768e 后正式验证）：H5A 连续 Spearman 双 gate——
-  rho_strict = +0.0338（N=2891）AND rho_R_positive = -0.0383（N=2891）
-  → 第二 gate 非正 → **OUTCOME VALIDATION = REJECT**。defined
-  population：B2 阶段（B2_READY/B2_CONFIRMED）且 PRE20_N==20 且窗口均量
-  非零，N=3207；undefined 6418（NON_B2_STAGE 6411 + F20_UNDEFINED 7）；
-  STRICT_N=2891 + CANCEL_GAP 316 = defined 3207（accounting fail closed）。
-  B2_READY 层两 rho 均为正（+0.056，strict 编码与 R>0 在该层 100% 一致），
-  B2_CONFIRMED 层为负（-0.015/-0.093）；quartile Q1-Q4 无单调
-  （Q2 strict_win_rate 最低 0.664）；stage/timing composition 只报告方向。
-  产物：runs/f20-outcome-validation-v01/f20-outcome-validation-v01.{json,md}。
-  VALIDATED = NO；PROMOTED = NO；禁止 threshold mining；不得写
-  SUPPORTED / VALIDATED。
+  V01；预注册 758768e 后正式验证 + prereg-compliance audit fix v01
+  （Sol review @648aa06 修复：去掉 stage 预过滤、冻结 Spearman 实现、
+  PRIMARY_RHO_UNDEFINED fail closed、undefined reason 拆分、补独立测试））：
+  primary population = 全部 resolved（冻结映射，F20 自身定 defined），
+  DEFINED 9508 / UNDEFINED 117（INSUFFICIENT_PRE20，无 ZERO_DENOMINATOR/
+  OTHER_ERROR）；H5A 双 gate：rho_strict = -0.1127（N=7765）AND
+  rho_R_positive = -0.1182（N=7765）→ 双 gate 均非正 → **OUTCOME
+  VALIDATION = REJECT**。stage 三层：B1_READY -0.010/-0.010、B2_READY
+  +0.056/+0.056（strict 编码与 R>0 在该两层 100% 一致，数据属性）、
+  B2_CONFIRMED -0.015/-0.093；quartile Q1-Q4 无单调；composition 只报告
+  方向。产物：runs/f20-outcome-validation-v01/f20-outcome-validation-v01.{json,md}；
+  测试：tests/test_f20_validation.py（SHA 门禁、no bypass、undefined
+  isolation、accounting、ties、CANCEL exclusion、numeric-R、fail closed、
+  future leakage、quartile 独立性）。VALIDATED = NO；PROMOTED = NO；
+  禁止 threshold mining；不得写 SUPPORTED / VALIDATED。

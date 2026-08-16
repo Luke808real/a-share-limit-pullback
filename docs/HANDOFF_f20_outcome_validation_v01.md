@@ -1,51 +1,62 @@
-# Handoff — F20 OUTCOME VALIDATION V01
+# Handoff — F20 VALIDATION PREREG-COMPLIANCE AUDIT FIX V01
 
 STATUS
 
-branch: research/f20-outcome-validation-v01
-commit: 64fe9e3
-PR: 无（本地 research 分支；未 merge，未 force）
+branch: fix/f20-validation-prereg-compliance-v01
+commit: （本次提交后确定）
+PR: 无（本地 research 分支；已推送 review 分支，未 merge）
 worktree: /Users/luke808/AI/V flash-f18-validation-v01
 
 CHANGED
 
-- research/factor-lab/f20_outcome_validation_v01.py（新增）：预注册 outcome
-  validation 流水线——SHA 门禁（episodes 66d5943f / daily e7243dee，无
-  DataFrame bypass）、B2-stage defined population（PRE20_N==20 且窗口均量
-  非零）、H5A 连续 Spearman 双 gate、quartile Q1-Q4 描述、robustness、
-  stage/timing composition（SMALL_CELL 排除）、accounting invariants
-  fail closed（defined+undefined==resolved；strict+cancel_gap==defined）。
-- research/factor-lab/runs/f20-outcome-validation-v01/f20-outcome-validation-v01.{json,md}（新增）
-- research/factor-lab/FACTOR_CATALOG.md：F20 OUTCOME VALIDATION
-  PREREGISTERED/NOT RUN → REJECT（V01）
-- research/factor-lab/README.md：追加 f20-outcome-validation-v01 条目
+- research/factor-lab/f20_outcome_validation_v01.py：prereg-compliance 修复
+  1) 删除 B2_STAGES 预过滤——primary population = 全部 resolved episodes
+     （冻结映射 anchor/b2_date=signal_date/as_of=signal_date），F20 自身定
+     defined/undefined；setup_stage 仅用于 composition（B1_READY/B2_READY/
+     B2_CONFIRMED 三层）
+  2) 冻结 Spearman 实现：average ranks (method="average") + Pearson of ranks，
+     移除 scipy 依赖；N<2 / 常量 / rho 非有限 → PRIMARY_RHO_UNDEFINED →
+     fail closed（RuntimeError，不产出 artifact），绝不映射为 REJECT
+  3) undefined reason 拆分：INSUFFICIENT_PRE20（PRE20_N<20，runner 用同一
+     PIT bars 复算）/ ZERO_DENOMINATOR（>=20 根但窗口均量为 0）/ OTHER_ERROR
+  4) quartile 输出补 STRICT_N / R_DEFINED_N
+- tests/test_f20_validation.py（新增）：18 项 regression（wrong SHA ×2、
+  no DataFrame bypass ×2、undefined isolation ×3、accounting fail closed ×2、
+  average-rank ties、N<2/常量 rho fail closed ×2、CANCEL exclusion、
+  numeric-R only、spearman_block fail closed、future leakage ×2、
+  quartile outcome-independence）
+- research/factor-lab/runs/f20-outcome-validation-v01/*.{json,md}：确定性重跑
+- research/factor-lab/FACTOR_CATALOG.md、README.md：REJECT 最终数字
+- docs/HANDOFF_f20_outcome_validation_v01.md → 本文件（v01 → audit fix）
 
 OBSERVED
 
-- RESOLVED_N=9625；F20_DEFINED_N=3207；F20_UNDEFINED_N=6418
-  （NON_B2_STAGE 6411 + F20_UNDEFINED 7）；STRICT_N=2891；
-  CANCEL_GAP_ACCOUNTING_N=316；R_DEFINED_N=2891
-- rho_strict=+0.0338（N=2891，p=0.069）；rho_R_positive=-0.0383（N=2891，
-  p=0.039）→ 第二 gate 非正 → **H5A = REJECT**
-- B2_READY 层两 rho 均 +0.056（该层 strict 编码与 R>0 100% 一致，已复核
-  非 bug）；B2_CONFIRMED 层 -0.015/-0.093；T1-2/T3 strict 正、T4-5/T6-10 负
-- quartile Q1-Q4 无单调（Q2 strict_win_rate 0.664 最低；P(R>0) 0.595→0.527 递减）
-- F20 分布（defined）：p50=1.48，p90=2.67，p95=3.21，p99=4.33，max=6.53
-- b2 event date := signal_date（B2-stage frozen semantics，h9 doc）
+- RESOLVED_N=9625 = F20_DEFINED_N=9508 + F20_UNDEFINED_N=117
+  （UNDEFINED_REASONS: INSUFFICIENT_PRE20=117；ZERO_DENOMINATOR=0；
+  OTHER_ERROR=0）；STRICT_N=7765 + CANCEL_GAP=1743 = 9508；R_DEFINED_N=7765
+- rho_strict = -0.1127（N=7765）；rho_R_positive = -0.1182（N=7765）
+  → 双 gate 均非正 → **H5A = REJECT**（冻结 average-rank+Pearson 实现）
+- stage 三层：B1_READY -0.010/-0.010（N 层内 4959）、B2_READY +0.056/+0.056、
+  B2_CONFIRMED -0.015/-0.093；B1_READY 与 B2_READY 层 strict 编码与 R>0
+  100% 一致（数据属性，WIN_S1→R>0 完全对应），B2_CONFIRMED 73.3%
+  （419 例 WIN_S1 且 R<=0）——已复核非 bug
+- quartile Q1-Q4（各 2377）：STRICT_N 2006/2012/1962/1785；无单调
+- 与 B2-only 旧版本（648aa06，rho +0.034/-0.038）差异源于 population
+  修复（6411 个 NON_B2_STAGE 曾被子集化排除）；REJECT 结论不变且证据更强
 
 DECISIONS_NEEDED
 
-- 是否将 B2_READY 层正方向（两 rho 均正）记为 NEW_HYPOTHESIS 留给未来
-  独立样本验证（当前未写入，需 SOL/人工评审确认后再填）
-- 后续是否执行 F19 outcome validation（同族因子，h9 事件频率层已 REJECT）
+- 等待 Sol 对 audit-fix 版本的 review（review/f20-validation-prereg-compliance-v01）
+- B1_READY/B2_READY 层 rho 正方向是否记入 NEW_HYPOTHESES（待 Sol 确认）
 
 VALIDATION
 
-pytest: tests/test_factor_lab.py 71 passed（0.21s）
-compileall: OK（src + 新脚本）
-diff-check: OK
-runtime validation: 流水线 OK（SHA 门禁通过；accounting 守恒校验通过；
-B2_READY rho 一致性已独立复核）
+pytest: tests/test_f20_validation.py + tests/test_factor_lab.py = 89 passed
+  （uv run python -m pytest；.venv 已装 pytest，避免 uv run pytest 的隔离环境）
+compileall: 待最终提交前执行
+diff-check: 待最终提交前执行
+runtime validation: 相同 frozen inputs 确定性重跑（SHA 门禁通过；
+  accounting 守恒：9625=9508+117；7765+1743=9508）
 
 BLOCKERS
 
@@ -53,5 +64,5 @@ NONE
 
 NEXT
 
-- 回传 SOL 验证结果并等待评审；若评审通过，按预注册纪律归档
-  （NEW_HYPOTHESES 如实填写后 commit）
+- 提交 audit-fix 并推送 review/f20-validation-prereg-compliance-v01，
+  回传 SOL [AUTHOR_REPORT] 等待评审

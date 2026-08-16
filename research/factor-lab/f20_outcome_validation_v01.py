@@ -1,33 +1,47 @@
-"""F20 B2 VOLUME VS 20D MEAN OUTCOME VALIDATION V01 — pre-registered outcome validation.
+"""F20 B2 VOLUME VS 20D MEAN OUTCOME VALIDATION V01 — prereg-compliant outcome validation.
+
+Prereg-compliance audit fix v01 (Sol review @648aa06, TASK BASE_HEAD 648aa06):
+  1. primary population = ALL resolved episodes under the frozen mapping
+     (anchor_date / b2_date=signal_date / as_of=signal_date); NO stage filter
+     before F20 — F20 itself decides defined/undefined. setup_stage is used
+     only for the frozen stage composition (B1_READY/B2_READY/B2_CONFIRMED).
+  2. Spearman = frozen explicit implementation: average ranks (method="average")
+     then Pearson correlation of the ranks; no scipy dependency.
+  3. PRIMARY_RHO_UNDEFINED (N<2, constant x/y, non-finite rho) -> FAIL CLOSED
+     (RuntimeError), never mapped to REJECT.
+  4. undefined reasons split: INSUFFICIENT_PRE20 / ZERO_DENOMINATOR /
+     OTHER_ERROR (PRE20_N recomputed by the runner from the same PIT bars).
+  5. tests/test_f20_validation.py committed (SHA gates, no bypass, undefined
+     isolation, accounting invariants, average-rank ties, CANCEL exclusion,
+     numeric-R only, undefined rho fail closed, future leakage, quartile
+     outcome-independence).
 
 Frozen inputs (SHA gate, fail closed):
   episodes: data/outcome-study/outcome-snap-2026-07-31-b5f84004de8a-2024-01-01-2026-07-31-25903057f106/
             corrected-b2-trigger-outcome/episodes.parquet   (66d5943f...)
   daily:    data/canonical/daily_bars/snap-2026-07-31-b5f84004de8a.parquet (e7243dee...)
 
-F20 authority: factor_lab.b2_volume_vs_20d_mean (F20 CONTRACT FROZEN / CLOSED, HEAD ff4ea77,
-Sol audit PASS). b2 event date := signal_date for B2-stage episodes (frozen semantics).
+F20 authority: factor_lab.b2_volume_vs_20d_mean.
+  F20_CONTRACT_AUTHORITY_HEAD = 0f068d4462adb4eb435791843259dbe11a646a2c
+  F20_SOURCE_SEMANTIC_HEAD    = ff4ea77a80c2144fda181b6e412a795b6c1952d9
+  F20_PREREG_HEAD             = 758768e1dc0db16fa0d9d75a6c25652d2d789671
 
-Pre-registered design (runs/f20-outcome-prereg-v01/f20-outcome-prereg-v01.md, commit 758768e):
-  Primary H5A gate: rho_strict > 0 AND rho_R_positive > 0 -> SUPPORTED_DIRECTIONALLY else REJECT.
-  - rho_strict: Spearman(F20, strict binary) on strict-defined population
-    (WIN_S1=1, LOSS_INVALID=0; CANCEL_GAP_INVALID excluded from strict denominator)
-  - rho_R_positive: Spearman(F20, 1[R>0]) on R-defined population (WIN_S1 + LOSS_INVALID)
-  Quartile Q1-Q4 descriptive only; stage/timing composition reports direction only
-  (SMALL_CELL N<20 excluded); NO threshold mining; undefined F20 only accounted.
+Pre-registered H5A gate (unchanged): rho_strict > 0 AND rho_R_positive > 0
+  -> SUPPORTED_DIRECTIONALLY else REJECT. No threshold mining, no contract
+  change, no metric substitution.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import math
 import sys
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 
 import pandas as pd
-from scipy.stats import spearmanr
 
 # Deterministic import: always use THIS checkout's src.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
@@ -40,12 +54,12 @@ DAILY_SHA = "e7243dee3bafe46e725e2b6ee884b07ac97a01c0705b41df0562d35019593514"
 EPISODES_TOTAL = 31422
 RESOLVED_N = 9625
 RESOLVED_OUTCOMES = ("WIN_S1", "LOSS_INVALID", "CANCEL_GAP_INVALID")
-B2_STAGES = ("B2_READY", "B2_CONFIRMED")
+STRICT_OUTCOMES = ("WIN_S1", "LOSS_INVALID")
+COMPOSITION_STAGES = ("B1_READY", "B2_READY", "B2_CONFIRMED")
 F20_CONTRACT_AUTHORITY_HEAD = "0f068d4462adb4eb435791843259dbe11a646a2c"
 F20_SOURCE_SEMANTIC_HEAD = "ff4ea77a80c2144fda181b6e412a795b6c1952d9"
 F20_PREREG_HEAD = "758768e1dc0db16fa0d9d75a6c25652d2d789671"
 TZ = timezone(timedelta(hours=8))
-STRICT_OUTCOMES = ("WIN_S1", "LOSS_INVALID")
 
 
 def sha256(path: Path) -> str:
@@ -117,11 +131,12 @@ def bars_pit_f20(grp: pd.DataFrame, as_of: date) -> list[DailyBar]:
 
 
 def compute_f20(groups: dict[str, pd.DataFrame], episode: dict) -> tuple[Decimal | None, str | None]:
-    """PIT materialization of F20 for one frozen B2-stage episode.
+    """PIT materialization of F20 for one frozen resolved episode.
 
-    b2 event date := signal_date (frozen semantics). Returns (f20, reason);
-    reason in {NO_BARS, OTHER_ERROR:...} or None when defined (F20 None ->
-    "F20_UNDEFINED", e.g. PRE20_N < 20 or zero window mean).
+    Frozen mapping: b2_date = signal_date, as_of = signal_date. No stage
+    filter: F20 itself decides defined / undefined. Returns (f20, reason);
+    reason in {NO_BARS, INSUFFICIENT_PRE20, ZERO_DENOMINATOR, OTHER_ERROR:...}
+    or None when defined.
     """
     anchor = date.fromisoformat(episode["anchor_date"])
     b2 = date.fromisoformat(episode["signal_date"])
@@ -131,12 +146,19 @@ def compute_f20(groups: dict[str, pd.DataFrame], episode: dict) -> tuple[Decimal
     bars = bars_pit_f20(grp, b2)
     if not bars:
         return None, "NO_BARS"
+    # Pre-compute PRE20_N with the SAME PIT bars and the same window rule as
+    # the frozen factor (trade_date < b2_date) so undefined reasons are
+    # auditable: <20 -> INSUFFICIENT_PRE20, >=20 with zero mean ->
+    # ZERO_DENOMINATOR, everything else from the factor -> OTHER_ERROR.
+    pre20_n = sum(1 for bar in bars if bar.trade_date < b2)
     try:
         value = fl.b2_volume_vs_20d_mean(bars, anchor, b2)
     except Exception as exc:  # noqa: BLE001 - any error is a fail-closed OTHER_ERROR
         return None, f"OTHER_ERROR:{type(exc).__name__}"
     if value is None:
-        return None, "F20_UNDEFINED"
+        if pre20_n < 20:
+            return None, "INSUFFICIENT_PRE20"
+        return None, "ZERO_DENOMINATOR"
     return value, None
 
 
@@ -156,9 +178,35 @@ def _round(value: float) -> float | None:
     return round(float(value), 6)
 
 
+def frozen_spearman(x: pd.Series, y: pd.Series) -> float:
+    """Frozen Spearman implementation (prereg/TASK): average ranks then Pearson
+    of the ranks. FAIL CLOSED on N<2, constant x/y, or non-finite rho
+    (PRIMARY_RHO_UNDEFINED) — never returns None for the primary gate.
+    """
+    xr = pd.Series(x).rank(method="average")
+    yr = pd.Series(y).rank(method="average")
+    n = int(xr.size)
+    if n < 2:
+        raise RuntimeError(f"PRIMARY_RHO_UNDEFINED: N={n} < 2")
+    if xr.nunique() < 2 or yr.nunique() < 2:
+        raise RuntimeError("PRIMARY_RHO_UNDEFINED: constant x or y")
+    xm = float(xr.mean())
+    ym = float(yr.mean())
+    cov = float(((xr - xm) * (yr - ym)).sum())
+    vx = float(((xr - xm) ** 2).sum())
+    vy = float(((yr - ym) ** 2).sum())
+    if vx == 0 or vy == 0:
+        raise RuntimeError("PRIMARY_RHO_UNDEFINED: zero variance after ranking")
+    rho = cov / math.sqrt(vx * vy)
+    if not math.isfinite(rho):
+        raise RuntimeError(f"PRIMARY_RHO_UNDEFINED: non-finite rho {rho}")
+    return rho
+
+
 def group_metrics(outcomes: pd.Series, r: pd.Series) -> dict:
     """Descriptive metrics for one group (strict_win_rate on strict denominator;
-    R metrics on R-defined subset only)."""
+    CANCEL_GAP_INVALID excluded from the strict denominator; R metrics on
+    numeric-R defined subset only)."""
     win = int((outcomes == "WIN_S1").sum())
     loss = int((outcomes == "LOSS_INVALID").sum())
     cancel_gap = int((outcomes == "CANCEL_GAP_INVALID").sum())
@@ -170,6 +218,7 @@ def group_metrics(outcomes: pd.Series, r: pd.Series) -> dict:
     strict_win_rate = win / denominator if denominator > 0 else float("nan")
     return {
         "N": total,
+        "STRICT_N": denominator,
         "WIN_S1": win,
         "LOSS_INVALID": loss,
         "CANCEL_GAP_INVALID": cancel_gap,
@@ -182,26 +231,23 @@ def group_metrics(outcomes: pd.Series, r: pd.Series) -> dict:
 
 
 def spearman_block(f20: pd.Series, y: pd.Series, label: str) -> dict:
-    """Pre-registered Spearman block: rho / N / direction (p informational, NOT a gate)."""
+    """Pre-registered Spearman block: rho / N / direction (fail closed)."""
     x = pd.to_numeric(f20, errors="coerce")
     yy = pd.to_numeric(y, errors="coerce")
     mask = x.notna() & yy.notna()
     n = int(mask.sum())
-    if n < 2:
-        return {"metric": label, "rho": None, "N": n, "direction": None, "p": None}
-    rho, p = spearmanr(x[mask], yy[mask])
+    rho = frozen_spearman(x[mask], yy[mask])  # raises PRIMARY_RHO_UNDEFINED
     return {
         "metric": label,
         "rho": _round(float(rho)),
         "N": n,
-        "direction": "positive" if rho > 0 else ("nonpositive" if rho <= 0 else None),
-        "p": _round(float(p)),
+        "direction": "positive" if rho > 0 else "nonpositive",
     }
 
 
 def quartile_rows(df: pd.DataFrame) -> list[dict]:
-    """Fixed quartile descriptive buckets (boundaries from F20's own distribution;
-    descriptive only, never a threshold rule)."""
+    """Fixed quartile descriptive buckets (boundaries from F20's own
+    distribution only — outcome-independent; descriptive only)."""
     f20 = pd.to_numeric(df["f20"], errors="coerce").dropna()
     if f20.empty:
         return []
@@ -229,7 +275,9 @@ def quartile_rows(df: pd.DataFrame) -> list[dict]:
             "quartile": labels[q],
             "bounds": (None if q == 0 else _round([q1, q2, q3][q - 1])),
             "N": m["N"],
+            "STRICT_N": m["STRICT_N"],
             "strict_win_rate": m["strict_win_rate"],
+            "R_DEFINED_N": m["R_DEFINED_N"],
             "P(R>0)": m["P(R>0)"],
             "mean_R": m["mean_R"],
             "median_R": m["median_R"],
@@ -310,11 +358,11 @@ def composition_direction(rows: list[dict]) -> dict:
     }
 
 
-def verdict(rho_strict: float | None, rho_r_positive: float | None) -> str:
-    """Pre-registered H5A verdict (single gate, no metric substitution)."""
-    if rho_strict is not None and rho_r_positive is not None:
-        if rho_strict > 0 and rho_r_positive > 0:
-            return "SUPPORTED_DIRECTIONALLY"
+def verdict(rho_strict: float, rho_r_positive: float) -> str:
+    """Pre-registered H5A verdict (single gate). Both rhos are guaranteed
+    finite here (frozen_spearman fails closed on PRIMARY_RHO_UNDEFINED)."""
+    if rho_strict > 0 and rho_r_positive > 0:
+        return "SUPPORTED_DIRECTIONALLY"
     return "REJECT"
 
 
@@ -339,7 +387,7 @@ def check_accounting(resolved_n: int, defined_n: int, undefined_n: int, strict_n
 
 
 def main(episodes_path: Path, daily_path: Path, out_dir: Path) -> dict:
-    """Full pre-registered pipeline. Returns the result dict (and writes JSON + MD).
+    """Full pre-registered pipeline (prereg-compliant). Writes JSON + MD.
 
     No input bypass: episodes and daily are ALWAYS loaded through their SHA
     gates inside this function.
@@ -356,10 +404,6 @@ def main(episodes_path: Path, daily_path: Path, out_dir: Path) -> dict:
     reasons: list[str | None] = []
     errors: list[str] = []
     for _, ep in resolved.iterrows():
-        if ep["setup_stage"] not in B2_STAGES:
-            f20_vals.append(None)
-            reasons.append("NON_B2_STAGE")
-            continue
         value, reason = compute_f20(groups, ep.to_dict())
         f20_vals.append(value)
         reasons.append(reason)
@@ -375,8 +419,7 @@ def main(episodes_path: Path, daily_path: Path, out_dir: Path) -> dict:
     defined = resolved[resolved["f20"].notna()].copy()
     undefined = resolved[resolved["f20"].isna()]
     strict = defined[defined["outcome"].isin(STRICT_OUTCOMES)].copy()
-    r_defined = defined[defined["outcome"].isin(STRICT_OUTCOMES)].copy()
-    r_defined = r_defined[r_defined["r_multiple"].notna()]
+    r_defined = strict[strict["r_multiple"].notna()].copy()
     cancel_gap = defined[defined["outcome"] == "CANCEL_GAP_INVALID"]
 
     strict["strict_binary"] = (strict["outcome"] == "WIN_S1").astype(int)
@@ -395,7 +438,7 @@ def main(episodes_path: Path, daily_path: Path, out_dir: Path) -> dict:
     rpos_block = spearman_block(r_defined["f20"], r_defined["r_positive"], "R>0")
     result_verdict = verdict(strict_block["rho"], rpos_block["rho"])
 
-    stage_rows = composition_rows(defined, list(B2_STAGES), "setup_stage")
+    stage_rows = composition_rows(defined, list(COMPOSITION_STAGES), "setup_stage")
     defined["timing"] = defined["days_since_anchor"].apply(timing_bucket)
     timing_rows = composition_rows(defined, ["T1-2", "T3", "T4-5", "T6-10"], "timing")
 
@@ -416,7 +459,8 @@ def main(episodes_path: Path, daily_path: Path, out_dir: Path) -> dict:
             "f20_function": "factor_lab.b2_volume_vs_20d_mean",
             "b2_date": "episode.signal_date (frozen)",
             "as_of": "episode.signal_date",
-            "defined_population": "B2-stage episodes with PRE20_N == 20 and nonzero window mean",
+            "defined_population": "all resolved episodes; F20 itself decides defined/undefined (PRE20_N==20 & nonzero window mean)",
+            "spearman_implementation": "frozen: average ranks (method=average) then Pearson of ranks; PRIMARY_RHO_UNDEFINED fails closed",
         },
         "ACCOUNTING": {
             "RESOLVED_N": accounting["RESOLVED_N"],
@@ -431,7 +475,7 @@ def main(episodes_path: Path, daily_path: Path, out_dir: Path) -> dict:
             "STRICT": strict_block,
             "R_POSITIVE": rpos_block,
             "VERDICT": result_verdict,
-            "VERDICT_RULE": "rho_strict > 0 AND rho_R_positive > 0 -> SUPPORTED_DIRECTIONALLY else REJECT",
+            "VERDICT_RULE": "rho_strict > 0 AND rho_R_positive > 0 -> SUPPORTED_DIRECTIONALLY else REJECT; PRIMARY_RHO_UNDEFINED -> fail closed (no artifact)",
         },
         "QUARTILES": quartile_rows(defined),
         "ROBUST": {
@@ -471,11 +515,13 @@ def render_report(result: dict) -> str:
     a = result["ACCOUNTING"]
     prim = result["PRIMARY"]
     lines = [
-        "# F20 B2 VOLUME VS 20D MEAN OUTCOME VALIDATION V01 — 预注册验证报告",
+        "# F20 B2 VOLUME VS 20D MEAN OUTCOME VALIDATION V01 — 预注册验证报告（prereg-compliant audit fix v01）",
         "",
         f"- F20 CONTRACT = FROZEN / CLOSED（AUTHORITY HEAD {p['F20_CONTRACT_AUTHORITY_HEAD']}，Sol audit PASS）",
         f"- 函数：{p['f20_function']}（源码语义 HEAD {p['F20_SOURCE_SEMANTIC_HEAD']}）；预注册：{p['F20_PREREG_HEAD']}",
         f"- b2_date = {p['b2_date']}；as_of = {p['as_of']}",
+        f"- defined population：{p['defined_population']}",
+        f"- Spearman：{p['spearman_implementation']}",
         f"- episodes SHA: {p['episodes_sha']}；daily SHA: {p['daily_sha']}",
         f"- EPISODES_TOTAL = {p['episodes_total']}；RESOLVED_N = {p['resolved_n']}",
         "",
@@ -484,19 +530,19 @@ def render_report(result: dict) -> str:
         f"- STRICT_N = {a['STRICT_N']}；R_DEFINED_N = {a['R_DEFINED_N']}；CANCEL_GAP_ACCOUNTING_N = {a['CANCEL_GAP_ACCOUNTING_N']}",
         f"- UNDEFINED_REASONS = {a['UNDEFINED_REASONS']}",
         "",
-        "## PRIMARY（H5A 连续 Spearman 双 gate）",
-        f"- rho_strict = {prim['STRICT']['rho']}（N={prim['STRICT']['N']}，direction={prim['STRICT']['direction']}，p={prim['STRICT']['p']}，p 非 gate）",
-        f"- rho_R_positive = {prim['R_POSITIVE']['rho']}（N={prim['R_POSITIVE']['N']}，direction={prim['R_POSITIVE']['direction']}，p={prim['R_POSITIVE']['p']}，p 非 gate）",
+        "## PRIMARY（H5A 连续 Spearman 双 gate，frozen implementation）",
+        f"- rho_strict = {prim['STRICT']['rho']}（N={prim['STRICT']['N']}，direction={prim['STRICT']['direction']}）",
+        f"- rho_R_positive = {prim['R_POSITIVE']['rho']}（N={prim['R_POSITIVE']['N']}，direction={prim['R_POSITIVE']['direction']}）",
         f"- **H5A = {prim['VERDICT']}**（规则：{prim['VERDICT_RULE']}；SUPPORTED_DIRECTIONALLY != VALIDATED != PROMOTED）",
         "",
         "## QUARTILE DESCRIPTIVE（仅描述，不得作为 threshold rule）",
-        "| Q | 上界 | N | strict_win_rate | P(R>0) | mean_R | median_R |",
-        "| --- | --- | --- | --- | --- | --- | --- |",
+        "| Q | 上界 | N | STRICT_N | strict_win_rate | R_DEFINED_N | P(R>0) | mean_R | median_R |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for row in result["QUARTILES"]:
         lines.append(
-            f"| {row['quartile']} | {row['bounds']} | {row['N']} | {row['strict_win_rate']} | "
-            f"{row['P(R>0)']} | {row['mean_R']} | {row['median_R']} |"
+            f"| {row['quartile']} | {row['bounds']} | {row['N']} | {row['STRICT_N']} | {row['strict_win_rate']} | "
+            f"{row['R_DEFINED_N']} | {row['P(R>0)']} | {row['mean_R']} | {row['median_R']} |"
         )
     lines += [
         "",
@@ -525,7 +571,7 @@ def render_report(result: dict) -> str:
         "- GitHub 无 CI；本报告为作者本地验证（SHA 门禁通过）",
         "- mean_R 受 H4B 已确认的极端右尾风险影响，不作为 primary gate；见 R_TAIL",
         "- CANCEL_GAP_INVALID 不进入 strict binary denominator，仅 accounting",
-        "- R 仅定义于 WIN_S1/LOSS_INVALID 子集；P(R>0) 在该子集上计算",
+        "- R 仅定义于 WIN_S1/LOSS_INVALID 且 r_multiple 数值化的子集；P(R>0) 在该子集上计算",
         "- F20 为合同冻结后首次 outcome 验证；SUPPORTED_DIRECTIONALLY 仅属 research evidence",
         f"- NEW_HYPOTHESES = {result['NEW_HYPOTHESES']}",
         "- OUTCOME_AWARE_CONTRACT_CHANGE = False；THRESHOLD_SEARCH = False",
