@@ -244,6 +244,28 @@ class BootstrapResult(DomainModel):
     metrics: dict[str, Any] = {}
 
 
+class RepairDateStats(DomainModel):
+    """Per-date audit numbers for one bounded daily-session repair.
+
+    Every repair date must be individually provable: the parent AKSHARE/
+    BAOSTOCK consensus population and the new TUSHARE coverage of that
+    consensus are recorded per date so a 12/12 success claim can be verified
+    date by date.
+    """
+
+    trade_date: date
+    ts_n: int = 0
+    ak_n: int = 0
+    bs_n: int = 0
+    consensus_n: int = 0
+    ts_coverage_of_consensus: int = 0
+    base_row_n: int = 0
+    repaired_row_n: int = 0
+    confirmed_n: int = 0
+    provisional_n: int = 0
+    quarantine_n: int = 0
+
+
 class DailySessionRepairResult(DomainModel):
     """Outcome of a bounded daily-session repair run.
 
@@ -265,6 +287,7 @@ class DailySessionRepairResult(DomainModel):
     confirmed_n: int = 0
     provisional_n: int = 0
     quarantine_n: int = 0
+    per_date_stats: tuple[RepairDateStats, ...] = ()
     reused: bool = False
     notes: tuple[str, ...] = ()
     failure_count: int = 0

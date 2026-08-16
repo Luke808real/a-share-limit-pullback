@@ -4,19 +4,28 @@ Proves the fail-closed contract of ``repair_daily_sessions``:
 
 * the repair fetches ONLY the explicit repair dates from TUSHARE and never
   calls the AKSHARE/BAOSTOCK fetchers (parent raw rows are reused read-only);
-* a partial TUSHARE batch (consensus codes not covered) is blocked;
+* a partial TUSHARE batch (consensus codes not covered) is blocked — per
+  date, not as a cross-date union;
+* a missing parent AKSHARE/BAOSTOCK population on any repair date is blocked;
 * a successful repair publishes a RESEARCH_READY snapshot composed of base
   daily minus repair dates plus repaired rows, with pool rows unchanged;
+* snapshot provenance is the union of base + verified parent + new TUSHARE
+  source hashes, and tampered parent files fail closed;
+* the repair snapshot as_of is frozen to the base snapshot as_of;
 * the base snapshot and parent run lineage are untouched;
-* the run identity is deterministic and a completed repair is reused;
+* the run identity is deterministic and a completed repair is always reused
+  (no force_finalize in-place rewrite path);
 * the composed snapshot has no duplicate (code, trade_date) keys;
-* a repair date with zero CONFIRMED rows fails closed.
+* a repair date with zero CONFIRMED rows fails closed;
+* per-date audit numbers (TS_N/AK_N/BS_N/CONSENSUS_N/...) are reported.
 """
 
 from __future__ import annotations
 
+import inspect
 from datetime import date
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 
@@ -66,20 +75,23 @@ def _base_bootstrap(
     codes: tuple[str, ...] = CODES,
     pool: list[dict] | None = None,
     tushare_missing_days: list[date] | None = None,
+    akshare_days: list[date] | None = None,
+    baostock_days: list[date] | None = None,
 ) -> tuple[str, str]:
     """Build the parent run + base snapshot.
 
     Mirrors the real July failure shape: TUSHARE has NO rows on the repair
     dates (so those sessions are PROVISIONAL from AKSHARE/BAOSTOCK only),
-    while AKSHARE/BAOSTOCK cover the full window.
+    while AKSHARE/BAOSTOCK cover the full window (override per provider when
+    modeling a missing parent provider).
     """
     missing = set(tushare_missing_days or REPAIR_DATES)
     tushare_days = [d for d in CALENDAR if d not in missing]
     fake = FakeProviderSet(
         calendar=CALENDAR,
         tushare_daily=_rows_for(codes, tushare_days),
-        akshare_daily=_rows_for(codes, CALENDAR),
-        baostock_daily=_rows_for(codes, CALENDAR),
+        akshare_daily=_rows_for(codes, akshare_days or CALENDAR),
+        baostock_daily=_rows_for(codes, baostock_days or CALENDAR),
         pool=pool or [],
     )
     result = bootstrap(
@@ -471,3 +483,261 @@ def test_repair_date_without_confirmed_row_fails_closed(tmp_path) -> None:
             repair_lineage="july-2026-gap-v01",
         )
     assert excinfo.value.code == "REPAIR_DATE_NO_CONFIRMED"
+
+
+# ---------- 8. per-date breadth gate: cross-date union must NOT pass ----------
+
+def test_repair_per_date_gap_fails_closed(tmp_path) -> None:
+    """Regression for the union-gate hole: code X is missing from TUSHARE on
+    D22 but present on D24. The old cross-date union gate passed (X existed
+    somewhere); the frozen per-date contract must fail on D22."""
+    layout = _layout(tmp_path)
+    parent_run_id, base_snapshot_id = _base_bootstrap(layout)
+
+    tushare_rows = _rows_for((CODES[0],), [D22]) + _rows_for(CODES, [D24])
+    repair_provider = RecordingProviderSet(
+        calendar=CALENDAR,
+        tushare_daily=tushare_rows,
+        akshare_daily=_rows_for(CODES, CALENDAR),
+        baostock_daily=_rows_for(CODES, CALENDAR),
+    )
+    with pytest.raises(PipelineError) as excinfo:
+        repair_daily_sessions(
+            layout=layout,
+            base_snapshot_id=base_snapshot_id,
+            parent_run_id=parent_run_id,
+            repair_dates=REPAIR_DATES,
+            provider_set=repair_provider,
+            today=DAY,
+            repair_lineage="july-2026-gap-v01",
+        )
+    assert excinfo.value.code == "REPAIR_TUSHARE_CONSENSUS_COVERAGE_INCOMPLETE"
+    assert D22.isoformat() in str(excinfo.value)
+
+    run_id = _run_id(
+        "daily-session-repair",
+        base_snapshot_id,
+        parent_run_id,
+        tuple(REPAIR_DATES),
+        POLICY,
+        "july-2026-gap-v01",
+    )
+    with WarehouseMetadata(layout.duckdb_path, read_only=True) as metadata:
+        run = metadata.get_ingest_run(run_id)
+        assert run is not None and run.status == "FAILED"
+        assert _repair_snapshot_for_run(metadata, run_id) is None
+
+
+# ---------- 9. missing parent provider population blocked per date ----------
+
+def test_repair_missing_parent_provider_date_coverage_fails_closed(tmp_path) -> None:
+    """Blocker 2 regression: AKSHARE missing entirely on D24 (present on D22)
+    must fail closed even though TUSHARE+AKSHARE could still confirm D22."""
+    layout = _layout(tmp_path)
+    parent_run_id, base_snapshot_id = _base_bootstrap(
+        layout, akshare_days=[D20, D21, D22, D23]
+    )
+
+    repair_provider = RecordingProviderSet(
+        calendar=CALENDAR,
+        tushare_daily=_rows_for(CODES, REPAIR_DATES),
+        akshare_daily=_rows_for(CODES, CALENDAR),
+        baostock_daily=_rows_for(CODES, CALENDAR),
+    )
+    with pytest.raises(PipelineError) as excinfo:
+        repair_daily_sessions(
+            layout=layout,
+            base_snapshot_id=base_snapshot_id,
+            parent_run_id=parent_run_id,
+            repair_dates=REPAIR_DATES,
+            provider_set=repair_provider,
+            today=DAY,
+            repair_lineage="july-2026-gap-v01",
+        )
+    assert excinfo.value.code == "REPAIR_PARENT_PROVIDER_DATE_COVERAGE_INCOMPLETE"
+    assert D24.isoformat() in str(excinfo.value)
+
+
+# ---------- 10. snapshot provenance union ----------
+
+def test_repair_snapshot_provenance_is_union_of_all_sources(tmp_path) -> None:
+    layout = _layout(tmp_path)
+    parent_run_id, base_snapshot_id = _base_bootstrap(layout)
+
+    with WarehouseMetadata(layout.duckdb_path, read_only=True) as metadata:
+        base = metadata.snapshot_by_id(base_snapshot_id)
+        assert base is not None
+        parent_files = metadata._connection.execute(
+            "SELECT path, sha256 FROM source_files "
+            "WHERE ingest_run_id = ? AND path LIKE '%/daily_bars/%'",
+            [parent_run_id],
+        ).fetchall()
+        parent_hashes = {
+            str(Path(path).relative_to(layout.root)): sha
+            for path, sha in parent_files
+        }
+
+    repair_provider = RecordingProviderSet(
+        calendar=CALENDAR,
+        tushare_daily=_rows_for(CODES, REPAIR_DATES),
+        akshare_daily=_rows_for(CODES, CALENDAR),
+        baostock_daily=_rows_for(CODES, CALENDAR),
+    )
+    result = repair_daily_sessions(
+        layout=layout,
+        base_snapshot_id=base_snapshot_id,
+        parent_run_id=parent_run_id,
+        repair_dates=REPAIR_DATES,
+        provider_set=repair_provider,
+        today=DAY,
+        repair_lineage="july-2026-gap-v01",
+    )
+    with WarehouseMetadata(layout.duckdb_path, read_only=True) as metadata:
+        repaired = metadata.snapshot_by_id(result.snapshot_id)
+        assert repaired is not None
+        hashes = dict(repaired.source_file_hashes)
+
+    # union must contain every base source with the same digest
+    for key, sha in base.source_file_hashes.items():
+        assert hashes.get(key) == sha, f"base source {key} missing from provenance"
+    # every verified parent AK/BS file must be traceable
+    for key, sha in parent_hashes.items():
+        assert hashes.get(key) == sha, f"parent source {key} missing from provenance"
+    # new repair-run TUSHARE files must be present
+    repair_keys = [
+        key for key in hashes if f"/{result.run_id}-" in key
+    ]
+    assert any("/tushare/daily_bars/" in key.lower() for key in repair_keys)
+
+
+# ---------- 11. tampered parent raw fails closed ----------
+
+def test_repair_tampered_parent_raw_fails_closed(tmp_path) -> None:
+    layout = _layout(tmp_path)
+    parent_run_id, base_snapshot_id = _base_bootstrap(layout)
+
+    with WarehouseMetadata(layout.duckdb_path, read_only=True) as metadata:
+        path_value = metadata._connection.execute(
+            "SELECT path FROM source_files "
+            "WHERE ingest_run_id = ? AND provider = 'AKSHARE' "
+            "AND path LIKE '%/daily_bars/%' LIMIT 1",
+            [parent_run_id],
+        ).fetchone()[0]
+    path = Path(path_value)
+    path.write_bytes(path.read_bytes() + b"tampered")
+
+    repair_provider = RecordingProviderSet(
+        calendar=CALENDAR,
+        tushare_daily=_rows_for(CODES, REPAIR_DATES),
+        akshare_daily=_rows_for(CODES, CALENDAR),
+        baostock_daily=_rows_for(CODES, CALENDAR),
+    )
+    with pytest.raises(PipelineError) as excinfo:
+        repair_daily_sessions(
+            layout=layout,
+            base_snapshot_id=base_snapshot_id,
+            parent_run_id=parent_run_id,
+            repair_dates=REPAIR_DATES,
+            provider_set=repair_provider,
+            today=DAY,
+            repair_lineage="july-2026-gap-v01",
+        )
+    assert excinfo.value.code == "REPAIR_PARENT_RAW_SHA_MISMATCH"
+
+
+# ---------- 12. as_of frozen to base.as_of ----------
+
+def test_repair_as_of_frozen_to_base(tmp_path) -> None:
+    layout = _layout(tmp_path)
+    parent_run_id, base_snapshot_id = _base_bootstrap(layout)
+
+    with WarehouseMetadata(layout.duckdb_path, read_only=True) as metadata:
+        base = metadata.snapshot_by_id(base_snapshot_id)
+        assert base is not None
+
+    # repair date beyond base.as_of must fail closed before any side effect
+    beyond = [D24, date(2026, 7, 25)]
+    repair_provider = RecordingProviderSet(
+        calendar=CALENDAR,
+        tushare_daily=_rows_for(CODES, beyond),
+        akshare_daily=_rows_for(CODES, CALENDAR),
+        baostock_daily=_rows_for(CODES, CALENDAR),
+    )
+    with pytest.raises(PipelineError) as excinfo:
+        repair_daily_sessions(
+            layout=layout,
+            base_snapshot_id=base_snapshot_id,
+            parent_run_id=parent_run_id,
+            repair_dates=beyond,
+            provider_set=repair_provider,
+            today=DAY,
+            repair_lineage="july-2026-gap-v01",
+        )
+    assert excinfo.value.code == "REPAIR_DATE_BEYOND_BASE_AS_OF"
+
+    # successful repair keeps as_of == base.as_of exactly
+    repair_provider2 = RecordingProviderSet(
+        calendar=CALENDAR,
+        tushare_daily=_rows_for(CODES, REPAIR_DATES),
+        akshare_daily=_rows_for(CODES, CALENDAR),
+        baostock_daily=_rows_for(CODES, CALENDAR),
+    )
+    result = repair_daily_sessions(
+        layout=layout,
+        base_snapshot_id=base_snapshot_id,
+        parent_run_id=parent_run_id,
+        repair_dates=REPAIR_DATES,
+        provider_set=repair_provider2,
+        today=DAY,
+        repair_lineage="july-2026-gap-v02",
+    )
+    with WarehouseMetadata(layout.duckdb_path, read_only=True) as metadata:
+        repaired = metadata.snapshot_by_id(result.snapshot_id)
+        assert repaired is not None
+        assert repaired.as_of == base.as_of
+
+
+# ---------- 13. no force_finalize / as_of override surface ----------
+
+def test_repair_api_has_no_force_finalize_or_as_of_override(tmp_path) -> None:
+    parameters = inspect.signature(repair_daily_sessions).parameters
+    assert "force_finalize" not in parameters
+    assert "as_of" not in parameters
+
+
+# ---------- 14. per-date audit numbers ----------
+
+def test_repair_per_date_stats_reported(tmp_path) -> None:
+    layout = _layout(tmp_path)
+    parent_run_id, base_snapshot_id = _base_bootstrap(layout)
+
+    repair_provider = RecordingProviderSet(
+        calendar=CALENDAR,
+        tushare_daily=_rows_for(CODES, REPAIR_DATES),
+        akshare_daily=_rows_for(CODES, CALENDAR),
+        baostock_daily=_rows_for(CODES, CALENDAR),
+    )
+    result = repair_daily_sessions(
+        layout=layout,
+        base_snapshot_id=base_snapshot_id,
+        parent_run_id=parent_run_id,
+        repair_dates=REPAIR_DATES,
+        provider_set=repair_provider,
+        today=DAY,
+        repair_lineage="july-2026-gap-v01",
+    )
+    assert [s.trade_date for s in result.per_date_stats] == REPAIR_DATES
+    for stats in result.per_date_stats:
+        assert stats.ts_n == 2
+        assert stats.ak_n == 2
+        assert stats.bs_n == 2
+        assert stats.consensus_n == 2
+        assert stats.ts_coverage_of_consensus == 2
+        assert stats.base_row_n == 2
+        assert stats.repaired_row_n == 2
+        assert stats.confirmed_n == 2
+        assert stats.provisional_n == 0
+        assert stats.quarantine_n == 0
+    # totals agree with the aggregate result fields
+    assert sum(s.repaired_row_n for s in result.per_date_stats) == result.repaired_row_n
+    assert sum(s.confirmed_n for s in result.per_date_stats) == result.confirmed_n
