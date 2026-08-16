@@ -1291,7 +1291,9 @@ def _repair_date_stats(
     Every repair date gets TS_N / AK_N / BS_N / CONSENSUS_N /
     TS_COVERAGE_OF_CONSENSUS / BASE_ROW_N / REPAIRED_ROW_N / CONFIRMED_N /
     PROVISIONAL_N / QUARANTINE_N so a 12/12 success claim can be verified
-    date by date.
+    date by date. TS_N / AK_N / BS_N / CONSENSUS_N count DISTINCT codes (the
+    breadth contract's universe), never raw rows, so duplicated provider
+    rows can never inflate the breadth numbers.
     """
 
     stats: list[RepairDateStats] = []
@@ -1317,9 +1319,9 @@ def _repair_date_stats(
         stats.append(
             RepairDateStats(
                 trade_date=d,
-                ts_n=sum(1 for row in ts_rows if row.get("trade_date") == d),
-                ak_n=sum(1 for row in ak_rows if row.get("trade_date") == d),
-                bs_n=sum(1 for row in bs_rows if row.get("trade_date") == d),
+                ts_n=len(ts_codes_d),
+                ak_n=len(ak_codes_d),
+                bs_n=len(bs_codes_d),
                 consensus_n=len(consensus_d),
                 ts_coverage_of_consensus=len(consensus_d & ts_codes_d),
                 base_row_n=sum(
@@ -1461,12 +1463,32 @@ def repair_daily_sessions(
                 pending = metadata.pending_failures(run_id)
                 if existing is not None and existing.status == "COMPLETED" and not pending:
                     # A completed deterministic repair run is ALWAYS reused;
-                    # there is no force_finalize / in-place rewrite path.
-                    snapshot = _repair_snapshot_for_run(metadata, run_id)
+                    # there is no force_finalize / in-place rewrite path. The
+                    # published snapshot is resolved EXACTLY through the
+                    # run's own config_json (written at publication time) —
+                    # never through source-hash marker search, which would
+                    # drift once a descendant snapshot inherits these hashes.
+                    run_config = json.loads(existing.config_json or "{}")
+                    published_id = run_config.get("published_snapshot_id")
+                    if published_id is None:
+                        raise PipelineError(
+                            "REPAIR_RUN_MISSING_PUBLISHED_SNAPSHOT",
+                            f"completed repair run {run_id} has no recorded "
+                            "published_snapshot_id",
+                        )
+                    snapshot = metadata.snapshot_by_id(published_id)
                     if snapshot is None:
                         raise PipelineError(
-                            "REPAIR_COMPLETED_RUN_WITHOUT_SNAPSHOT",
-                            f"completed repair run {run_id} has no published snapshot",
+                            "REPAIR_PUBLISHED_SNAPSHOT_MISSING",
+                            f"repair run {run_id} points to unknown snapshot "
+                            f"{published_id}",
+                        )
+                    if snapshot.as_of != base.as_of:
+                        raise PipelineError(
+                            "REPAIR_PUBLISHED_SNAPSHOT_AS_OF_MISMATCH",
+                            f"repair run {run_id} snapshot {published_id} "
+                            f"as_of {snapshot.as_of.isoformat()} != base as_of "
+                            f"{base.as_of.isoformat()}",
                         )
                     base_daily = read_snapshot_daily(layout, base)
                     repair_set = set(dates)
@@ -1480,14 +1502,21 @@ def repair_daily_sessions(
                         for row in repaired_rows
                         if row.get("reconciliation_status") == "CONFIRMED"
                     )
+                    # Parity with the fresh path: every quarantine record has
+                    # exactly one reconciliation record with status
+                    # QUARANTINED (provider-internal conflict) or CONFLICTED
+                    # (cross-provider conflict), so the reuse counts must
+                    # include BOTH statuses.
                     quarantine_n = metadata._connection.execute(
                         "SELECT count(*) FROM reconciliation_results "
-                        "WHERE snapshot_id = ? AND status = 'QUARANTINED'",
+                        "WHERE snapshot_id = ? AND status IN "
+                        "('QUARANTINED', 'CONFLICTED')",
                         [snapshot.snapshot_id],
                     ).fetchone()[0]
                     quarantine_rows = metadata._connection.execute(
                         "SELECT trade_date FROM reconciliation_results "
-                        "WHERE snapshot_id = ? AND status = 'QUARANTINED'",
+                        "WHERE snapshot_id = ? AND status IN "
+                        "('QUARANTINED', 'CONFLICTED')",
                         [snapshot.snapshot_id],
                     ).fetchall()
                     quarantine_by_date: dict[date, int] = {}
@@ -1591,16 +1620,45 @@ def repair_daily_sessions(
                     return fetchers[dataset](wanted)
 
                 tushare_aux: dict[str, list[dict[str, Any]]] = {}
-                for dataset in ("adjustment_factor", "daily_basic"):
+                # Corporate-action left boundary: the first repair session's
+                # preclose-divergence verdict needs a PREDECESSOR adjustment
+                # factor session (the nearest trading day before the first
+                # repair date, taken from the base snapshot's own calendar).
+                # Without it, a CA change on the first repair date would be
+                # misjudged as an OHLC conflict and the row quarantined.
+                base_daily = read_snapshot_daily(layout, base)
+                first_repair = min(dates)
+                predecessor_candidates = sorted(
+                    {
+                        row["trade_date"]
+                        for row in base_daily
+                        if row["trade_date"] < first_repair
+                    }
+                )
+                if not predecessor_candidates:
+                    raise PipelineError(
+                        "REPAIR_ADJ_PREDECESSOR_UNAVAILABLE",
+                        f"no base-snapshot trading day before first repair "
+                        f"date {first_repair.isoformat()}",
+                    )
+                adj_predecessor = predecessor_candidates[-1]
+                adj_dates = tuple(sorted({adj_predecessor, *dates}))
+                for dataset, items in (
+                    ("adjustment_factor", adj_dates),
+                    ("daily_basic", dates),
+                ):
                     heartbeat.set_phase(f"tushare-{dataset}")
                     tushare_aux[dataset] = fetch_rows(
                         ctx,
                         provider="TUSHARE",
                         dataset=dataset,
-                        items=dates,
+                        items=items,
                         bulk_fn=lambda wanted, d=dataset: _tushare_bulk(d, wanted),
                         use_bulk=True,
                         item_is_date=True,
+                        require_date_presence=(
+                            dataset == "adjustment_factor"
+                        ),
                         batch_size=batch_size,
                     )
 
@@ -1675,7 +1733,6 @@ def repair_daily_sessions(
                 #   CONSENSUS[d] = AK_CODES[d] & BS_CODES[d]
                 #   AK_N[d] > 0, BS_N[d] > 0, CONSENSUS_N[d] > 0
                 #   CONSENSUS[d] subset TS_CODES[d]
-                base_daily = read_snapshot_daily(layout, base)
                 for d in dates:
                     ts_codes_d = {
                         str(row["code"])
@@ -1803,6 +1860,18 @@ def repair_daily_sessions(
                     clock=clock,
                     status="RESEARCH_READY",
                 )
+                # Exact run -> snapshot linkage: record the published
+                # snapshot id in the run's own config so reuse resolves the
+                # EXACT immutable snapshot and never drifts onto a descendant
+                # that inherited these source hashes.
+                run_config = json.loads(
+                    metadata.get_ingest_run(run_id).config_json or "{}"
+                )
+                run_config["published_snapshot_id"] = snapshot.snapshot_id
+                metadata._connection.execute(
+                    "UPDATE ingest_runs SET config_json = ? WHERE run_id = ?",
+                    [json.dumps(run_config, sort_keys=True), run_id],
+                )
                 for record in records:
                     metadata.insert_reconciliation(
                         record.model_copy(
@@ -1868,30 +1937,6 @@ def repair_daily_sessions(
                         error=redact(f"{type(exc).__name__}: {exc}"),
                     )
                 raise
-
-
-def _repair_snapshot_for_run(
-    metadata: WarehouseMetadata, run_id: str
-) -> SnapshotRecord | None:
-    """Locate the snapshot published by one repair run.
-
-    Snapshots are not linked to ingest runs directly; the raw files written
-    by a run appear in the snapshot's source_file_hashes as
-    ``.../{run_id}-NNNN.parquet`` relative keys, which makes the lookup exact
-    and unambiguous.
-    """
-
-    from limit_pullback.warehouse.models import SnapshotRecord
-
-    rows = metadata._connection.execute(
-        "SELECT * FROM dataset_snapshots ORDER BY created_at DESC"
-    ).fetchall()
-    marker = f"/{run_id}-"
-    for row in rows:
-        record = metadata._snapshot_from_row(row)
-        if any(marker in key for key in record.source_file_hashes):
-            return record
-    return None
 
 
 def _reprocess_preclose_divergences(

@@ -23,6 +23,7 @@ Proves the fail-closed contract of ``repair_daily_sessions``:
 from __future__ import annotations
 
 import inspect
+import json
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
@@ -33,12 +34,13 @@ from limit_pullback.warehouse.layout import WarehouseLayout
 from limit_pullback.warehouse.metadata import WarehouseMetadata
 from limit_pullback.warehouse.pipeline import (
     PipelineError,
-    _repair_snapshot_for_run,
+    _repair_date_stats,
     _run_id,
     bootstrap,
     repair_daily_sessions,
 )
 from limit_pullback.warehouse.snapshot import (
+    create_snapshot,
     read_snapshot_daily,
     read_snapshot_pool,
 )
@@ -110,20 +112,32 @@ class RecordingProviderSet(FakeProviderSet):
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self.date_requests: list[list[date]] = []
+        self.date_requests: list[tuple[str, list[date]]] = []
         self.akshare_daily_calls = 0
         self.baostock_daily_calls = 0
+        if not self.adj_factor:
+            # repair pipeline requires adjustment_factor presence for
+            # adj_dates (predecessor + repair dates); default to a flat 1.00
+            # so tests without explicit CA scenarios pass the presence gate
+            self.adj_factor = [
+                {"code": code, "trade_date": day, "adj_factor": Decimal("1.00")}
+                for code in CODES
+                for day in CALENDAR
+            ]
+
+    def _record(self, dataset: str, dates: list[date]) -> None:
+        self.date_requests.append((dataset, list(dates)))
 
     def fetch_tushare_daily_by_trade_date(self, dates: list[date]):
-        self.date_requests.append(list(dates))
+        self._record("daily_bars", dates)
         return super().fetch_tushare_daily_by_trade_date(dates)
 
     def fetch_tushare_daily_basic_by_trade_date(self, dates: list[date]):
-        self.date_requests.append(list(dates))
+        self._record("daily_basic", dates)
         return super().fetch_tushare_daily_basic_by_trade_date(dates)
 
     def fetch_tushare_adj_factor_by_trade_date(self, dates: list[date]):
-        self.date_requests.append(list(dates))
+        self._record("adjustment_factor", dates)
         return super().fetch_tushare_adj_factor_by_trade_date(dates)
 
     def fetch_akshare_daily(self, codes, start, end):
@@ -159,10 +173,20 @@ def test_repair_fetch_is_bounded_to_repair_dates(tmp_path) -> None:
     assert result.reused is False
     assert result.snapshot_id is not None
 
-    # every TUSHARE date request must be a subset of the repair dates
-    requested = [d for batch in repair_provider.date_requests for d in batch]
-    assert sorted(set(requested)) == REPAIR_DATES
-    assert not any(d in NON_REPAIR for d in requested)
+    requests_by_dataset: dict[str, list[date]] = {}
+    for dataset, dates in repair_provider.date_requests:
+        requests_by_dataset.setdefault(dataset, []).extend(dates)
+
+    # daily_bars and daily_basic must be bounded to the repair dates ONLY
+    for dataset in ("daily_bars", "daily_basic"):
+        requested = requests_by_dataset[dataset]
+        assert sorted(set(requested)) == REPAIR_DATES
+        assert not any(d in NON_REPAIR for d in requested)
+    # adjustment_factor is the single bounded exception: predecessor + repair
+    # dates (corporate-action left boundary)
+    adj_requested = sorted(set(requests_by_dataset["adjustment_factor"]))
+    assert adj_requested == [D21, D22, D24]
+    assert D21 not in requests_by_dataset["daily_bars"]
     # the repair never calls the AKSHARE/BAOSTOCK fetchers
     assert repair_provider.akshare_daily_calls == 0
     assert repair_provider.baostock_daily_calls == 0
@@ -205,7 +229,8 @@ def test_repair_partial_tushare_batch_blocked(tmp_path) -> None:
     with WarehouseMetadata(layout.duckdb_path, read_only=True) as metadata:
         run = metadata.get_ingest_run(run_id)
         assert run is not None and run.status == "FAILED"
-        assert _repair_snapshot_for_run(metadata, run_id) is None
+        # no publication happened -> no published_snapshot_id linkage exists
+        assert "published_snapshot_id" not in json.loads(run.config_json or "{}")
 
 
 # ---------- 3. successful composition ----------
@@ -525,7 +550,8 @@ def test_repair_per_date_gap_fails_closed(tmp_path) -> None:
     with WarehouseMetadata(layout.duckdb_path, read_only=True) as metadata:
         run = metadata.get_ingest_run(run_id)
         assert run is not None and run.status == "FAILED"
-        assert _repair_snapshot_for_run(metadata, run_id) is None
+        # no publication happened -> no published_snapshot_id linkage exists
+        assert "published_snapshot_id" not in json.loads(run.config_json or "{}")
 
 
 # ---------- 9. missing parent provider population blocked per date ----------
@@ -741,3 +767,263 @@ def test_repair_per_date_stats_reported(tmp_path) -> None:
     # totals agree with the aggregate result fields
     assert sum(s.repaired_row_n for s in result.per_date_stats) == result.repaired_row_n
     assert sum(s.confirmed_n for s in result.per_date_stats) == result.confirmed_n
+
+
+# ---------- 15. exact run -> snapshot linkage survives descendants ----------
+
+def test_repair_exact_snapshot_linkage_survives_descendant(tmp_path) -> None:
+    """A descendant snapshot that INHERITS the repair snapshot's source
+    hashes must never hijack the completed repair run's reuse identity."""
+    layout = _layout(tmp_path)
+    parent_run_id, base_snapshot_id = _base_bootstrap(layout)
+
+    repair_provider = RecordingProviderSet(
+        calendar=CALENDAR,
+        tushare_daily=_rows_for(CODES, REPAIR_DATES),
+        akshare_daily=_rows_for(CODES, CALENDAR),
+        baostock_daily=_rows_for(CODES, CALENDAR),
+    )
+    first = repair_daily_sessions(
+        layout=layout,
+        base_snapshot_id=base_snapshot_id,
+        parent_run_id=parent_run_id,
+        repair_dates=REPAIR_DATES,
+        provider_set=repair_provider,
+        today=DAY,
+        repair_lineage="july-2026-gap-v01",
+    )
+    assert first.reused is False
+    repair_snapshot_id = first.snapshot_id
+
+    # Build a descendant snapshot B that inherits A's source hashes and adds
+    # an extra row. Under source-marker lookup B would win (created later);
+    # the exact config_json link must keep returning A.
+    with WarehouseMetadata(layout.duckdb_path) as metadata:
+        repair_snap = metadata.snapshot_by_id(repair_snapshot_id)
+        assert repair_snap is not None
+        base_daily_rows = read_snapshot_daily(layout, repair_snap)
+        extra = dict(base_daily_rows[0])
+        extra["code"] = "600002"
+        extra["source_row_hash"] = "x" * 64
+        descendant = create_snapshot(
+            layout=layout,
+            metadata=metadata,
+            as_of=repair_snap.as_of,
+            provider_versions=dict(repair_snap.provider_versions),
+            daily_rows=[*base_daily_rows, extra],
+            pool_rows=read_snapshot_pool(layout, repair_snap),
+            source_file_hashes=dict(repair_snap.source_file_hashes),
+            reconciliation_policy_version=repair_snap.reconciliation_policy_version,
+            status="RESEARCH_READY",
+        )
+        descendant_id = descendant.snapshot_id
+        assert descendant_id != repair_snapshot_id
+
+    second = repair_daily_sessions(
+        layout=layout,
+        base_snapshot_id=base_snapshot_id,
+        parent_run_id=parent_run_id,
+        repair_dates=REPAIR_DATES,
+        provider_set=repair_provider,
+        today=DAY,
+        repair_lineage="july-2026-gap-v01",
+    )
+    assert second.reused is True
+    assert second.snapshot_id == repair_snapshot_id
+    assert second.snapshot_id != descendant_id
+
+
+# ---------- 16. fresh / reuse stats parity with conflicts ----------
+
+def _stats_signature(stats) -> list[tuple]:
+    return [
+        (
+            s.trade_date,
+            s.ts_n,
+            s.ak_n,
+            s.bs_n,
+            s.consensus_n,
+            s.ts_coverage_of_consensus,
+            s.base_row_n,
+            s.repaired_row_n,
+            s.confirmed_n,
+            s.provisional_n,
+            s.quarantine_n,
+        )
+        for s in stats
+    ]
+
+
+def test_repair_fresh_reuse_stats_parity_with_conflicts(tmp_path) -> None:
+    """One code conflicts on every repair date (OHLC_CONFLICT -> quarantine),
+    the other stays clean; fresh and reuse audit stats must be identical."""
+    layout = _layout(tmp_path)
+    parent_run_id, base_snapshot_id = _base_bootstrap(layout)
+
+    conflicting = [
+        daily_row(CODES[0], day.isoformat(), open_price="90.00", high="95.00",
+                  low="88.00", close="92.00", preclose="89.00")
+        for day in REPAIR_DATES
+    ]
+    clean = _rows_for((CODES[1],), REPAIR_DATES)
+
+    def run_repair():
+        provider = RecordingProviderSet(
+            calendar=CALENDAR,
+            tushare_daily=[*conflicting, *clean],
+            akshare_daily=_rows_for(CODES, CALENDAR),
+            baostock_daily=_rows_for(CODES, CALENDAR),
+        )
+        return repair_daily_sessions(
+            layout=layout,
+            base_snapshot_id=base_snapshot_id,
+            parent_run_id=parent_run_id,
+            repair_dates=REPAIR_DATES,
+            provider_set=provider,
+            today=DAY,
+            repair_lineage="july-2026-gap-v01",
+        )
+
+    fresh = run_repair()
+    assert fresh.reused is False
+    assert fresh.quarantine_n == len(REPAIR_DATES)  # one OHLC conflict per date
+    assert fresh.confirmed_n == len(REPAIR_DATES)   # clean code confirmed per date
+
+    reused = run_repair()
+    assert reused.reused is True
+    assert reused.snapshot_id == fresh.snapshot_id
+    assert reused.quarantine_n == fresh.quarantine_n
+    assert reused.repaired_row_n == fresh.repaired_row_n
+    assert reused.confirmed_n == fresh.confirmed_n
+    assert reused.provisional_n == fresh.provisional_n
+    assert _stats_signature(reused.per_date_stats) == _stats_signature(fresh.per_date_stats)
+
+
+# ---------- 17. corporate-action predecessor on the first repair date ----------
+
+def test_repair_ca_predecessor_first_date_confirmed(tmp_path) -> None:
+    """First repair date has a corporate action (preclose diverges from AK/BS,
+    OHLCVA agrees, adj_factor changes 1.00 -> 1.10): with the predecessor
+    session available the row must be CONFIRMED with the CA note, not
+    quarantined."""
+    layout = _layout(tmp_path)
+    parent_run_id, base_snapshot_id = _base_bootstrap(layout)
+
+    # TUSHARE: 600000 on D22 has ex-dividend preclose (9.00) with matching
+    # OHLCVA; pct_change consistent with its own close/preclose.
+    ca_row = daily_row(
+        CODES[0], D22.isoformat(), preclose="9.00", pct="13.33"
+    )
+    normal_d22 = daily_row(CODES[1], D22.isoformat())
+    tushare_daily = [
+        ca_row,
+        normal_d22,
+        *_rows_for(CODES, [D24]),
+    ]
+    adj_factor = [
+        {
+            "code": code,
+            "trade_date": day,
+            "adj_factor": Decimal("1.00"),
+        }
+        for code in CODES
+        for day in CALENDAR
+        if not (code == CODES[0] and day == D22)
+    ]
+    adj_factor.append(
+        {"code": CODES[0], "trade_date": D22, "adj_factor": Decimal("1.10")}
+    )
+    repair_provider = RecordingProviderSet(
+        calendar=CALENDAR,
+        tushare_daily=tushare_daily,
+        akshare_daily=_rows_for(CODES, CALENDAR),
+        baostock_daily=_rows_for(CODES, CALENDAR),
+        adj_factor=adj_factor,
+    )
+    result = repair_daily_sessions(
+        layout=layout,
+        base_snapshot_id=base_snapshot_id,
+        parent_run_id=parent_run_id,
+        repair_dates=REPAIR_DATES,
+        provider_set=repair_provider,
+        today=DAY,
+        repair_lineage="july-2026-gap-v01",
+    )
+    assert result.reused is False
+    assert result.confirmed_n == len(REPAIR_DATES) * len(CODES)
+
+    with WarehouseMetadata(layout.duckdb_path, read_only=True) as metadata:
+        repaired = metadata.snapshot_by_id(result.snapshot_id)
+        assert repaired is not None
+        daily = read_snapshot_daily(layout, repaired)
+        ca_rows = [
+            row for row in daily
+            if str(row["code"]) == CODES[0] and row["trade_date"] == D22
+        ]
+        assert len(ca_rows) == 1
+        assert ca_rows[0]["reconciliation_status"] == "CONFIRMED"
+        rows = metadata._connection.execute(
+            "SELECT notes FROM reconciliation_results "
+            "WHERE snapshot_id = ? AND code = ? AND trade_date = ?",
+            [result.snapshot_id, CODES[0], D22],
+        ).fetchall()
+        assert any(
+            "CORPORATE_ACTION_PRECLOSE_DIVERGENCE" in (notes or "")
+            for (notes,) in rows
+        )
+
+
+# ---------- 18. breadth stats count distinct codes, not raw rows ----------
+
+def test_repair_date_stats_count_distinct_codes(tmp_path) -> None:
+    from limit_pullback.warehouse.models import RepairDateStats
+
+    duplicated_ts = [
+        daily_row("600000", D22.isoformat()),
+        daily_row("600000", D22.isoformat()),
+        daily_row("600001", D22.isoformat()),
+    ]
+    stats = _repair_date_stats(
+        dates=[D22],
+        ts_rows=duplicated_ts,
+        ak_rows=_rows_for(CODES, [D22]),
+        bs_rows=_rows_for(CODES, [D22]),
+        base_daily=_rows_for(CODES, [D22]),
+        repaired_rows=_rows_for(CODES, [D22]),
+        quarantine_by_date={},
+    )
+    assert len(stats) == 1
+    assert stats[0].ts_n == 2  # distinct codes, NOT 3 raw rows
+    assert stats[0].ak_n == 2
+    assert stats[0].bs_n == 2
+    assert stats[0].consensus_n == 2
+    assert stats[0].ts_coverage_of_consensus == 2
+    assert isinstance(stats[0], RepairDateStats)
+
+
+# ---------- 19. BS symmetric regression: missing BAOSTOCK date coverage ----------
+
+def test_repair_missing_bs_date_coverage_fails_closed(tmp_path) -> None:
+    layout = _layout(tmp_path)
+    parent_run_id, base_snapshot_id = _base_bootstrap(
+        layout, baostock_days=[D20, D21, D22, D23]
+    )
+
+    repair_provider = RecordingProviderSet(
+        calendar=CALENDAR,
+        tushare_daily=_rows_for(CODES, REPAIR_DATES),
+        akshare_daily=_rows_for(CODES, CALENDAR),
+        baostock_daily=_rows_for(CODES, CALENDAR),
+    )
+    with pytest.raises(PipelineError) as excinfo:
+        repair_daily_sessions(
+            layout=layout,
+            base_snapshot_id=base_snapshot_id,
+            parent_run_id=parent_run_id,
+            repair_dates=REPAIR_DATES,
+            provider_set=repair_provider,
+            today=DAY,
+            repair_lineage="july-2026-gap-v01",
+        )
+    assert excinfo.value.code == "REPAIR_PARENT_PROVIDER_DATE_COVERAGE_INCOMPLETE"
+    assert D24.isoformat() in str(excinfo.value)
