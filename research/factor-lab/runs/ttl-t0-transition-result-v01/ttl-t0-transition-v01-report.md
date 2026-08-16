@@ -1,0 +1,59 @@
+# TTL T0 FIXED-COHORT TRANSITION RESULT V01 — 结构性 transition timing
+
+- PREREG_AUTHORITY_HEAD = d9c9abf1ce30dd2d08303bb8ccce0e5be13d4e09；BASE_HEAD = d9c9abf1ce30dd2d08303bb8ccce0e5be13d4e09
+- REGISTRY_SHA256 = 130a56986307fed3e382dd65f4a4f9a4a9df61a7387a7b7a15b049cf72d9441c；EPISODES_SHA256 = 66d5943ffd4c83d8348d7b559ef9aa8ab9c041525471108a2f724fbedd84b093；DAILY_SHA256 = e7243dee3bafe46e725e2b6ee884b07ac97a01c0705b41df0562d35019593514
+- TOTAL_T0_N = 22393；FIXED_MATURED_N = 21955；ADMINISTRATIVE_NOT_FULLY_MATURE_N = 438
+- K_MAX = 9（frozen observability boundary，非 validated TTL）
+- PRIMARY_EVENT_ROWS_N = 31414；EVENT_TIME_MATCH_N = 31414；EVENT_TIME_MISMATCH_N = 0；MAX_ABS_DIFF = 0
+- DUPLICATE_VIOLATION_N = 0；LABEL_STAGE_MISMATCH_N = 0；STAGE_PREREQUISITE_VIOLATION_N = 0；STAGE_ORDER_VIOLATION_N = 0
+
+## B1_READY
+- BY_T9_N = 17384；BY_T9_RATE = 0.791801；NO_EVENT_BY_T9_N = 4571；NO_EVENT_BY_T9_RATE = 0.208199
+- PEAK_FIRST_EVENT_T = T+1
+| k | BY_K_N | BY_K_RATE | EXACT_EVENT_N | EXACT_EVENT_RATE |
+| --- | --- | --- | --- | --- |
+| 1 | 10270 | 0.467775 | 10270 | 0.467775 |
+| 2 | 16467 | 0.750034 | 6197 | 0.282259 |
+| 3 | 17031 | 0.775723 | 564 | 0.025689 |
+| 4 | 17204 | 0.783603 | 173 | 0.00788 |
+| 5 | 17293 | 0.787657 | 89 | 0.004054 |
+| 6 | 17337 | 0.789661 | 44 | 0.002004 |
+| 7 | 17366 | 0.790982 | 29 | 0.001321 |
+| 8 | 17373 | 0.7913 | 7 | 0.000319 |
+| 9 | 17384 | 0.791801 | 11 | 0.000501 |
+## B2_READY
+- BY_T9_N = 10819；BY_T9_RATE = 0.492781；NO_EVENT_BY_T9_N = 11136；NO_EVENT_BY_T9_RATE = 0.507219
+- PEAK_FIRST_EVENT_T = T+2
+| k | BY_K_N | BY_K_RATE | EXACT_EVENT_N | EXACT_EVENT_RATE |
+| --- | --- | --- | --- | --- |
+| 1 | 0 | 0.0 | 0 | 0.0 |
+| 2 | 6587 | 0.300023 | 6587 | 0.300023 |
+| 3 | 10443 | 0.475655 | 3856 | 0.175632 |
+| 4 | 10683 | 0.486586 | 240 | 0.010931 |
+| 5 | 10754 | 0.48982 | 71 | 0.003234 |
+| 6 | 10800 | 0.491915 | 46 | 0.002095 |
+| 7 | 10811 | 0.492416 | 11 | 0.000501 |
+| 8 | 10819 | 0.492781 | 8 | 0.000364 |
+| 9 | 10819 | 0.492781 | 0 | 0.0 |
+## B2_CONFIRMED
+- BY_T9_N = 2758；BY_T9_RATE = 0.125621；NO_EVENT_BY_T9_N = 19197；NO_EVENT_BY_T9_RATE = 0.874379
+- PEAK_FIRST_EVENT_T = T+4
+| k | BY_K_N | BY_K_RATE | EXACT_EVENT_N | EXACT_EVENT_RATE |
+| --- | --- | --- | --- | --- |
+| 1 | 0 | 0.0 | 0 | 0.0 |
+| 2 | 0 | 0.0 | 0 | 0.0 |
+| 3 | 511 | 0.023275 | 511 | 0.023275 |
+| 4 | 1216 | 0.055386 | 705 | 0.032111 |
+| 5 | 1746 | 0.079526 | 530 | 0.02414 |
+| 6 | 2137 | 0.097335 | 391 | 0.017809 |
+| 7 | 2410 | 0.10977 | 273 | 0.012435 |
+| 8 | 2613 | 0.119016 | 203 | 0.009246 |
+| 9 | 2758 | 0.125621 | 145 | 0.006604 |
+
+## INTERPRETATION LIMIT（DESCRIPTIVE ONLY）
+- 以上全部为 structural transition timing / cumulative transition rates / exact first-event timing /
+  never-reached-stage-by-T9 fraction（fixed-matured cohort）
+- 允许描述明显的 timing concentration / decay，但仅属 DESCRIPTIVE
+- 不得解读为：VALIDATED TTL、交易买点规则、T+5 expiry rule、profitability 结论
+- F_STAGE(k) != Kaplan-Meier survival / alive probability / win rate / P(profit|B2) / validated TTL cutoff
+- OUTPUT_CSV_SHA256 = 78fb429fd08b2f8bf0eed9bf52e17ddde0c682be5526b836e6e70f8a8c9ae228；OUTPUT_TIMING_CSV_SHA256 = 4d5a426684abaa7be9e27b70f3e6e1cec9f22c2401c63c279c35f10eab07e214
