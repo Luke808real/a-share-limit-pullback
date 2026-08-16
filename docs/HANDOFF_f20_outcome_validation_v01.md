@@ -1,62 +1,58 @@
-# Handoff — F20 VALIDATION PREREG-COMPLIANCE AUDIT FIX V01
+# Handoff — F20 VALIDATION FINAL HARDENING V01
 
 STATUS
 
-branch: fix/f20-validation-prereg-compliance-v01
-commit: （本次提交后确定）
-PR: 无（本地 research 分支；已推送 review 分支，未 merge）
+F20 CONTRACT = CLOSED；F20 PREREG = CLOSED
+F20 VALIDATION LOGIC = CORRECTED / CORE PASS（Sol review @69a6a77：population/Spearman/
+fail-closed/undefined 拆分均确认）
+CORRECTED OBSERVED RESULT: rho_strict = -0.112699；rho_R_positive = -0.118177；H5A = REJECT
+FORMAL CLOSE = PENDING FINAL HARDENING AUDIT（本轮硬化后由 Sol 收口）
+VALIDATED = NO；PROMOTED = NO
+
+branch: fix/f20-validation-final-hardening-v01
+commit: （本轮提交后确定）
+PR: 无（本地 research 分支；推送 review 分支，未 merge）
 worktree: /Users/luke808/AI/V flash-f18-validation-v01
 
-CHANGED
+CHANGED（本轮：audit hardening only，统计逻辑与 corrected 数字不变）
 
-- research/factor-lab/f20_outcome_validation_v01.py：prereg-compliance 修复
-  1) 删除 B2_STAGES 预过滤——primary population = 全部 resolved episodes
-     （冻结映射 anchor/b2_date=signal_date/as_of=signal_date），F20 自身定
-     defined/undefined；setup_stage 仅用于 composition（B1_READY/B2_READY/
-     B2_CONFIRMED 三层）
-  2) 冻结 Spearman 实现：average ranks (method="average") + Pearson of ranks，
-     移除 scipy 依赖；N<2 / 常量 / rho 非有限 → PRIMARY_RHO_UNDEFINED →
-     fail closed（RuntimeError，不产出 artifact），绝不映射为 REJECT
-  3) undefined reason 拆分：INSUFFICIENT_PRE20（PRE20_N<20，runner 用同一
-     PIT bars 复算）/ ZERO_DENOMINATOR（>=20 根但窗口均量为 0）/ OTHER_ERROR
-  4) quartile 输出补 STRICT_N / R_DEFINED_N
-- tests/test_f20_validation.py（新增）：18 项 regression（wrong SHA ×2、
-  no DataFrame bypass ×2、undefined isolation ×3、accounting fail closed ×2、
-  average-rank ties、N<2/常量 rho fail closed ×2、CANCEL exclusion、
-  numeric-R only、spearman_block fail closed、future leakage ×2、
-  quartile outcome-independence）
+- tests/test_f20_validation.py：tie test 改为手算用例（x=[1,1,2,3],
+  y=[1,2,2,3] → 5/6，无 scipy oracle）；新增：B1_READY materialization
+  不被预排除、OTHER_ERROR 阻止 artifact（B2 bar 缺失 → OTHER_ERROR）、
+  nonfinite rho fail closed（monkeypatch isfinite）、verdict 双分支
+  （双正 SUPPORTED_DIRECTIONALLY / 任一非正 REJECT）
+- research/factor-lab/f20_outcome_validation_v01.py：仅新增
+  RECONCILIATION 元数据字段（AUDIT_FIX=PREREG_COMPLIANCE_V01、
+  SUPERSEDES_HEAD=648aa069、OLD_RESULT_STATUS=NOT_ADJUDICATED_PREREG_MISMATCH、
+  RESULT_CHANGED=YES）——不改任何统计逻辑
 - research/factor-lab/runs/f20-outcome-validation-v01/*.{json,md}：确定性重跑
-- research/factor-lab/FACTOR_CATALOG.md、README.md：REJECT 最终数字
-- docs/HANDOFF_f20_outcome_validation_v01.md → 本文件（v01 → audit fix）
+  （数字必须与 69a6a77 完全一致）
+- docs/HANDOFF_f20_outcome_validation_v01.md：状态与 Catalog 一致（REJECT 收口前）
 
-OBSERVED
+OBSERVED（corrected 数字，硬化后不变）
 
 - RESOLVED_N=9625 = F20_DEFINED_N=9508 + F20_UNDEFINED_N=117
-  （UNDEFINED_REASONS: INSUFFICIENT_PRE20=117；ZERO_DENOMINATOR=0；
-  OTHER_ERROR=0）；STRICT_N=7765 + CANCEL_GAP=1743 = 9508；R_DEFINED_N=7765
-- rho_strict = -0.1127（N=7765）；rho_R_positive = -0.1182（N=7765）
-  → 双 gate 均非正 → **H5A = REJECT**（冻结 average-rank+Pearson 实现）
-- stage 三层：B1_READY -0.010/-0.010（N 层内 4959）、B2_READY +0.056/+0.056、
-  B2_CONFIRMED -0.015/-0.093；B1_READY 与 B2_READY 层 strict 编码与 R>0
-  100% 一致（数据属性，WIN_S1→R>0 完全对应），B2_CONFIRMED 73.3%
-  （419 例 WIN_S1 且 R<=0）——已复核非 bug
-- quartile Q1-Q4（各 2377）：STRICT_N 2006/2012/1962/1785；无单调
-- 与 B2-only 旧版本（648aa06，rho +0.034/-0.038）差异源于 population
-  修复（6411 个 NON_B2_STAGE 曾被子集化排除）；REJECT 结论不变且证据更强
+  （INSUFFICIENT_PRE20=117；ZERO_DENOMINATOR=0；OTHER_ERROR=0）
+- STRICT_N=7765 + CANCEL_GAP=1743 = 9508；R_DEFINED_N=7765
+- rho_strict = -0.112699；rho_R_positive = -0.118177（均 N=7765）
+- H5A = REJECT（双 gate 均非正；pre-registered gate 未改）
+- stage 观察（不改变 verdict）：B1_READY -0.010/-0.010、B2_READY
+  +0.056/+0.056、B2_CONFIRMED -0.015/-0.093；timing strict 在
+  T3/T4-5/T6-10 为正但 R-positive 全非正 → global -0.11 含 stage/timing
+  composition 成分，仅作 OBSERVATION，同样本不救 F20
 
 DECISIONS_NEEDED
 
-- 等待 Sol 对 audit-fix 版本的 review（review/f20-validation-prereg-compliance-v01）
-- B1_READY/B2_READY 层 rho 正方向是否记入 NEW_HYPOTHESES（待 Sol 确认）
+- 等待 Sol 最终硬化审计通过后正式收口：
+  F20 OUTCOME VALIDATION V01 = REJECT / CLOSED；VALIDATED = NO；PROMOTED = NO
+- 收口后转下一个因子（不在 F20 上继续同样本挖阈值）
 
 VALIDATION
 
-pytest: tests/test_f20_validation.py + tests/test_factor_lab.py = 89 passed
-  （uv run python -m pytest；.venv 已装 pytest，避免 uv run pytest 的隔离环境）
+pytest: tests/test_f20_validation.py + tests/test_factor_lab.py（新增后全量）
 compileall: 待最终提交前执行
 diff-check: 待最终提交前执行
-runtime validation: 相同 frozen inputs 确定性重跑（SHA 门禁通过；
-  accounting 守恒：9625=9508+117；7765+1743=9508）
+runtime validation: 相同 frozen inputs 确定性重跑；数字与 69a6a77 比对一致
 
 BLOCKERS
 
@@ -64,5 +60,5 @@ NONE
 
 NEXT
 
-- 提交 audit-fix 并推送 review/f20-validation-prereg-compliance-v01，
-  回传 SOL [AUTHOR_REPORT] 等待评审
+- 提交硬化并推送 review/f20-validation-final-hardening-v01，回传 SOL
+  [AUTHOR_REPORT]（含数字不变确认）等待最终收口

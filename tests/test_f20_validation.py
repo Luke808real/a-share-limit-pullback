@@ -136,13 +136,19 @@ def test_accounting_cancel_gap_invariant_fail_closed() -> None:
 
 # ---------- 6. average-rank ties / frozen spearman ----------
 
-def test_frozen_spearman_matches_scipy_with_ties() -> None:
-    from scipy.stats import spearmanr
+def test_frozen_spearman_tie_case_hand_computed() -> None:
+    """Hand-computed tie case (no scipy oracle, per audit requirement).
 
-    x = pd.Series([1.0, 1.0, 2.0, 2.0, 3.0, 4.0, 5.0, 5.0])
-    y = pd.Series([3.0, 1.0, 2.0, 4.0, 5.0, 5.0, 1.0, 2.0])
-    expected, _ = spearmanr(x, y)
-    assert m.frozen_spearman(x, y) == pytest.approx(float(expected))
+    x = [1, 1, 2, 3], y = [1, 2, 2, 3]
+    rank_x = [1.5, 1.5, 3, 4] (mean 2.5)
+    rank_y = [1, 2.5, 2.5, 4] (mean 2.5)
+    cov = (-1)(-1.5) + (-1)(0) + (0.5)(0) + (1.5)(1.5) = 3.75
+    var_x = 1 + 1 + 0.25 + 2.25 = 4.5; var_y = 2.25 + 0 + 0 + 2.25 = 4.5
+    rho = 3.75 / sqrt(4.5 * 4.5) = 3.75 / 4.5 = 5/6 ≈ 0.833333
+    """
+    x = pd.Series([1.0, 1.0, 2.0, 3.0])
+    y = pd.Series([1.0, 2.0, 2.0, 3.0])
+    assert m.frozen_spearman(x, y) == pytest.approx(5 / 6)
 
 
 def test_frozen_spearman_n_lt_2_fails_closed() -> None:
@@ -181,6 +187,52 @@ def test_non_numeric_r_excluded_from_r_population() -> None:
 def test_spearman_block_constant_fails_closed() -> None:
     with pytest.raises(RuntimeError, match="PRIMARY_RHO_UNDEFINED"):
         m.spearman_block(pd.Series([1.0, 2.0, 3.0]), pd.Series([0, 0, 0]), "strict")
+
+
+def test_nonfinite_rho_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """nonfinite rho must raise PRIMARY_RHO_UNDEFINED (audit requirement)."""
+    monkeypatch.setattr(m.math, "isfinite", lambda value: False)
+    with pytest.raises(RuntimeError, match="PRIMARY_RHO_UNDEFINED"):
+        m.frozen_spearman(pd.Series([1.0, 2.0, 3.0]), pd.Series([2.0, 4.0, 6.0]))
+
+
+# ---------- 9b. B1_READY not excluded before materialization ----------
+
+def test_b1_ready_materializes_f20() -> None:
+    """B1_READY episodes must NOT be excluded before F20 materialization:
+    with >=20 pre-B2 sessions they are F20-defined (no NON_B2_STAGE filter)."""
+    bars = [_bar_row("000001", f"2026-01-{d:02d}", 10.0, 100) for d in range(1, 22)]
+    bars.append(_bar_row("000001", "2026-01-23", 11.0, 500))
+    groups = _groups_with(bars)
+    ep = _episode_row("000001", "2026-01-02", "2026-01-23", "WIN_S1", stage="B1_READY")
+    value, reason = m.compute_f20(groups, ep)
+    assert reason is None
+    assert value == Decimal("5")
+
+
+# ---------- 9c. OTHER_ERROR blocks artifact ----------
+
+def test_other_error_reason_on_b2_bar_missing() -> None:
+    """Missing B2 bar must surface as OTHER_ERROR (main() then fails closed)."""
+    bars = [_bar_row("000001", f"2026-01-{d:02d}", 10.0, 100) for d in range(1, 22)]
+    groups = _groups_with(bars)  # no bar on signal_date -> B2 bar missing
+    ep = _episode_row("000001", "2026-01-02", "2026-01-25", "WIN_S1")
+    value, reason = m.compute_f20(groups, ep)
+    assert value is None
+    assert reason is not None and reason.startswith("OTHER_ERROR:")
+
+
+# ---------- 9d. verdict branches ----------
+
+def test_verdict_both_positive_supported() -> None:
+    assert m.verdict(0.1, 0.1) == "SUPPORTED_DIRECTIONALLY"
+
+
+def test_verdict_any_nonpositive_rejects() -> None:
+    assert m.verdict(0.1, -0.1) == "REJECT"
+    assert m.verdict(-0.1, 0.1) == "REJECT"
+    assert m.verdict(-0.1, -0.1) == "REJECT"
+    assert m.verdict(0.0, 0.1) == "REJECT"
 
 
 # ---------- 10. future leakage ----------

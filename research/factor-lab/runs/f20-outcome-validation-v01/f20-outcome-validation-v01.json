@@ -13,6 +13,12 @@
     "defined_population": "all resolved episodes; F20 itself decides defined/undefined (PRE20_N==20 & nonzero window mean)",
     "spearman_implementation": "frozen: average ranks (method=average) then Pearson of ranks; PRIMARY_RHO_UNDEFINED fails closed"
   },
+  "RECONCILIATION": {
+    "AUDIT_FIX": "PREREG_COMPLIANCE_V01",
+    "SUPERSEDES_HEAD": "648aa0695ce028ef5f5c24f012354646e97e4c23",
+    "OLD_RESULT_STATUS": "NOT_ADJUDICATED_PREREG_MISMATCH",
+    "RESULT_CHANGED": true
+  },
   "ACCOUNTING": {
     "RESOLVED_N": 9625,
     "F20_DEFINED_N": 9508,

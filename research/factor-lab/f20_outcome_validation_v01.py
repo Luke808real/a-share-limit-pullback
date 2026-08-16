@@ -462,6 +462,12 @@ def main(episodes_path: Path, daily_path: Path, out_dir: Path) -> dict:
             "defined_population": "all resolved episodes; F20 itself decides defined/undefined (PRE20_N==20 & nonzero window mean)",
             "spearman_implementation": "frozen: average ranks (method=average) then Pearson of ranks; PRIMARY_RHO_UNDEFINED fails closed",
         },
+        "RECONCILIATION": {
+            "AUDIT_FIX": "PREREG_COMPLIANCE_V01",
+            "SUPERSEDES_HEAD": "648aa0695ce028ef5f5c24f012354646e97e4c23",
+            "OLD_RESULT_STATUS": "NOT_ADJUDICATED_PREREG_MISMATCH",
+            "RESULT_CHANGED": True,
+        },
         "ACCOUNTING": {
             "RESOLVED_N": accounting["RESOLVED_N"],
             "F20_DEFINED_N": accounting["F20_DEFINED_N"],
@@ -524,6 +530,7 @@ def render_report(result: dict) -> str:
         f"- Spearman：{p['spearman_implementation']}",
         f"- episodes SHA: {p['episodes_sha']}；daily SHA: {p['daily_sha']}",
         f"- EPISODES_TOTAL = {p['episodes_total']}；RESOLVED_N = {p['resolved_n']}",
+        f"- RECONCILIATION: AUDIT_FIX={result['RECONCILIATION']['AUDIT_FIX']}；SUPERSEDES_HEAD={result['RECONCILIATION']['SUPERSEDES_HEAD']}；OLD_RESULT_STATUS={result['RECONCILIATION']['OLD_RESULT_STATUS']}；RESULT_CHANGED={result['RECONCILIATION']['RESULT_CHANGED']}",
         "",
         "## ACCOUNTING",
         f"- RESOLVED_N = {a['RESOLVED_N']}；F20_DEFINED_N = {a['F20_DEFINED_N']}；F20_UNDEFINED_N = {a['F20_UNDEFINED_N']}",
