@@ -244,6 +244,34 @@ class BootstrapResult(DomainModel):
     metrics: dict[str, Any] = {}
 
 
+class DailySessionRepairResult(DomainModel):
+    """Outcome of a bounded daily-session repair run.
+
+    The repair re-fetches a small explicit set of TUSHARE daily sessions,
+    reuses the parent run's AKSHARE/BAOSTOCK raw rows for those dates only,
+    reconciles just those sessions and publishes a new immutable snapshot
+    composed of the base daily rows minus the repair dates plus the repaired
+    rows. Pool rows are carried over from the base snapshot unchanged.
+    """
+
+    run_id: str
+    kind: str = "daily-session-repair"
+    snapshot_id: str | None = None
+    base_snapshot_id: str
+    parent_run_id: str
+    repair_dates: tuple[date, ...] = ()
+    base_row_n: int = 0
+    repaired_row_n: int = 0
+    confirmed_n: int = 0
+    provisional_n: int = 0
+    quarantine_n: int = 0
+    reused: bool = False
+    notes: tuple[str, ...] = ()
+    failure_count: int = 0
+    pending_failures: int = 0
+    metrics: dict[str, Any] = {}
+
+
 class UpdateResult(DomainModel):
     run_id: str
     kind: str = "update"

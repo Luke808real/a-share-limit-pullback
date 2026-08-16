@@ -23,6 +23,7 @@ from limit_pullback.resources import (
 from limit_pullback.warehouse.metadata import WarehouseMetadata
 from limit_pullback.warehouse.models import (
     BootstrapResult,
+    DailySessionRepairResult,
     QuarantineRecord,
     ReconciliationRecord,
     SourceFileRecord,
@@ -1201,6 +1202,486 @@ def _bootstrap_impl(
                     error=redact(f"{type(exc).__name__}: {exc}"),
                 )
             raise
+
+
+def repair_daily_sessions(
+    *,
+    layout: WarehouseLayout,
+    base_snapshot_id: str,
+    parent_run_id: str,
+    repair_dates: Sequence[date],
+    provider_set: WarehouseProviderSet | None = None,
+    policy: ReconciliationPolicy | None = None,
+    clock: Callable[[], datetime] = _now_utc,
+    today: date | None = None,
+    as_of: date | None = None,
+    repair_lineage: str | None = None,
+    batch_size: int = 50,
+    force_finalize: bool = False,
+) -> DailySessionRepairResult:
+    """Bounded repair of a small explicit set of daily sessions.
+
+    The pipeline re-fetches ONLY ``repair_dates`` from TUSHARE (bulk,
+    date-keyed, ``require_date_presence``), reuses the parent run's
+    AKSHARE/BAOSTOCK ``daily_bars`` raw rows for those dates (read-only,
+    sha256-verified against ``source_files``), reconciles ONLY the repair
+    sessions and publishes a new immutable ``RESEARCH_READY`` snapshot whose
+    daily composition is ``base daily - repair dates + repaired rows`` and
+    whose pool rows are the base pool rows unchanged.
+
+    Fail-closed gates (each raises before any publication):
+
+    * repair dates must be non-empty, not in the future, and every requested
+      TUSHARE session must have rows (``require_date_presence`` + file-level
+      presence check + no PENDING fetch failures);
+    * every provider row must fall inside the repair window (bounded scope);
+    * consensus breadth: every code with a published base row on a repair
+      date must have a TUSHARE row in the repair fetch
+      (``CONSENSUS_CODES subset TS_CODES``) — a partial TUSHARE batch can
+      never masquerade as a complete repair;
+    * every repair date must end up with at least one CONFIRMED row;
+    * the composed snapshot must have no duplicate (code, trade_date).
+
+    ``repair_lineage`` is required and must satisfy the shared tag contract.
+    The run identity is ``_run_id("daily-session-repair", base_snapshot_id,
+    parent_run_id, tuple(repair_dates), policy.policy_version,
+    repair_lineage)``; a completed run with no pending failures is reused
+    (deterministic, never rewrites history).
+    """
+
+    if repair_lineage is None:
+        raise PipelineError(
+            "REPAIR_LINEAGE_REQUIRED",
+            "repair_daily_sessions requires an explicit repair_lineage tag",
+        )
+    _validate_repair_lineage(repair_lineage)
+    dates = tuple(sorted({d for d in repair_dates}))
+    if not dates:
+        raise PipelineError("REPAIR_NO_DATES", "at least one repair date is required")
+    today_value = today or date.today()
+    if dates[-1] > today_value:
+        raise PipelineError(
+            "END_DATE_IN_FUTURE", "repair dates must not be in the future"
+        )
+    policy = policy or ReconciliationPolicy()
+    metrics: dict[str, Any] = {
+        "rate_limit_waits": 0,
+        "rate_limit_wait_seconds": 0.0,
+        "rows_written": 0,
+        "wall_seconds": 0.0,
+    }
+    providers = provider_set or RealWarehouseProviderSet(
+        rate_limit_sink=_rate_limit_sink(layout, metrics)
+    )
+    fetched_at = clock()
+    layout.ensure_dirs()
+    run_id: str | None = None
+    run_started_this_attempt = False
+
+    with WarehouseLock(layout.root / ".warehouse.lock"):
+        with WarehouseMetadata(layout.duckdb_path) as metadata:
+            try:
+                base = metadata.snapshot_by_id(base_snapshot_id)
+                if base is None:
+                    raise PipelineError(
+                        "REPAIR_BASE_SNAPSHOT_UNKNOWN",
+                        f"base snapshot {base_snapshot_id} does not exist",
+                    )
+                if metadata.get_ingest_run(parent_run_id) is None:
+                    raise PipelineError(
+                        "REPAIR_PARENT_RUN_UNKNOWN",
+                        f"parent run {parent_run_id} does not exist",
+                    )
+                notes: list[str] = []
+                run_id = _run_id(
+                    "daily-session-repair",
+                    base_snapshot_id,
+                    parent_run_id,
+                    dates,
+                    policy.policy_version,
+                    repair_lineage,
+                )
+                heartbeat = _Heartbeat(layout=layout, run_id=run_id, clock=clock)
+                heartbeat.start()
+                start_wall = time.monotonic()
+                existing = metadata.get_ingest_run(run_id)
+                pending = metadata.pending_failures(run_id)
+                if (
+                    existing is not None
+                    and existing.status == "COMPLETED"
+                    and not pending
+                    and not force_finalize
+                ):
+                    snapshot = _repair_snapshot_for_run(metadata, run_id)
+                    if snapshot is None:
+                        raise PipelineError(
+                            "REPAIR_COMPLETED_RUN_WITHOUT_SNAPSHOT",
+                            f"completed repair run {run_id} has no published snapshot",
+                        )
+                    base_daily = read_snapshot_daily(layout, base)
+                    repair_set = set(dates)
+                    repaired_rows = [
+                        row
+                        for row in read_snapshot_daily(layout, snapshot)
+                        if row.get("trade_date") in repair_set
+                    ]
+                    confirmed_n = sum(
+                        1
+                        for row in repaired_rows
+                        if row.get("reconciliation_status") == "CONFIRMED"
+                    )
+                    quarantine_n = metadata._connection.execute(
+                        "SELECT count(*) FROM reconciliation_results "
+                        "WHERE snapshot_id = ? AND status = 'QUARANTINED'",
+                        [snapshot.snapshot_id],
+                    ).fetchone()[0]
+                    return DailySessionRepairResult(
+                        run_id=run_id,
+                        snapshot_id=snapshot.snapshot_id,
+                        base_snapshot_id=base_snapshot_id,
+                        parent_run_id=parent_run_id,
+                        repair_dates=dates,
+                        base_row_n=len(base_daily),
+                        repaired_row_n=len(repaired_rows),
+                        confirmed_n=confirmed_n,
+                        provisional_n=len(repaired_rows) - confirmed_n,
+                        quarantine_n=int(quarantine_n),
+                        reused=True,
+                        failure_count=metadata.failure_count(run_id),
+                        pending_failures=len(pending),
+                        metrics=dict(metrics),
+                    )
+                metadata.begin_ingest_run(
+                    run_id=run_id,
+                    kind="daily-session-repair",
+                    started_at=fetched_at,
+                    start_date=dates[0],
+                    end_date=dates[-1],
+                    codes=(),
+                    config_json=json.dumps(
+                        {
+                            "policy_version": policy.policy_version,
+                            "base_snapshot_id": base_snapshot_id,
+                            "parent_run_id": parent_run_id,
+                            "repair_dates": [d.isoformat() for d in dates],
+                            "repair_lineage": repair_lineage,
+                            "as_of": (as_of or base.as_of).isoformat(),
+                        },
+                        sort_keys=True,
+                    ),
+                )
+                run_started_this_attempt = True
+
+                from limit_pullback.warehouse.fetch import (
+                    FetchContext,
+                    fetch_rows,
+                    fetch_with_retry,
+                )
+
+                provider_versions = providers.provider_versions()
+                ctx = FetchContext(
+                    layout=layout,
+                    metadata=metadata,
+                    run_id=run_id,
+                    clock=clock,
+                    versions=provider_versions,
+                    batch_rows=max(20000, batch_size * 400),
+                )
+                try:
+                    stock_basic = fetch_with_retry(
+                        lambda: providers.fetch_stock_basic(
+                            (), listed_only=False
+                        ),
+                        retries=6,
+                        backoff_seconds=2.0,
+                    )
+                except CapabilityUnavailable as exc:
+                    stock_basic = []
+                    notes.append(f"SKIPPED_DATASET:stock_basic:{exc.status}")
+                    notes.append(f"STOCK_BASIC_DETAIL:{exc.error_code}:{exc.detail}")
+
+                def _tushare_bulk(
+                    dataset: str, wanted: list[date]
+                ) -> list[dict[str, Any]]:
+                    fetchers = {
+                        "adjustment_factor": providers.fetch_tushare_adj_factor_by_trade_date,
+                        "daily_basic": providers.fetch_tushare_daily_basic_by_trade_date,
+                    }
+                    return fetchers[dataset](wanted)
+
+                tushare_aux: dict[str, list[dict[str, Any]]] = {}
+                for dataset in ("adjustment_factor", "daily_basic"):
+                    heartbeat.set_phase(f"tushare-{dataset}")
+                    tushare_aux[dataset] = fetch_rows(
+                        ctx,
+                        provider="TUSHARE",
+                        dataset=dataset,
+                        items=dates,
+                        bulk_fn=lambda wanted, d=dataset: _tushare_bulk(d, wanted),
+                        use_bulk=True,
+                        item_is_date=True,
+                        batch_size=batch_size,
+                    )
+
+                heartbeat.set_phase("tushare-daily")
+                tushare_daily = fetch_rows(
+                    ctx,
+                    provider="TUSHARE",
+                    dataset="daily_bars",
+                    items=dates,
+                    bulk_fn=lambda wanted: _fill_auxiliary(
+                        providers.fetch_tushare_daily_by_trade_date(wanted),
+                        daily_basic=tushare_aux.get("daily_basic", []),
+                        stock_basic=stock_basic,
+                    ),
+                    use_bulk=True,
+                    item_is_date=True,
+                    require_date_presence=True,
+                    batch_size=batch_size,
+                    return_rows=True,
+                )
+
+                # Parent raw extraction: AKSHARE/BAOSTOCK daily_bars for the
+                # repair dates ONLY, read-only, sha256-verified against the
+                # recorded source_files so tampered/missing parent files can
+                # never be silently reused.
+                repair_set = set(dates)
+                parent_files = metadata._connection.execute(
+                    """
+                    SELECT path, provider, sha256 FROM source_files
+                    WHERE ingest_run_id = ?
+                      AND path LIKE '%/daily_bars/%'
+                    ORDER BY recorded_at ASC
+                    """,
+                    [parent_run_id],
+                ).fetchall()
+                if not parent_files:
+                    raise PipelineError(
+                        "REPAIR_PARENT_RAW_UNAVAILABLE",
+                        f"parent run {parent_run_id} has no recorded daily_bars source files",
+                    )
+                parent_rows: dict[str, list[dict[str, Any]]] = {}
+                for path_value, provider, recorded_sha in parent_files:
+                    if provider not in ("AKSHARE", "BAOSTOCK"):
+                        continue
+                    path = Path(path_value)
+                    if not path.exists():
+                        raise PipelineError(
+                            "REPAIR_PARENT_RAW_MISSING",
+                            f"parent raw file {path_value} is missing",
+                        )
+                    if sha256_file(path) != recorded_sha:
+                        raise PipelineError(
+                            "REPAIR_PARENT_RAW_SHA_MISMATCH",
+                            f"parent raw file {path_value} sha256 mismatch",
+                        )
+                    bucket = parent_rows.setdefault(provider, [])
+                    for row in read_rows(path):
+                        if row.get("trade_date") in repair_set:
+                            bucket.append(dict(row))
+                akshare_parent = parent_rows.get("AKSHARE", [])
+                baostock_parent = parent_rows.get("BAOSTOCK", [])
+                if not akshare_parent and not baostock_parent:
+                    raise PipelineError(
+                        "REPAIR_PARENT_RAW_EMPTY_FOR_DATES",
+                        f"parent run {parent_run_id} has no AKSHARE/BAOSTOCK "
+                        "daily rows for the repair dates",
+                    )
+
+                # Bounded-scope gate: provider rows must never leak outside
+                # the repair window (a bulk fetch answering with extra dates
+                # must fail closed, not silently extend the repair).
+                for label, rows in (
+                    ("TUSHARE", tushare_daily),
+                    ("AKSHARE", akshare_parent),
+                    ("BAOSTOCK", baostock_parent),
+                ):
+                    out_of_scope = [
+                        row for row in rows if row.get("trade_date") not in repair_set
+                    ]
+                    if out_of_scope:
+                        raise PipelineError(
+                            "REPAIR_SCOPE_VIOLATION",
+                            f"{label} returned {len(out_of_scope)} rows outside "
+                            "the repair dates",
+                        )
+
+                # Session presence gates (fail closed before any publication).
+                missing = _tushare_daily_missing_sessions(layout, run_id, dates)
+                if missing:
+                    raise PipelineError(
+                        "REPAIR_TUSHARE_SESSION_COVERAGE_INCOMPLETE",
+                        f"missing {len(missing)} TUSHARE daily sessions, "
+                        f"e.g. {[d.isoformat() for d in missing[:5]]}",
+                    )
+                pending_now = metadata.pending_failures(run_id)
+                if pending_now:
+                    raise PipelineError(
+                        "REPAIR_FETCH_PENDING_FAILURES",
+                        f"{len(pending_now)} pending fetch failures, "
+                        f"e.g. {pending_now[:3]}",
+                    )
+
+                # Consensus breadth gate: every code that had a published row
+                # on a repair date in the base snapshot must be covered by the
+                # new TUSHARE fetch. A partial TUSHARE batch must never be
+                # published as a complete repair (CONSENSUS subset TS).
+                base_daily = read_snapshot_daily(layout, base)
+                consensus_codes = {
+                    str(row["code"])
+                    for row in base_daily
+                    if row.get("trade_date") in repair_set
+                }
+                ts_codes = {str(row["code"]) for row in tushare_daily}
+                missing_consensus = sorted(consensus_codes - ts_codes)
+                if missing_consensus:
+                    raise PipelineError(
+                        "REPAIR_TUSHARE_CONSENSUS_COVERAGE_INCOMPLETE",
+                        f"{len(missing_consensus)} previously published codes "
+                        f"have no TUSHARE row, e.g. {missing_consensus[:5]}",
+                    )
+
+                rows_by_provider: dict[str, list[dict[str, Any]]] = {}
+                if tushare_daily:
+                    rows_by_provider["TUSHARE"] = tushare_daily
+                if akshare_parent:
+                    rows_by_provider["AKSHARE"] = akshare_parent
+                if baostock_parent:
+                    rows_by_provider["BAOSTOCK"] = baostock_parent
+                canonical, records, quarantines = reconcile_daily_rows(
+                    rows_by_provider,
+                    policy=policy,
+                    clock=clock,
+                    adjustment_factor_rows=tushare_aux.get("adjustment_factor", []),
+                )
+
+                # Every repair date must produce at least one CONFIRMED row;
+                # a date whose repaired rows are all single-source or
+                # partial-cross-validation is still not repaired.
+                confirmed_by_date: dict[date, int] = {}
+                for row in canonical:
+                    if row.get("reconciliation_status") == "CONFIRMED":
+                        d = row["trade_date"]
+                        confirmed_by_date[d] = confirmed_by_date.get(d, 0) + 1
+                for d in dates:
+                    if confirmed_by_date.get(d, 0) <= 0:
+                        raise PipelineError(
+                            "REPAIR_DATE_NO_CONFIRMED",
+                            f"repair date {d.isoformat()} produced no CONFIRMED row",
+                        )
+
+                # Composition: base daily minus repair dates plus repaired
+                # rows; pool rows carried over unchanged. Final key set must
+                # be collision-free (REPAIR_COMPOSED_DUPLICATE_KEY).
+                base_kept = [
+                    row for row in base_daily if row.get("trade_date") not in repair_set
+                ]
+                composed = [*base_kept, *canonical]
+                composed_keys = [
+                    (str(row["code"]), row["trade_date"]) for row in composed
+                ]
+                if len(composed_keys) != len(set(composed_keys)):
+                    raise PipelineError(
+                        "REPAIR_COMPOSED_DUPLICATE_KEY",
+                        "composed snapshot contains duplicate (code, trade_date)",
+                    )
+                pool_rows = read_snapshot_pool(layout, base)
+
+                source_rows = metadata._connection.execute(
+                    "SELECT path, sha256, row_count FROM source_files "
+                    "WHERE ingest_run_id = ?",
+                    [run_id],
+                ).fetchall()
+                source_file_hashes = {
+                    str(Path(path_value).relative_to(layout.root)): sha
+                    for path_value, sha, _row_count in source_rows
+                }
+                snapshot = create_snapshot(
+                    layout=layout,
+                    metadata=metadata,
+                    as_of=as_of or base.as_of,
+                    provider_versions=dict(provider_versions),
+                    daily_rows=composed,
+                    pool_rows=pool_rows,
+                    source_file_hashes=source_file_hashes,
+                    reconciliation_policy_version=policy.policy_version,
+                    clock=clock,
+                    status="RESEARCH_READY",
+                )
+                for record in records:
+                    metadata.insert_reconciliation(
+                        record.model_copy(
+                            update={"snapshot_id": snapshot.snapshot_id}
+                        )
+                    )
+                for record in quarantines:
+                    metadata.insert_quarantine(record)
+                metadata.finish_ingest_run(
+                    run_id=run_id,
+                    status="COMPLETED",
+                    finished_at=clock(),
+                    error=None,
+                )
+                confirmed_n = sum(
+                    1
+                    for row in canonical
+                    if row.get("reconciliation_status") == "CONFIRMED"
+                )
+                metrics["rows_written"] = sum(
+                    row_count for _, _, row_count in source_rows
+                )
+                metrics["wall_seconds"] = round(time.monotonic() - start_wall, 3)
+                heartbeat.stop()
+                return DailySessionRepairResult(
+                    run_id=run_id,
+                    snapshot_id=snapshot.snapshot_id,
+                    base_snapshot_id=base_snapshot_id,
+                    parent_run_id=parent_run_id,
+                    repair_dates=dates,
+                    base_row_n=len(base_daily),
+                    repaired_row_n=len(canonical),
+                    confirmed_n=confirmed_n,
+                    provisional_n=len(canonical) - confirmed_n,
+                    quarantine_n=len(quarantines),
+                    reused=False,
+                    notes=tuple(notes),
+                    failure_count=metadata.failure_count(run_id),
+                    pending_failures=len(metadata.pending_failures(run_id)),
+                    metrics=dict(metrics),
+                )
+            except BaseException as exc:
+                if run_id is not None and run_started_this_attempt:
+                    metadata.finish_ingest_run(
+                        run_id=run_id,
+                        status="FAILED",
+                        finished_at=clock(),
+                        error=redact(f"{type(exc).__name__}: {exc}"),
+                    )
+                raise
+
+
+def _repair_snapshot_for_run(
+    metadata: WarehouseMetadata, run_id: str
+) -> SnapshotRecord | None:
+    """Locate the snapshot published by one repair run.
+
+    Snapshots are not linked to ingest runs directly; the raw files written
+    by a run appear in the snapshot's source_file_hashes as
+    ``.../{run_id}-NNNN.parquet`` relative keys, which makes the lookup exact
+    and unambiguous.
+    """
+
+    from limit_pullback.warehouse.models import SnapshotRecord
+
+    rows = metadata._connection.execute(
+        "SELECT * FROM dataset_snapshots ORDER BY created_at DESC"
+    ).fetchall()
+    marker = f"/{run_id}-"
+    for row in rows:
+        record = metadata._snapshot_from_row(row)
+        if any(marker in key for key in record.source_file_hashes):
+            return record
+    return None
 
 
 def _reprocess_preclose_divergences(
