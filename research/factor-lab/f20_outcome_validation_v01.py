@@ -470,11 +470,7 @@ def main(episodes_path: Path, daily_path: Path, out_dir: Path) -> dict:
             "OLD_DEFINED_N": 3207,
             "OLD_RHO_STRICT": 0.033836,
             "OLD_RHO_R_POSITIVE": -0.038309,
-            "RESULT_CHANGED_REASON": (
-                "NON_B2_STAGE pre-filter removed: primary population corrected to ALL resolved "
-                "episodes under the frozen prereg mapping (b2_date=as_of=signal_date); F20 itself "
-                "decides defined/undefined. 6411 B2-stage-only exclusions reintegrated."
-            ),
+            "RESULT_CHANGED_REASON": "PREREG_COMPLIANCE_BUG_FIX",
             "CORRECTED_DEFINED_N": int((resolved["f20"].notna()).sum()),
             "CORRECTED_RHO_STRICT": strict_block["rho"],
             "CORRECTED_RHO_R_POSITIVE": rpos_block["rho"],
