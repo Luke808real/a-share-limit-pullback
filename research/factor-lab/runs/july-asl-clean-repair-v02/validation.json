@@ -1,0 +1,334 @@
+{
+  "adj_coverage": [
+    {
+      "adj_code_n": 7177,
+      "adj_coverage_of_consensus": 0,
+      "adj_row_n": 7177,
+      "consensus_n": 0,
+      "date": "2026-07-08"
+    },
+    {
+      "adj_code_n": 7179,
+      "adj_coverage_of_consensus": 3186,
+      "adj_row_n": 7179,
+      "consensus_n": 3186,
+      "date": "2026-07-09"
+    },
+    {
+      "adj_code_n": 7186,
+      "adj_coverage_of_consensus": 3186,
+      "adj_row_n": 7186,
+      "consensus_n": 3186,
+      "date": "2026-07-10"
+    },
+    {
+      "adj_code_n": 7192,
+      "adj_coverage_of_consensus": 3187,
+      "adj_row_n": 7192,
+      "consensus_n": 3187,
+      "date": "2026-07-13"
+    },
+    {
+      "adj_code_n": 7187,
+      "adj_coverage_of_consensus": 3189,
+      "adj_row_n": 7187,
+      "consensus_n": 3189,
+      "date": "2026-07-14"
+    },
+    {
+      "adj_code_n": 7187,
+      "adj_coverage_of_consensus": 3190,
+      "adj_row_n": 7187,
+      "consensus_n": 3190,
+      "date": "2026-07-15"
+    },
+    {
+      "adj_code_n": 7191,
+      "adj_coverage_of_consensus": 3190,
+      "adj_row_n": 7191,
+      "consensus_n": 3190,
+      "date": "2026-07-16"
+    },
+    {
+      "adj_code_n": 7194,
+      "adj_coverage_of_consensus": 3189,
+      "adj_row_n": 7194,
+      "consensus_n": 3189,
+      "date": "2026-07-17"
+    },
+    {
+      "adj_code_n": 7199,
+      "adj_coverage_of_consensus": 3191,
+      "adj_row_n": 7199,
+      "consensus_n": 3191,
+      "date": "2026-07-20"
+    },
+    {
+      "adj_code_n": 7198,
+      "adj_coverage_of_consensus": 3191,
+      "adj_row_n": 7198,
+      "consensus_n": 3191,
+      "date": "2026-07-21"
+    },
+    {
+      "adj_code_n": 7203,
+      "adj_coverage_of_consensus": 3190,
+      "adj_row_n": 7203,
+      "consensus_n": 3190,
+      "date": "2026-07-22"
+    },
+    {
+      "adj_code_n": 7194,
+      "adj_coverage_of_consensus": 3190,
+      "adj_row_n": 7194,
+      "consensus_n": 3190,
+      "date": "2026-07-23"
+    },
+    {
+      "adj_code_n": 7200,
+      "adj_coverage_of_consensus": 3190,
+      "adj_row_n": 7200,
+      "consensus_n": 3190,
+      "date": "2026-07-24"
+    }
+  ],
+  "adj_coverage_gate": {
+    "passed": true,
+    "predecessor": "2026-07-08",
+    "predecessor_present": true
+  },
+  "canonical_provider_gate": {
+    "SELECTED_PROVIDER_ASL_N": 38269,
+    "SELECTED_PROVIDER_OTHER_N": 0,
+    "SELECTED_PROVIDER_TUSHARE_N": 0,
+    "passed": true,
+    "repaired_row_n": 38269
+  },
+  "failures": [],
+  "old_lineage_immutable": true,
+  "per_date_gate": {
+    "all_passed": true,
+    "dates_n": 12,
+    "per_date_stats": [
+      {
+        "ak_n": 3186,
+        "asl_coverage_of_consensus": 3186,
+        "asl_n": 3186,
+        "base_row_n": 3143,
+        "bs_n": 3186,
+        "confirmed_n": 3186,
+        "consensus_n": 3186,
+        "provisional_n": 0,
+        "quarantine_n": 0,
+        "repaired_row_n": 3186,
+        "trade_date": "2026-07-09"
+      },
+      {
+        "ak_n": 3186,
+        "asl_coverage_of_consensus": 3186,
+        "asl_n": 3186,
+        "base_row_n": 3126,
+        "bs_n": 3186,
+        "confirmed_n": 3186,
+        "consensus_n": 3186,
+        "provisional_n": 0,
+        "quarantine_n": 0,
+        "repaired_row_n": 3186,
+        "trade_date": "2026-07-10"
+      },
+      {
+        "ak_n": 3187,
+        "asl_coverage_of_consensus": 3187,
+        "asl_n": 3187,
+        "base_row_n": 3167,
+        "bs_n": 3187,
+        "confirmed_n": 3187,
+        "consensus_n": 3187,
+        "provisional_n": 0,
+        "quarantine_n": 0,
+        "repaired_row_n": 3187,
+        "trade_date": "2026-07-13"
+      },
+      {
+        "ak_n": 3189,
+        "asl_coverage_of_consensus": 3189,
+        "asl_n": 3189,
+        "base_row_n": 3175,
+        "bs_n": 3189,
+        "confirmed_n": 3189,
+        "consensus_n": 3189,
+        "provisional_n": 0,
+        "quarantine_n": 0,
+        "repaired_row_n": 3189,
+        "trade_date": "2026-07-14"
+      },
+      {
+        "ak_n": 3190,
+        "asl_coverage_of_consensus": 3190,
+        "asl_n": 3190,
+        "base_row_n": 3161,
+        "bs_n": 3190,
+        "confirmed_n": 3190,
+        "consensus_n": 3190,
+        "provisional_n": 0,
+        "quarantine_n": 0,
+        "repaired_row_n": 3190,
+        "trade_date": "2026-07-15"
+      },
+      {
+        "ak_n": 3190,
+        "asl_coverage_of_consensus": 3190,
+        "asl_n": 3190,
+        "base_row_n": 3160,
+        "bs_n": 3190,
+        "confirmed_n": 3190,
+        "consensus_n": 3190,
+        "provisional_n": 0,
+        "quarantine_n": 0,
+        "repaired_row_n": 3190,
+        "trade_date": "2026-07-16"
+      },
+      {
+        "ak_n": 3189,
+        "asl_coverage_of_consensus": 3189,
+        "asl_n": 3189,
+        "base_row_n": 3145,
+        "bs_n": 3189,
+        "confirmed_n": 3189,
+        "consensus_n": 3189,
+        "provisional_n": 0,
+        "quarantine_n": 0,
+        "repaired_row_n": 3189,
+        "trade_date": "2026-07-17"
+      },
+      {
+        "ak_n": 3191,
+        "asl_coverage_of_consensus": 3191,
+        "asl_n": 3191,
+        "base_row_n": 3181,
+        "bs_n": 3191,
+        "confirmed_n": 3191,
+        "consensus_n": 3191,
+        "provisional_n": 0,
+        "quarantine_n": 0,
+        "repaired_row_n": 3191,
+        "trade_date": "2026-07-20"
+      },
+      {
+        "ak_n": 3191,
+        "asl_coverage_of_consensus": 3191,
+        "asl_n": 3191,
+        "base_row_n": 3178,
+        "bs_n": 3191,
+        "confirmed_n": 3191,
+        "consensus_n": 3191,
+        "provisional_n": 0,
+        "quarantine_n": 0,
+        "repaired_row_n": 3191,
+        "trade_date": "2026-07-21"
+      },
+      {
+        "ak_n": 3190,
+        "asl_coverage_of_consensus": 3190,
+        "asl_n": 3190,
+        "base_row_n": 3170,
+        "bs_n": 3190,
+        "confirmed_n": 3190,
+        "consensus_n": 3190,
+        "provisional_n": 0,
+        "quarantine_n": 0,
+        "repaired_row_n": 3190,
+        "trade_date": "2026-07-22"
+      },
+      {
+        "ak_n": 3190,
+        "asl_coverage_of_consensus": 3190,
+        "asl_n": 3190,
+        "base_row_n": 3177,
+        "bs_n": 3190,
+        "confirmed_n": 3190,
+        "consensus_n": 3190,
+        "provisional_n": 0,
+        "quarantine_n": 0,
+        "repaired_row_n": 3190,
+        "trade_date": "2026-07-23"
+      },
+      {
+        "ak_n": 3190,
+        "asl_coverage_of_consensus": 3190,
+        "asl_n": 3190,
+        "base_row_n": 3173,
+        "bs_n": 3190,
+        "confirmed_n": 3190,
+        "consensus_n": 3190,
+        "provisional_n": 0,
+        "quarantine_n": 0,
+        "repaired_row_n": 3190,
+        "trade_date": "2026-07-24"
+      }
+    ]
+  },
+  "progress": [
+    {
+      "dataset": "adjustment_factor",
+      "n": 13,
+      "provider": "ASL",
+      "status": "COMPLETED"
+    },
+    {
+      "dataset": "daily_bars",
+      "n": 12,
+      "provider": "ASL",
+      "status": "COMPLETED"
+    }
+  ],
+  "reconciliation_confirmed": [
+    {
+      "n": 38269,
+      "providers": [
+        "AKSHARE",
+        "ASL",
+        "BAOSTOCK"
+      ],
+      "selected_provider": "ASL"
+    }
+  ],
+  "reconciliation_confirmed_passed": true,
+  "snapshot_invariants": {
+    "as_of": "2026-07-31",
+    "duplicate_keys": 0,
+    "id_differs_base": true,
+    "id_differs_experimental": true,
+    "id_new": "snap-2026-07-31-d34171a7e7ae",
+    "july_confirmed_sessions": 23,
+    "july_gap": [],
+    "july_sessions": 23,
+    "non_repair_changed_fields": 0,
+    "passed": true,
+    "pool_identical": true,
+    "pool_rows_base": 901,
+    "pool_rows_new": 901,
+    "status": "RESEARCH_READY"
+  },
+  "source_files": [
+    {
+      "dataset": "adjustment_factor",
+      "file_n": 1,
+      "provider": "ASL",
+      "row_n": 93487
+    },
+    {
+      "dataset": "daily_bars",
+      "file_n": 1,
+      "provider": "ASL",
+      "row_n": 38269
+    }
+  ],
+  "source_provider_gate": {
+    "foreign_provider_n": 0,
+    "passed": true,
+    "tushare_failure_n": 0,
+    "tushare_progress_n": 0,
+    "tushare_source_n": 0
+  }
+}
