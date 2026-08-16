@@ -1,8 +1,8 @@
 # F20 B2 VOLUME VS 20D MEAN OUTCOME VALIDATION V01 — 预注册验证报告
 
-- F20 CONTRACT = FROZEN / CLOSED（HEAD ff4ea77a80c2144fda181b6e412a795b6c1952d9，Sol audit PASS）
-- 函数：factor_lab.b2_volume_vs_20d_mean；预注册：commit 758768e1dc0db16fa0d9d75a6c25652d2d789671
-- b2 event date := signal_date for B2-stage episodes (frozen)；as_of = signal_date
+- F20 CONTRACT = FROZEN / CLOSED（AUTHORITY HEAD 0f068d4462adb4eb435791843259dbe11a646a2c，Sol audit PASS）
+- 函数：factor_lab.b2_volume_vs_20d_mean（源码语义 HEAD ff4ea77a80c2144fda181b6e412a795b6c1952d9）；预注册：758768e1dc0db16fa0d9d75a6c25652d2d789671
+- b2_date = episode.signal_date (frozen)；as_of = episode.signal_date
 - episodes SHA: 66d5943ffd4c83d8348d7b559ef9aa8ab9c041525471108a2f724fbedd84b093；daily SHA: e7243dee3bafe46e725e2b6ee884b07ac97a01c0705b41df0562d35019593514
 - EPISODES_TOTAL = 31422；RESOLVED_N = 9625
 

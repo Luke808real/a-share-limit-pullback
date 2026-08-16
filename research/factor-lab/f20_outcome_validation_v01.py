@@ -41,8 +41,9 @@ EPISODES_TOTAL = 31422
 RESOLVED_N = 9625
 RESOLVED_OUTCOMES = ("WIN_S1", "LOSS_INVALID", "CANCEL_GAP_INVALID")
 B2_STAGES = ("B2_READY", "B2_CONFIRMED")
-F20_CONTRACT_HEAD = "ff4ea77a80c2144fda181b6e412a795b6c1952d9"
-PREREG_COMMIT = "758768e1dc0db16fa0d9d75a6c25652d2d789671"
+F20_CONTRACT_AUTHORITY_HEAD = "0f068d4462adb4eb435791843259dbe11a646a2c"
+F20_SOURCE_SEMANTIC_HEAD = "ff4ea77a80c2144fda181b6e412a795b6c1952d9"
+F20_PREREG_HEAD = "758768e1dc0db16fa0d9d75a6c25652d2d789671"
 TZ = timezone(timedelta(hours=8))
 STRICT_OUTCOMES = ("WIN_S1", "LOSS_INVALID")
 
@@ -409,11 +410,12 @@ def main(episodes_path: Path, daily_path: Path, out_dir: Path) -> dict:
             "daily_sha": DAILY_SHA,
             "episodes_total": len(episodes),
             "resolved_n": len(resolved),
-            "f20_contract_head": F20_CONTRACT_HEAD,
-            "prereg_commit": PREREG_COMMIT,
+            "F20_CONTRACT_AUTHORITY_HEAD": F20_CONTRACT_AUTHORITY_HEAD,
+            "F20_SOURCE_SEMANTIC_HEAD": F20_SOURCE_SEMANTIC_HEAD,
+            "F20_PREREG_HEAD": F20_PREREG_HEAD,
             "f20_function": "factor_lab.b2_volume_vs_20d_mean",
-            "b2_date_semantics": "signal_date for B2-stage episodes (frozen)",
-            "as_of": "signal_date",
+            "b2_date": "episode.signal_date (frozen)",
+            "as_of": "episode.signal_date",
             "defined_population": "B2-stage episodes with PRE20_N == 20 and nonzero window mean",
         },
         "ACCOUNTING": {
@@ -471,9 +473,9 @@ def render_report(result: dict) -> str:
     lines = [
         "# F20 B2 VOLUME VS 20D MEAN OUTCOME VALIDATION V01 — 预注册验证报告",
         "",
-        f"- F20 CONTRACT = FROZEN / CLOSED（HEAD {p['f20_contract_head']}，Sol audit PASS）",
-        f"- 函数：{p['f20_function']}；预注册：commit {p['prereg_commit']}",
-        f"- b2 event date := {p['b2_date_semantics']}；as_of = {p['as_of']}",
+        f"- F20 CONTRACT = FROZEN / CLOSED（AUTHORITY HEAD {p['F20_CONTRACT_AUTHORITY_HEAD']}，Sol audit PASS）",
+        f"- 函数：{p['f20_function']}（源码语义 HEAD {p['F20_SOURCE_SEMANTIC_HEAD']}）；预注册：{p['F20_PREREG_HEAD']}",
+        f"- b2_date = {p['b2_date']}；as_of = {p['as_of']}",
         f"- episodes SHA: {p['episodes_sha']}；daily SHA: {p['daily_sha']}",
         f"- EPISODES_TOTAL = {p['episodes_total']}；RESOLVED_N = {p['resolved_n']}",
         "",

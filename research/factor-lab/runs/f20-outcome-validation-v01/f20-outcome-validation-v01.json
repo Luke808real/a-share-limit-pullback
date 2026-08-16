@@ -4,11 +4,12 @@
     "daily_sha": "e7243dee3bafe46e725e2b6ee884b07ac97a01c0705b41df0562d35019593514",
     "episodes_total": 31422,
     "resolved_n": 9625,
-    "f20_contract_head": "ff4ea77a80c2144fda181b6e412a795b6c1952d9",
-    "prereg_commit": "758768e1dc0db16fa0d9d75a6c25652d2d789671",
+    "F20_CONTRACT_AUTHORITY_HEAD": "0f068d4462adb4eb435791843259dbe11a646a2c",
+    "F20_SOURCE_SEMANTIC_HEAD": "ff4ea77a80c2144fda181b6e412a795b6c1952d9",
+    "F20_PREREG_HEAD": "758768e1dc0db16fa0d9d75a6c25652d2d789671",
     "f20_function": "factor_lab.b2_volume_vs_20d_mean",
-    "b2_date_semantics": "signal_date for B2-stage episodes (frozen)",
-    "as_of": "signal_date",
+    "b2_date": "episode.signal_date (frozen)",
+    "as_of": "episode.signal_date",
     "defined_population": "B2-stage episodes with PRE20_N == 20 and nonzero window mean"
   },
   "ACCOUNTING": {
