@@ -287,6 +287,17 @@ def test_completed_run_reuse_blocked_on_coverage_hole(tmp_path) -> None:
         df = df[df["trade_date"].astype(str) != D2.isoformat()]
         pq.write_table(pa.Table.from_pandas(df, preserve_index=False), path)
 
+    # snapshot the historical ingest record before the failed reuse attempt
+    with WarehouseMetadata(layout.duckdb_path, read_only=True) as metadata:
+        before = metadata.get_ingest_run(first.run_id)
+        assert before is not None and before.status == "COMPLETED"
+        hist_before = (
+            before.status,
+            before.started_at,
+            before.finished_at,
+            before.error,
+        )
+
     # reuse must fail closed instead of returning the old snapshot
     with pytest.raises(PipelineError, match="TUSHARE daily session coverage hole"):
         bootstrap(
@@ -298,6 +309,78 @@ def test_completed_run_reuse_blocked_on_coverage_hole(tmp_path) -> None:
             today=days[-1],
             bulk_threshold=200,
         )
+
+    # lineage preservation: the historical COMPLETED record must be untouched
+    with WarehouseMetadata(layout.duckdb_path, read_only=True) as metadata:
+        after = metadata.get_ingest_run(first.run_id)
+        assert after is not None
+        assert (after.status, after.started_at, after.finished_at, after.error) == hist_before
+        assert after.status == "COMPLETED"
+
+
+def test_current_attempt_coverage_failure_marks_run_failed(tmp_path) -> None:
+    """A NEW bootstrap attempt that begins its own run and then hits a
+    TUSHARE coverage hole must end FAILED (not left RUNNING), and must not
+    publish a snapshot."""
+    layout = _layout(tmp_path)
+    days = [D1, D2, D3]
+    codes = tuple(f"600{i:03d}" for i in range(250))
+    rows = [daily_row(code, day.isoformat()) for code in codes for day in days]
+    pool = [
+        {
+            "code": code,
+            "trade_date": D3,
+            "name": "n",
+            "limit_price": daily_row(code, D3.isoformat())["close"],
+            "first_seal_time": None,
+            "last_seal_time": None,
+            "open_count": 0,
+            "consecutive_count": 1,
+            "turnover_rate": None,
+            "float_market_cap": None,
+            "total_market_cap": None,
+            "industry": "x",
+        }
+        for code in codes
+    ]
+
+    class GapFake(FakeProviderSet):
+        def fetch_tushare_daily_by_trade_date(self, dates):
+            wanted = set(dates)
+            return [
+                dict(row)
+                for row in self.tushare_daily
+                if row["trade_date"] in wanted and row["trade_date"] != D2
+            ]
+
+    fake = GapFake(
+        calendar=days,
+        tushare_daily=rows,
+        akshare_daily=rows,
+        baostock_daily=rows,
+        pool=pool,
+    )
+    with pytest.raises(PipelineError, match="missing 1 TUSHARE daily sessions"):
+        bootstrap(
+            layout=layout,
+            start=days[0],
+            end=days[-1],
+            codes=codes,
+            provider_set=fake,
+            today=days[-1],
+            bulk_threshold=200,
+        )
+    with WarehouseMetadata(layout.duckdb_path, read_only=True) as metadata:
+        runs = metadata._connection.execute(
+            "SELECT status FROM ingest_runs"
+        ).fetchall()
+        assert runs
+        # the current attempt's own run must be FAILED, never left RUNNING
+        assert all(row[0] == "FAILED" for row in runs)
+        snapshots = metadata._connection.execute(
+            "SELECT snapshot_id FROM snapshot_governance_records"
+        ).fetchall()
+        assert not snapshots
 
 
 # ---------- 6. aux empty result unchanged ----------

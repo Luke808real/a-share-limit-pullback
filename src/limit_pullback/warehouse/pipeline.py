@@ -792,6 +792,11 @@ def _bootstrap_impl(
                 "bootstrap", start, end, codes_tuple, policy.policy_version
             )
             use_bulk = len(codes_tuple) >= bulk_threshold
+            # Lineage guard: a failure BEFORE this attempt begins its own
+            # ingest run (e.g. historical completed-run reuse validation)
+            # must never rewrite the historical record to FAILED. Only the
+            # current attempt's own run may be marked FAILED.
+            run_started_this_attempt = False
             heartbeat = _Heartbeat(layout=layout, run_id=run_id, clock=clock)
             heartbeat.start()
             start_wall = time.monotonic()
@@ -846,6 +851,7 @@ def _bootstrap_impl(
                     sort_keys=True,
                 ),
             )
+            run_started_this_attempt = True
 
             from limit_pullback.warehouse.fetch import FetchContext, fetch_rows
 
@@ -1131,7 +1137,7 @@ def _bootstrap_impl(
                 metrics=dict(metrics),
             )
         except BaseException as exc:
-            if run_id is not None:
+            if run_id is not None and run_started_this_attempt:
                 metadata.finish_ingest_run(
                     run_id=run_id,
                     status="FAILED",
