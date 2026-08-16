@@ -955,7 +955,7 @@ def test_f18_e04_activation_requires_low_inside_body() -> None:
     )
 
 
-# ---------- F22 巨量长上影（b2_long_upper_shadow） ----------
+# ---------- F22 巨量长上影（b2_huge_upper_shadow_volume） ----------
 
 def _f22_bars(ohlcv: list[tuple[str, str, str, str, str]]) -> list:
     """ohlcv rows: (open, high, low, close, volume); 6 rows = 5 pre-B2 + B2."""
@@ -987,9 +987,8 @@ def test_f22_true_long_upper_shadow_and_volume() -> None:
         ("10.00", "10.10", "9.90", "10.00", "100"),
         ("10.00", "11.00", "9.90", "10.20", "300"),
     ])
-    anchor = bars[0].trade_date
     b2 = bars[-1].trade_date
-    assert fl.b2_long_upper_shadow(bars, anchor, b2) is True
+    assert fl.b2_huge_upper_shadow_volume(bars, b2) is True
 
 
 def test_f22_shape_true_volume_false() -> None:
@@ -1002,7 +1001,7 @@ def test_f22_shape_true_volume_false() -> None:
         ("10.00", "10.10", "9.90", "10.00", "100"),
         ("10.00", "11.00", "9.90", "10.20", "100"),
     ])
-    assert fl.b2_long_upper_shadow(bars, bars[0].trade_date, bars[-1].trade_date) is False
+    assert fl.b2_huge_upper_shadow_volume(bars, bars[-1].trade_date) is False
 
 
 def test_f22_shape_false_short_shadow() -> None:
@@ -1015,7 +1014,7 @@ def test_f22_shape_false_short_shadow() -> None:
         ("10.00", "10.10", "9.90", "10.00", "100"),
         ("10.00", "10.60", "9.40", "10.50", "300"),
     ])
-    assert fl.b2_long_upper_shadow(bars, bars[0].trade_date, bars[-1].trade_date) is False
+    assert fl.b2_huge_upper_shadow_volume(bars, bars[-1].trade_date) is False
 
 
 def test_f22_body_zero_positive_shadow() -> None:
@@ -1028,7 +1027,7 @@ def test_f22_body_zero_positive_shadow() -> None:
         ("10.00", "10.10", "9.90", "10.00", "100"),
         ("10.00", "11.00", "9.90", "10.00", "300"),
     ])
-    assert fl.b2_long_upper_shadow(bars, bars[0].trade_date, bars[-1].trade_date) is True
+    assert fl.b2_huge_upper_shadow_volume(bars, bars[-1].trade_date) is True
 
 
 def test_f22_body_zero_no_shadow() -> None:
@@ -1041,7 +1040,7 @@ def test_f22_body_zero_no_shadow() -> None:
         ("10.00", "10.10", "9.90", "10.00", "100"),
         ("10.00", "10.00", "9.90", "10.00", "300"),
     ])
-    assert fl.b2_long_upper_shadow(bars, bars[0].trade_date, bars[-1].trade_date) is False
+    assert fl.b2_huge_upper_shadow_volume(bars, bars[-1].trade_date) is False
 
 
 def test_f22_insufficient_pre5_is_none() -> None:
@@ -1051,7 +1050,7 @@ def test_f22_insufficient_pre5_is_none() -> None:
         ("10.00", "10.10", "9.90", "10.00", "100"),
         ("10.00", "11.00", "9.90", "10.20", "300"),
     ])
-    assert fl.b2_long_upper_shadow(bars, bars[0].trade_date, bars[-1].trade_date) is None
+    assert fl.b2_huge_upper_shadow_volume(bars, bars[-1].trade_date) is None
 
 
 def test_f22_zero_mean_volume_is_none() -> None:
@@ -1063,7 +1062,7 @@ def test_f22_zero_mean_volume_is_none() -> None:
         ("10.00", "10.10", "9.90", "10.00", "0"),
         ("10.00", "11.00", "9.90", "10.20", "300"),
     ])
-    assert fl.b2_long_upper_shadow(bars, bars[0].trade_date, bars[-1].trade_date) is None
+    assert fl.b2_huge_upper_shadow_volume(bars, bars[-1].trade_date) is None
 
 
 def test_f22_b2_missing_raises() -> None:
@@ -1076,20 +1075,8 @@ def test_f22_b2_missing_raises() -> None:
         ("10.00", "11.00", "9.90", "10.20", "300"),
     ])
     with pytest.raises(ValueError, match="b2 bar missing"):
-        fl.b2_long_upper_shadow(bars, bars[0].trade_date, date(2030, 1, 1))
+        fl.b2_huge_upper_shadow_volume(bars, date(2030, 1, 1))
 
-
-def test_f22_anchor_missing_raises() -> None:
-    bars = _f22_bars([
-        ("10.00", "10.10", "9.90", "10.00", "100"),
-        ("10.00", "10.10", "9.90", "10.00", "100"),
-        ("10.00", "10.10", "9.90", "10.00", "100"),
-        ("10.00", "10.10", "9.90", "10.00", "100"),
-        ("10.00", "10.10", "9.90", "10.00", "100"),
-        ("10.00", "11.00", "9.90", "10.20", "300"),
-    ])
-    with pytest.raises(ValueError, match="anchor"):
-        fl.b2_long_upper_shadow(bars, date(2030, 1, 1), bars[-1].trade_date)
 
 
 def test_f22_future_rows_do_not_leak() -> None:
@@ -1109,4 +1096,4 @@ def test_f22_future_rows_do_not_leak() -> None:
         for day, (op, hi, lo, cl, vol) in zip(days, rows, strict=True)
     ]
     b2 = bars[5].trade_date
-    assert fl.b2_long_upper_shadow(bars, bars[0].trade_date, b2) is True
+    assert fl.b2_huge_upper_shadow_volume(bars, b2) is True

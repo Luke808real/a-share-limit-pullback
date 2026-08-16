@@ -228,7 +228,7 @@ def b2_next_day_back_under_platform(
     return next_day[0].close < platform_price
 
 
-def b2_long_upper_shadow(bars, anchor_date: date, b2_date: date) -> bool | None:
+def b2_huge_upper_shadow_volume(bars, b2_date: date) -> bool | None:
     """F22: 巨量长上影布尔因子（EOD failure-risk diagnostic）。
 
     Contract (F22 CONTRACT / PIT FROZEN, AUTHORITY d3325e2, K=1.0 OWNER_FROZEN):
@@ -246,11 +246,12 @@ def b2_long_upper_shadow(bars, anchor_date: date, b2_date: date) -> bool | None:
                      (DEFINED FALSE — never undefined on threshold miss)
       None (undefined) ONLY for data-incomputability: INSUFFICIENT_PRE5
                      (PRE5_N < 5) or ZERO_DENOMINATOR (mean(PRE5 vol) == 0).
-      Fail closed: anchor or B2 bar missing -> ValueError. Duplicate dates /
-      multi-code bars fail closed via _ordered/_require_anchor.
+      Fail closed: B2 bar must exist exactly at trade_date == b2_date, else
+      ValueError("b2 bar missing ..."). Single-code / duplicate-date checks
+      follow the factor_lab `_ordered` convention. No anchor is required by
+      the F22 contract (B2-event EOD diagnostic uses only B2 OHLCV + PRE5).
     """
     ordered = _ordered(bars)
-    _require_anchor(ordered, anchor_date)
     by_date = _by_date(ordered)
     b2_bar = by_date.get(b2_date)
     if b2_bar is None:

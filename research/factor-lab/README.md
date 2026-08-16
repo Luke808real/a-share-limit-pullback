@@ -129,7 +129,7 @@ L2 研究因子层 + L3 统计验证层的落点。目标见 docs/ARCHITECTURE_G
   可计算未触发 = DEFINED FALSE；undefined 仅数据不可计算类。
   产物：runs/f22-contract-pit-v01/f22-contract-pit-v01.md。
 - research/f22-factor-implementation-v01（2026-08-16，F22 实现）：
-  `factor_lab.b2_long_upper_shadow(bars, anchor_date, b2_date) -> bool | None`
+  `factor_lab.b2_huge_upper_shadow_volume(bars, b2_date) -> bool | None`
   （布尔因子；None 仅 INSUFFICIENT_PRE5 / ZERO_DENOMINATOR；B2/anchor 缺失
   ValueError fail closed；future rows 内部排除）。**CONTRACT FROZEN /
   IMPLEMENTATION PENDING REVIEW**；不得写 VALIDATED / SUPPORTED / PROMOTED；

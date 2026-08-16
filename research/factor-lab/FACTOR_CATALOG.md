@@ -142,7 +142,7 @@ vol(D) = 当日成交量；turn(D) = 当日换手；close/low/high 为原始价�
   `VOLUME_TRUE = VOL_RATIO >= 1.5`；`F22_TRUE = SHAPE_TRUE AND VOLUME_TRUE`，
   数据可计算但未触发 → **DEFINED FALSE**（保留对照组）；undefined 仅限
   INSUFFICIENT_PRE5 / ZERO_DENOMINATOR / MISSING_B2_BAR / INVALID_B2_OHLCV /
-  OTHER_ERROR。实现：`factor_lab.b2_long_upper_shadow`（布尔）。
+  OTHER_ERROR。实现：`factor_lab.b2_huge_upper_shadow_volume`（布尔）。
   **状态：CONTRACT FROZEN / IMPLEMENTATION PENDING REVIEW**（不得写
   VALIDATED / SUPPORTED / PROMOTED；validation population = resolved AND
   stage ∈ {B2_READY, B2_CONFIRMED}，b2_date = signal_date，域内禁止
