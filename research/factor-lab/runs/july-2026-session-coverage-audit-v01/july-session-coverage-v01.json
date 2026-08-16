@@ -1,0 +1,3120 @@
+{
+  "DAILY_SHA256": "e7243dee3bafe46e725e2b6ee884b07ac97a01c0705b41df0562d35019593514",
+  "EXPECTED_SESSION_N": 23,
+  "PRESENT_DATE_N": 23,
+  "MISSING_DATE_N": 0,
+  "MISSING_DATE_LIST": [],
+  "ZERO_CONFIRMED_DATE_N": 12,
+  "ZERO_CONFIRMED_DATE_LIST": [
+    "2026-07-09",
+    "2026-07-10",
+    "2026-07-13",
+    "2026-07-14",
+    "2026-07-15",
+    "2026-07-16",
+    "2026-07-17",
+    "2026-07-20",
+    "2026-07-21",
+    "2026-07-22",
+    "2026-07-23",
+    "2026-07-24"
+  ],
+  "JUL09_JUL24_PRESENT_N": 12,
+  "JUL09_JUL24_MISSING_N": 0,
+  "JUL09_JUL24_MISSING_LIST": [],
+  "MARKET_SESSION_COVERAGE_BLOCKER": "YES",
+  "DATE_COVERAGE": [
+    {
+      "trade_date": "2026-07-01",
+      "TOTAL_ROW_N": 5490,
+      "UNIQUE_CODE_N": 5490,
+      "CONFIRMED_N": 3160,
+      "CONFIRMED_SINGLE_SOURCE_N": 0,
+      "OTHER_RECONCILIATION_N": 2330,
+      "TRADE_STATUS_TRUE_N": 5490,
+      "TRADE_STATUS_FALSE_N": 0
+    },
+    {
+      "trade_date": "2026-07-02",
+      "TOTAL_ROW_N": 5503,
+      "UNIQUE_CODE_N": 5503,
+      "CONFIRMED_N": 3172,
+      "CONFIRMED_SINGLE_SOURCE_N": 0,
+      "OTHER_RECONCILIATION_N": 2331,
+      "TRADE_STATUS_TRUE_N": 5503,
+      "TRADE_STATUS_FALSE_N": 0
+    },
+    {
+      "trade_date": "2026-07-03",
+      "TOTAL_ROW_N": 5487,
+      "UNIQUE_CODE_N": 5487,
+      "CONFIRMED_N": 3156,
+      "CONFIRMED_SINGLE_SOURCE_N": 0,
+      "OTHER_RECONCILIATION_N": 2331,
+      "TRADE_STATUS_TRUE_N": 5487,
+      "TRADE_STATUS_FALSE_N": 0
+    },
+    {
+      "trade_date": "2026-07-06",
+      "TOTAL_ROW_N": 5497,
+      "UNIQUE_CODE_N": 5497,
+      "CONFIRMED_N": 3166,
+      "CONFIRMED_SINGLE_SOURCE_N": 0,
+      "OTHER_RECONCILIATION_N": 2331,
+      "TRADE_STATUS_TRUE_N": 5497,
+      "TRADE_STATUS_FALSE_N": 0
+    },
+    {
+      "trade_date": "2026-07-07",
+      "TOTAL_ROW_N": 5498,
+      "UNIQUE_CODE_N": 5498,
+      "CONFIRMED_N": 3166,
+      "CONFIRMED_SINGLE_SOURCE_N": 0,
+      "OTHER_RECONCILIATION_N": 2332,
+      "TRADE_STATUS_TRUE_N": 5498,
+      "TRADE_STATUS_FALSE_N": 0
+    },
+    {
+      "trade_date": "2026-07-08",
+      "TOTAL_ROW_N": 5483,
+      "UNIQUE_CODE_N": 5483,
+      "CONFIRMED_N": 3151,
+      "CONFIRMED_SINGLE_SOURCE_N": 0,
+      "OTHER_RECONCILIATION_N": 2332,
+      "TRADE_STATUS_TRUE_N": 5483,
+      "TRADE_STATUS_FALSE_N": 0
+    },
+    {
+      "trade_date": "2026-07-09",
+      "TOTAL_ROW_N": 3143,
+      "UNIQUE_CODE_N": 3143,
+      "CONFIRMED_N": 0,
+      "CONFIRMED_SINGLE_SOURCE_N": 0,
+      "OTHER_RECONCILIATION_N": 3143,
+      "TRADE_STATUS_TRUE_N": 3143,
+      "TRADE_STATUS_FALSE_N": 0
+    },
+    {
+      "trade_date": "2026-07-10",
+      "TOTAL_ROW_N": 3126,
+      "UNIQUE_CODE_N": 3126,
+      "CONFIRMED_N": 0,
+      "CONFIRMED_SINGLE_SOURCE_N": 0,
+      "OTHER_RECONCILIATION_N": 3126,
+      "TRADE_STATUS_TRUE_N": 3126,
+      "TRADE_STATUS_FALSE_N": 0
+    },
+    {
+      "trade_date": "2026-07-13",
+      "TOTAL_ROW_N": 3167,
+      "UNIQUE_CODE_N": 3167,
+      "CONFIRMED_N": 0,
+      "CONFIRMED_SINGLE_SOURCE_N": 0,
+      "OTHER_RECONCILIATION_N": 3167,
+      "TRADE_STATUS_TRUE_N": 3167,
+      "TRADE_STATUS_FALSE_N": 0
+    },
+    {
+      "trade_date": "2026-07-14",
+      "TOTAL_ROW_N": 3175,
+      "UNIQUE_CODE_N": 3175,
+      "CONFIRMED_N": 0,
+      "CONFIRMED_SINGLE_SOURCE_N": 0,
+      "OTHER_RECONCILIATION_N": 3175,
+      "TRADE_STATUS_TRUE_N": 3175,
+      "TRADE_STATUS_FALSE_N": 0
+    },
+    {
+      "trade_date": "2026-07-15",
+      "TOTAL_ROW_N": 3161,
+      "UNIQUE_CODE_N": 3161,
+      "CONFIRMED_N": 0,
+      "CONFIRMED_SINGLE_SOURCE_N": 0,
+      "OTHER_RECONCILIATION_N": 3161,
+      "TRADE_STATUS_TRUE_N": 3161,
+      "TRADE_STATUS_FALSE_N": 0
+    },
+    {
+      "trade_date": "2026-07-16",
+      "TOTAL_ROW_N": 3160,
+      "UNIQUE_CODE_N": 3160,
+      "CONFIRMED_N": 0,
+      "CONFIRMED_SINGLE_SOURCE_N": 0,
+      "OTHER_RECONCILIATION_N": 3160,
+      "TRADE_STATUS_TRUE_N": 3160,
+      "TRADE_STATUS_FALSE_N": 0
+    },
+    {
+      "trade_date": "2026-07-17",
+      "TOTAL_ROW_N": 3145,
+      "UNIQUE_CODE_N": 3145,
+      "CONFIRMED_N": 0,
+      "CONFIRMED_SINGLE_SOURCE_N": 0,
+      "OTHER_RECONCILIATION_N": 3145,
+      "TRADE_STATUS_TRUE_N": 3145,
+      "TRADE_STATUS_FALSE_N": 0
+    },
+    {
+      "trade_date": "2026-07-20",
+      "TOTAL_ROW_N": 3181,
+      "UNIQUE_CODE_N": 3181,
+      "CONFIRMED_N": 0,
+      "CONFIRMED_SINGLE_SOURCE_N": 0,
+      "OTHER_RECONCILIATION_N": 3181,
+      "TRADE_STATUS_TRUE_N": 3181,
+      "TRADE_STATUS_FALSE_N": 0
+    },
+    {
+      "trade_date": "2026-07-21",
+      "TOTAL_ROW_N": 3178,
+      "UNIQUE_CODE_N": 3178,
+      "CONFIRMED_N": 0,
+      "CONFIRMED_SINGLE_SOURCE_N": 0,
+      "OTHER_RECONCILIATION_N": 3178,
+      "TRADE_STATUS_TRUE_N": 3178,
+      "TRADE_STATUS_FALSE_N": 0
+    },
+    {
+      "trade_date": "2026-07-22",
+      "TOTAL_ROW_N": 3170,
+      "UNIQUE_CODE_N": 3170,
+      "CONFIRMED_N": 0,
+      "CONFIRMED_SINGLE_SOURCE_N": 0,
+      "OTHER_RECONCILIATION_N": 3170,
+      "TRADE_STATUS_TRUE_N": 3170,
+      "TRADE_STATUS_FALSE_N": 0
+    },
+    {
+      "trade_date": "2026-07-23",
+      "TOTAL_ROW_N": 3177,
+      "UNIQUE_CODE_N": 3177,
+      "CONFIRMED_N": 0,
+      "CONFIRMED_SINGLE_SOURCE_N": 0,
+      "OTHER_RECONCILIATION_N": 3177,
+      "TRADE_STATUS_TRUE_N": 3177,
+      "TRADE_STATUS_FALSE_N": 0
+    },
+    {
+      "trade_date": "2026-07-24",
+      "TOTAL_ROW_N": 3173,
+      "UNIQUE_CODE_N": 3173,
+      "CONFIRMED_N": 0,
+      "CONFIRMED_SINGLE_SOURCE_N": 0,
+      "OTHER_RECONCILIATION_N": 3173,
+      "TRADE_STATUS_TRUE_N": 3173,
+      "TRADE_STATUS_FALSE_N": 0
+    },
+    {
+      "trade_date": "2026-07-27",
+      "TOTAL_ROW_N": 5520,
+      "UNIQUE_CODE_N": 5520,
+      "CONFIRMED_N": 3186,
+      "CONFIRMED_SINGLE_SOURCE_N": 0,
+      "OTHER_RECONCILIATION_N": 2334,
+      "TRADE_STATUS_TRUE_N": 5520,
+      "TRADE_STATUS_FALSE_N": 0
+    },
+    {
+      "trade_date": "2026-07-28",
+      "TOTAL_ROW_N": 5508,
+      "UNIQUE_CODE_N": 5508,
+      "CONFIRMED_N": 3173,
+      "CONFIRMED_SINGLE_SOURCE_N": 0,
+      "OTHER_RECONCILIATION_N": 2335,
+      "TRADE_STATUS_TRUE_N": 5508,
+      "TRADE_STATUS_FALSE_N": 0
+    },
+    {
+      "trade_date": "2026-07-29",
+      "TOTAL_ROW_N": 5518,
+      "UNIQUE_CODE_N": 5518,
+      "CONFIRMED_N": 3182,
+      "CONFIRMED_SINGLE_SOURCE_N": 0,
+      "OTHER_RECONCILIATION_N": 2336,
+      "TRADE_STATUS_TRUE_N": 5518,
+      "TRADE_STATUS_FALSE_N": 0
+    },
+    {
+      "trade_date": "2026-07-30",
+      "TOTAL_ROW_N": 5515,
+      "UNIQUE_CODE_N": 5515,
+      "CONFIRMED_N": 3176,
+      "CONFIRMED_SINGLE_SOURCE_N": 0,
+      "OTHER_RECONCILIATION_N": 2339,
+      "TRADE_STATUS_TRUE_N": 5515,
+      "TRADE_STATUS_FALSE_N": 0
+    },
+    {
+      "trade_date": "2026-07-31",
+      "TOTAL_ROW_N": 5511,
+      "UNIQUE_CODE_N": 5511,
+      "CONFIRMED_N": 3171,
+      "CONFIRMED_SINGLE_SOURCE_N": 0,
+      "OTHER_RECONCILIATION_N": 2340,
+      "TRADE_STATUS_TRUE_N": 5511,
+      "TRADE_STATUS_FALSE_N": 0
+    }
+  ],
+  "JULY_T0_SETUP_N_BY_EXPECTED_SESSION": {
+    "2026-07-01": 100,
+    "2026-07-02": 59,
+    "2026-07-03": 70,
+    "2026-07-06": 50,
+    "2026-07-07": 19,
+    "2026-07-08": 27,
+    "2026-07-09": 0,
+    "2026-07-10": 0,
+    "2026-07-13": 0,
+    "2026-07-14": 0,
+    "2026-07-15": 0,
+    "2026-07-16": 0,
+    "2026-07-17": 0,
+    "2026-07-20": 0,
+    "2026-07-21": 0,
+    "2026-07-22": 0,
+    "2026-07-23": 0,
+    "2026-07-24": 0,
+    "2026-07-27": 74,
+    "2026-07-28": 33,
+    "2026-07-29": 55,
+    "2026-07-30": 31,
+    "2026-07-31": 70
+  },
+  "T0_POPULATION_COMPLETENESS_FOR_JULY": "NOT_ESTABLISHED",
+  "IMMATURE_TOTAL_N": 438,
+  "SNAPSHOT_TAIL_N": 263,
+  "CODE_LEVEL_SHORTFALL_N": 175,
+  "EARLIEST_SHORTFALL_ANCHOR_DATE": "2026-06-26",
+  "CODE_LEVEL_SHORTFALL_ROWS": [
+    {
+      "setup_id": "601369:20260626:905",
+      "code": "601369",
+      "anchor_date": "2026-06-26",
+      "expected_market_followup_n": 23,
+      "confirmed_code_followup_n": 5,
+      "shortfall_n": 18,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "603722:20260626:3960",
+      "code": "603722",
+      "anchor_date": "2026-06-26",
+      "expected_market_followup_n": 23,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 15,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002828:20260629:1059",
+      "code": "002828",
+      "anchor_date": "2026-06-29",
+      "expected_market_followup_n": 23,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 16,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002036:20260630:757",
+      "code": "002036",
+      "anchor_date": "2026-06-30",
+      "expected_market_followup_n": 23,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 15,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "600405:20260630:452",
+      "code": "600405",
+      "anchor_date": "2026-06-30",
+      "expected_market_followup_n": 23,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 15,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002392:20260702:878",
+      "code": "002392",
+      "anchor_date": "2026-07-02",
+      "expected_market_followup_n": 21,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 13,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "600490:20260702:644",
+      "code": "600490",
+      "anchor_date": "2026-07-02",
+      "expected_market_followup_n": 21,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 13,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "603580:20260702:2739",
+      "code": "603580",
+      "anchor_date": "2026-07-02",
+      "expected_market_followup_n": 21,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 14,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "603926:20260702:1926",
+      "code": "603926",
+      "anchor_date": "2026-07-02",
+      "expected_market_followup_n": 21,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 13,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "000975:20260703:1984",
+      "code": "000975",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "001268:20260703:3940",
+      "code": "001268",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 13,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "001270:20260703:16332",
+      "code": "001270",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "001306:20260703:6329",
+      "code": "001306",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "001337:20260703:4121",
+      "code": "001337",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "001400:20260703:12521",
+      "code": "001400",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002072:20260703:964",
+      "code": "002072",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002090:20260703:959",
+      "code": "002090",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002249:20260703:833",
+      "code": "002249",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002270:20260703:2014",
+      "code": "002270",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002283:20260703:1024",
+      "code": "002283",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002294:20260703:4008",
+      "code": "002294",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002353:20260703:16146",
+      "code": "002353",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002377:20260703:285",
+      "code": "002377",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002434:20260703:667",
+      "code": "002434",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002471:20260703:651",
+      "code": "002471",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002472:20260703:4701",
+      "code": "002472",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 13,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002496:20260703:223",
+      "code": "002496",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002520:20260703:772",
+      "code": "002520",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002536:20260703:5196",
+      "code": "002536",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002623:20260703:1715",
+      "code": "002623",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002635:20260703:2336",
+      "code": "002635",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002664:20260703:1988",
+      "code": "002664",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002677:20260703:623",
+      "code": "002677",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002700:20260703:668",
+      "code": "002700",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002715:20260703:1473",
+      "code": "002715",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002765:20260703:791",
+      "code": "002765",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002767:20260703:1804",
+      "code": "002767",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002771:20260703:1387",
+      "code": "002771",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002850:20260703:22616",
+      "code": "002850",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002868:20260703:2628",
+      "code": "002868",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002896:20260703:8562",
+      "code": "002896",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002981:20260703:2147",
+      "code": "002981",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002988:20260703:2544",
+      "code": "002988",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "003011:20260703:2090",
+      "code": "003011",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "003021:20260703:10080",
+      "code": "003021",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "003028:20260703:2461",
+      "code": "003028",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "600143:20260703:1701",
+      "code": "600143",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "600391:20260703:3552",
+      "code": "600391",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "600530:20260703:570",
+      "code": "600530",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "600580:20260703:3735",
+      "code": "600580",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "600592:20260703:1612",
+      "code": "600592",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "600769:20260703:2178",
+      "code": "600769",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "600801:20260703:1811",
+      "code": "600801",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "600841:20260703:671",
+      "code": "600841",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "600990:20260703:1913",
+      "code": "600990",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "601069:20260703:2591",
+      "code": "601069",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "601100:20260703:12166",
+      "code": "601100",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "601177:20260703:1431",
+      "code": "601177",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "601689:20260703:6243",
+      "code": "601689",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "603012:20260703:882",
+      "code": "603012",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "603013:20260703:1766",
+      "code": "603013",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "603051:20260703:2191",
+      "code": "603051",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "603165:20260703:1470",
+      "code": "603165",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "603178:20260703:1568",
+      "code": "603178",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "603211:20260703:3594",
+      "code": "603211",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "603278:20260703:1211",
+      "code": "603278",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "603303:20260703:2476",
+      "code": "603303",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "603327:20260703:886",
+      "code": "603327",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "603466:20260703:1163",
+      "code": "603466",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "603596:20260703:2765",
+      "code": "603596",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "603713:20260703:7923",
+      "code": "603713",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "603726:20260703:3545",
+      "code": "603726",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "603730:20260703:1300",
+      "code": "603730",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "603798:20260703:1522",
+      "code": "603798",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "603915:20260703:1603",
+      "code": "603915",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "605028:20260703:2400",
+      "code": "605028",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "605068:20260703:1911",
+      "code": "605068",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 13,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "605255:20260703:7427",
+      "code": "605255",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "605305:20260703:4598",
+      "code": "605305",
+      "anchor_date": "2026-07-03",
+      "expected_market_followup_n": 20,
+      "confirmed_code_followup_n": 8,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "000066:20260706:1882",
+      "code": "000066",
+      "anchor_date": "2026-07-06",
+      "expected_market_followup_n": 19,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "000301:20260706:1381",
+      "code": "000301",
+      "anchor_date": "2026-07-06",
+      "expected_market_followup_n": 19,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "000545:20260706:271",
+      "code": "000545",
+      "anchor_date": "2026-07-06",
+      "expected_market_followup_n": 19,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "000593:20260706:2466",
+      "code": "000593",
+      "anchor_date": "2026-07-06",
+      "expected_market_followup_n": 19,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "000892:20260706:376",
+      "code": "000892",
+      "anchor_date": "2026-07-06",
+      "expected_market_followup_n": 19,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "000938:20260706:3331",
+      "code": "000938",
+      "anchor_date": "2026-07-06",
+      "expected_market_followup_n": 19,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "001287:20260706:3147",
+      "code": "001287",
+      "anchor_date": "2026-07-06",
+      "expected_market_followup_n": 19,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002025:20260706:9207",
+      "code": "002025",
+      "anchor_date": "2026-07-06",
+      "expected_market_followup_n": 19,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002245:20260706:2237",
+      "code": "002245",
+      "anchor_date": "2026-07-06",
+      "expected_market_followup_n": 19,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002329:20260706:327",
+      "code": "002329",
+      "anchor_date": "2026-07-06",
+      "expected_market_followup_n": 19,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002403:20260706:1178",
+      "code": "002403",
+      "anchor_date": "2026-07-06",
+      "expected_market_followup_n": 19,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002457:20260706:1407",
+      "code": "002457",
+      "anchor_date": "2026-07-06",
+      "expected_market_followup_n": 19,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002774:20260706:1583",
+      "code": "002774",
+      "anchor_date": "2026-07-06",
+      "expected_market_followup_n": 19,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002793:20260706:474",
+      "code": "002793",
+      "anchor_date": "2026-07-06",
+      "expected_market_followup_n": 19,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002815:20260706:1636",
+      "code": "002815",
+      "anchor_date": "2026-07-06",
+      "expected_market_followup_n": 19,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002828:20260706:1146",
+      "code": "002828",
+      "anchor_date": "2026-07-06",
+      "expected_market_followup_n": 19,
+      "confirmed_code_followup_n": 2,
+      "shortfall_n": 17,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002860:20260706:1756",
+      "code": "002860",
+      "anchor_date": "2026-07-06",
+      "expected_market_followup_n": 19,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002910:20260706:1222",
+      "code": "002910",
+      "anchor_date": "2026-07-06",
+      "expected_market_followup_n": 19,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002919:20260706:2206",
+      "code": "002919",
+      "anchor_date": "2026-07-06",
+      "expected_market_followup_n": 19,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002989:20260706:3352",
+      "code": "002989",
+      "anchor_date": "2026-07-06",
+      "expected_market_followup_n": 19,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "600172:20260706:1855",
+      "code": "600172",
+      "anchor_date": "2026-07-06",
+      "expected_market_followup_n": 19,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "600215:20260706:688",
+      "code": "600215",
+      "anchor_date": "2026-07-06",
+      "expected_market_followup_n": 19,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "600241:20260706:741",
+      "code": "600241",
+      "anchor_date": "2026-07-06",
+      "expected_market_followup_n": 19,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "600246:20260706:1691",
+      "code": "600246",
+      "anchor_date": "2026-07-06",
+      "expected_market_followup_n": 19,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "600288:20260706:1414",
+      "code": "600288",
+      "anchor_date": "2026-07-06",
+      "expected_market_followup_n": 19,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "600470:20260706:669",
+      "code": "600470",
+      "anchor_date": "2026-07-06",
+      "expected_market_followup_n": 19,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "600791:20260706:892",
+      "code": "600791",
+      "anchor_date": "2026-07-06",
+      "expected_market_followup_n": 19,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "601101:20260706:1254",
+      "code": "601101",
+      "anchor_date": "2026-07-06",
+      "expected_market_followup_n": 19,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "601368:20260706:475",
+      "code": "601368",
+      "anchor_date": "2026-07-06",
+      "expected_market_followup_n": 19,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "603020:20260706:1469",
+      "code": "603020",
+      "anchor_date": "2026-07-06",
+      "expected_market_followup_n": 19,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "603067:20260706:4873",
+      "code": "603067",
+      "anchor_date": "2026-07-06",
+      "expected_market_followup_n": 19,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "603087:20260706:6709",
+      "code": "603087",
+      "anchor_date": "2026-07-06",
+      "expected_market_followup_n": 19,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "603090:20260706:5480",
+      "code": "603090",
+      "anchor_date": "2026-07-06",
+      "expected_market_followup_n": 19,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "603118:20260706:1342",
+      "code": "603118",
+      "anchor_date": "2026-07-06",
+      "expected_market_followup_n": 19,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "603201:20260706:1560",
+      "code": "603201",
+      "anchor_date": "2026-07-06",
+      "expected_market_followup_n": 19,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "603221:20260706:1178",
+      "code": "603221",
+      "anchor_date": "2026-07-06",
+      "expected_market_followup_n": 19,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "603268:20260706:16335",
+      "code": "603268",
+      "anchor_date": "2026-07-06",
+      "expected_market_followup_n": 19,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "603269:20260706:1753",
+      "code": "603269",
+      "anchor_date": "2026-07-06",
+      "expected_market_followup_n": 19,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "603375:20260706:5091",
+      "code": "603375",
+      "anchor_date": "2026-07-06",
+      "expected_market_followup_n": 19,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "603477:20260706:1673",
+      "code": "603477",
+      "anchor_date": "2026-07-06",
+      "expected_market_followup_n": 19,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "603757:20260706:7919",
+      "code": "603757",
+      "anchor_date": "2026-07-06",
+      "expected_market_followup_n": 19,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "603800:20260706:8455",
+      "code": "603800",
+      "anchor_date": "2026-07-06",
+      "expected_market_followup_n": 19,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "603815:20260706:611",
+      "code": "603815",
+      "anchor_date": "2026-07-06",
+      "expected_market_followup_n": 19,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "603819:20260706:1360",
+      "code": "603819",
+      "anchor_date": "2026-07-06",
+      "expected_market_followup_n": 19,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "603823:20260706:6587",
+      "code": "603823",
+      "anchor_date": "2026-07-06",
+      "expected_market_followup_n": 19,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "603861:20260706:1382",
+      "code": "603861",
+      "anchor_date": "2026-07-06",
+      "expected_market_followup_n": 19,
+      "confirmed_code_followup_n": 6,
+      "shortfall_n": 13,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "603903:20260706:1557",
+      "code": "603903",
+      "anchor_date": "2026-07-06",
+      "expected_market_followup_n": 19,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "603931:20260706:5974",
+      "code": "603931",
+      "anchor_date": "2026-07-06",
+      "expected_market_followup_n": 19,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "605196:20260706:2915",
+      "code": "605196",
+      "anchor_date": "2026-07-06",
+      "expected_market_followup_n": 19,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "605377:20260706:970",
+      "code": "605377",
+      "anchor_date": "2026-07-06",
+      "expected_market_followup_n": 19,
+      "confirmed_code_followup_n": 7,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "000973:20260707:1458",
+      "code": "000973",
+      "anchor_date": "2026-07-07",
+      "expected_market_followup_n": 18,
+      "confirmed_code_followup_n": 6,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "001206:20260707:1954",
+      "code": "001206",
+      "anchor_date": "2026-07-07",
+      "expected_market_followup_n": 18,
+      "confirmed_code_followup_n": 6,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "001230:20260707:1742",
+      "code": "001230",
+      "anchor_date": "2026-07-07",
+      "expected_market_followup_n": 18,
+      "confirmed_code_followup_n": 6,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "001311:20260707:1967",
+      "code": "001311",
+      "anchor_date": "2026-07-07",
+      "expected_market_followup_n": 18,
+      "confirmed_code_followup_n": 6,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "001365:20260707:4346",
+      "code": "001365",
+      "anchor_date": "2026-07-07",
+      "expected_market_followup_n": 18,
+      "confirmed_code_followup_n": 6,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002129:20260707:1102",
+      "code": "002129",
+      "anchor_date": "2026-07-07",
+      "expected_market_followup_n": 18,
+      "confirmed_code_followup_n": 6,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002137:20260707:1143",
+      "code": "002137",
+      "anchor_date": "2026-07-07",
+      "expected_market_followup_n": 18,
+      "confirmed_code_followup_n": 6,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002185:20260707:2193",
+      "code": "002185",
+      "anchor_date": "2026-07-07",
+      "expected_market_followup_n": 18,
+      "confirmed_code_followup_n": 6,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002585:20260707:1137",
+      "code": "002585",
+      "anchor_date": "2026-07-07",
+      "expected_market_followup_n": 18,
+      "confirmed_code_followup_n": 6,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002951:20260707:1484",
+      "code": "002951",
+      "anchor_date": "2026-07-07",
+      "expected_market_followup_n": 18,
+      "confirmed_code_followup_n": 6,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "003004:20260707:7995",
+      "code": "003004",
+      "anchor_date": "2026-07-07",
+      "expected_market_followup_n": 18,
+      "confirmed_code_followup_n": 6,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "600094:20260707:384",
+      "code": "600094",
+      "anchor_date": "2026-07-07",
+      "expected_market_followup_n": 18,
+      "confirmed_code_followup_n": 6,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "600206:20260707:5598",
+      "code": "600206",
+      "anchor_date": "2026-07-07",
+      "expected_market_followup_n": 18,
+      "confirmed_code_followup_n": 6,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "600360:20260707:1532",
+      "code": "600360",
+      "anchor_date": "2026-07-07",
+      "expected_market_followup_n": 18,
+      "confirmed_code_followup_n": 6,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "603065:20260707:2025",
+      "code": "603065",
+      "anchor_date": "2026-07-07",
+      "expected_market_followup_n": 18,
+      "confirmed_code_followup_n": 6,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "603178:20260707:1635",
+      "code": "603178",
+      "anchor_date": "2026-07-07",
+      "expected_market_followup_n": 18,
+      "confirmed_code_followup_n": 6,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "603356:20260707:1793",
+      "code": "603356",
+      "anchor_date": "2026-07-07",
+      "expected_market_followup_n": 18,
+      "confirmed_code_followup_n": 6,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "605118:20260707:3808",
+      "code": "605118",
+      "anchor_date": "2026-07-07",
+      "expected_market_followup_n": 18,
+      "confirmed_code_followup_n": 6,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "605399:20260707:1451",
+      "code": "605399",
+      "anchor_date": "2026-07-07",
+      "expected_market_followup_n": 18,
+      "confirmed_code_followup_n": 6,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "000759:20260708:648",
+      "code": "000759",
+      "anchor_date": "2026-07-08",
+      "expected_market_followup_n": 17,
+      "confirmed_code_followup_n": 5,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "000948:20260708:1272",
+      "code": "000948",
+      "anchor_date": "2026-07-08",
+      "expected_market_followup_n": 17,
+      "confirmed_code_followup_n": 5,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "001207:20260708:1628",
+      "code": "001207",
+      "anchor_date": "2026-07-08",
+      "expected_market_followup_n": 17,
+      "confirmed_code_followup_n": 5,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002152:20260708:1008",
+      "code": "002152",
+      "anchor_date": "2026-07-08",
+      "expected_market_followup_n": 17,
+      "confirmed_code_followup_n": 5,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002350:20260708:1507",
+      "code": "002350",
+      "anchor_date": "2026-07-08",
+      "expected_market_followup_n": 17,
+      "confirmed_code_followup_n": 5,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002467:20260708:469",
+      "code": "002467",
+      "anchor_date": "2026-07-08",
+      "expected_market_followup_n": 17,
+      "confirmed_code_followup_n": 5,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002490:20260708:697",
+      "code": "002490",
+      "anchor_date": "2026-07-08",
+      "expected_market_followup_n": 17,
+      "confirmed_code_followup_n": 5,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002642:20260708:670",
+      "code": "002642",
+      "anchor_date": "2026-07-08",
+      "expected_market_followup_n": 17,
+      "confirmed_code_followup_n": 5,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002674:20260708:2915",
+      "code": "002674",
+      "anchor_date": "2026-07-08",
+      "expected_market_followup_n": 17,
+      "confirmed_code_followup_n": 5,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002677:20260708:657",
+      "code": "002677",
+      "anchor_date": "2026-07-08",
+      "expected_market_followup_n": 17,
+      "confirmed_code_followup_n": 5,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002757:20260708:1841",
+      "code": "002757",
+      "anchor_date": "2026-07-08",
+      "expected_market_followup_n": 17,
+      "confirmed_code_followup_n": 5,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "002910:20260708:1287",
+      "code": "002910",
+      "anchor_date": "2026-07-08",
+      "expected_market_followup_n": 17,
+      "confirmed_code_followup_n": 5,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "600129:20260708:1496",
+      "code": "600129",
+      "anchor_date": "2026-07-08",
+      "expected_market_followup_n": 17,
+      "confirmed_code_followup_n": 5,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "600350:20260708:1349",
+      "code": "600350",
+      "anchor_date": "2026-07-08",
+      "expected_market_followup_n": 17,
+      "confirmed_code_followup_n": 5,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "600488:20260708:549",
+      "code": "600488",
+      "anchor_date": "2026-07-08",
+      "expected_market_followup_n": 17,
+      "confirmed_code_followup_n": 5,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "600602:20260708:1638",
+      "code": "600602",
+      "anchor_date": "2026-07-08",
+      "expected_market_followup_n": 17,
+      "confirmed_code_followup_n": 4,
+      "shortfall_n": 13,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "600749:20260708:1533",
+      "code": "600749",
+      "anchor_date": "2026-07-08",
+      "expected_market_followup_n": 17,
+      "confirmed_code_followup_n": 5,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "600756:20260708:1323",
+      "code": "600756",
+      "anchor_date": "2026-07-08",
+      "expected_market_followup_n": 17,
+      "confirmed_code_followup_n": 5,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "603183:20260708:405",
+      "code": "603183",
+      "anchor_date": "2026-07-08",
+      "expected_market_followup_n": 17,
+      "confirmed_code_followup_n": 5,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "603285:20260708:4842",
+      "code": "603285",
+      "anchor_date": "2026-07-08",
+      "expected_market_followup_n": 17,
+      "confirmed_code_followup_n": 5,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "603296:20260708:7829",
+      "code": "603296",
+      "anchor_date": "2026-07-08",
+      "expected_market_followup_n": 17,
+      "confirmed_code_followup_n": 5,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "603313:20260708:706",
+      "code": "603313",
+      "anchor_date": "2026-07-08",
+      "expected_market_followup_n": 17,
+      "confirmed_code_followup_n": 5,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "603339:20260708:1547",
+      "code": "603339",
+      "anchor_date": "2026-07-08",
+      "expected_market_followup_n": 17,
+      "confirmed_code_followup_n": 5,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "603380:20260708:4729",
+      "code": "603380",
+      "anchor_date": "2026-07-08",
+      "expected_market_followup_n": 17,
+      "confirmed_code_followup_n": 5,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "603496:20260708:2454",
+      "code": "603496",
+      "anchor_date": "2026-07-08",
+      "expected_market_followup_n": 17,
+      "confirmed_code_followup_n": 5,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "603661:20260708:4267",
+      "code": "603661",
+      "anchor_date": "2026-07-08",
+      "expected_market_followup_n": 17,
+      "confirmed_code_followup_n": 5,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    },
+    {
+      "setup_id": "603881:20260708:2421",
+      "code": "603881",
+      "anchor_date": "2026-07-08",
+      "expected_market_followup_n": 17,
+      "confirmed_code_followup_n": 5,
+      "shortfall_n": 12,
+      "last_confirmed_date": "2026-07-31",
+      "class": "CODE_LEVEL_SHORTFALL"
+    }
+  ],
+  "PRIMARY_EVENT_SIGNAL_DATE_N_BY_DATE": {
+    "2026-07-01": 109,
+    "2026-07-02": 98,
+    "2026-07-03": 115,
+    "2026-07-06": 85,
+    "2026-07-07": 56,
+    "2026-07-08": 38,
+    "2026-07-09": 0,
+    "2026-07-10": 0,
+    "2026-07-13": 0,
+    "2026-07-14": 0,
+    "2026-07-15": 0,
+    "2026-07-16": 0,
+    "2026-07-17": 0,
+    "2026-07-20": 0,
+    "2026-07-21": 0,
+    "2026-07-22": 0,
+    "2026-07-23": 0,
+    "2026-07-24": 0,
+    "2026-07-27": 50,
+    "2026-07-28": 80,
+    "2026-07-29": 88,
+    "2026-07-30": 53,
+    "2026-07-31": 77
+  },
+  "EVENT_TIME_REAL_SESSION_VALIDITY": "BLOCKED",
+  "CURRENT_TRANSITION_RESULT_AUTHORITY": "BLOCKED",
+  "ROOT_CAUSE_EVIDENCE": {
+    "manifest_exists": true,
+    "manifest_created_at": "2026-08-01T03:02:04.660719+00:00",
+    "reconciliation_policy_version": "phase-2c2a-r1",
+    "raw_source_parts": [
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0001.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0002.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0003.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0004.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0005.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0006.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0007.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0008.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0009.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0010.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0011.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0012.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0013.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0014.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0015.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0016.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0017.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0018.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0019.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0020.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0021.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0022.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0023.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0024.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0025.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0026.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0027.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0028.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0029.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0030.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0031.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0032.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0033.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0034.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0035.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0036.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0037.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0038.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0039.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0040.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0041.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0042.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0043.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0044.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0045.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0046.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0047.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0048.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0049.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0050.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0051.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0052.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0053.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0054.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0055.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0056.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0057.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0058.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0059.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0060.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0061.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0062.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0063.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0064.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0065.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0066.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0067.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0068.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0069.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0070.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0071.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0072.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0073.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0074.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0075.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0076.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0077.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0078.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0079.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0080.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0081.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0082.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0083.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0084.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0085.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0086.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0087.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0088.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0089.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0090.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0091.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0092.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0093.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0094.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0095.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0096.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0097.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0098.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0099.parquet",
+      "raw/akshare/daily_bars/359774eea1675b329e747cbb-0100.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0001.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0002.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0003.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0004.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0005.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0006.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0007.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0008.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0009.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0010.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0011.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0012.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0013.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0014.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0015.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0016.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0017.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0018.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0019.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0020.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0021.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0022.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0023.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0024.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0025.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0026.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0027.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0028.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0029.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0030.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0031.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0032.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0033.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0034.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0035.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0036.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0037.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0038.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0039.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0040.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0041.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0042.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0043.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0044.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0045.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0046.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0047.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0048.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0049.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0050.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0051.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0052.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0053.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0054.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0055.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0056.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0057.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0058.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0059.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0060.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0061.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0062.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0063.parquet",
+      "raw/baostock/daily_bars/359774eea1675b329e747cbb-0064.parquet",
+      "raw/tushare/daily_bars/359774eea1675b329e747cbb-0001.parquet",
+      "raw/tushare/daily_bars/359774eea1675b329e747cbb-0002.parquet",
+      "raw/tushare/daily_bars/359774eea1675b329e747cbb-0003.parquet",
+      "raw/tushare/daily_bars/359774eea1675b329e747cbb-0004.parquet",
+      "raw/tushare/daily_bars/359774eea1675b329e747cbb-0005.parquet",
+      "raw/tushare/daily_bars/359774eea1675b329e747cbb-0006.parquet",
+      "raw/tushare/daily_bars/359774eea1675b329e747cbb-0007.parquet",
+      "raw/tushare/daily_bars/359774eea1675b329e747cbb-0008.parquet",
+      "raw/tushare/daily_bars/359774eea1675b329e747cbb-0009.parquet",
+      "raw/tushare/daily_bars/359774eea1675b329e747cbb-0010.parquet",
+      "raw/tushare/daily_bars/359774eea1675b329e747cbb-0011.parquet",
+      "raw/tushare/daily_bars/359774eea1675b329e747cbb-0012.parquet",
+      "raw/tushare/daily_bars/359774eea1675b329e747cbb-0013.parquet",
+      "raw/tushare/daily_bars/359774eea1675b329e747cbb-0014.parquet",
+      "raw/tushare/daily_bars/359774eea1675b329e747cbb-0015.parquet",
+      "raw/tushare/daily_bars/359774eea1675b329e747cbb-0016.parquet",
+      "raw/tushare/daily_bars/359774eea1675b329e747cbb-0017.parquet",
+      "raw/tushare/daily_bars/359774eea1675b329e747cbb-0018.parquet",
+      "raw/tushare/daily_bars/359774eea1675b329e747cbb-0019.parquet",
+      "raw/tushare/daily_bars/359774eea1675b329e747cbb-0020.parquet",
+      "raw/tushare/daily_bars/359774eea1675b329e747cbb-0021.parquet",
+      "raw/tushare/daily_bars/359774eea1675b329e747cbb-0022.parquet",
+      "raw/tushare/daily_bars/359774eea1675b329e747cbb-0023.parquet",
+      "raw/tushare/daily_bars/359774eea1675b329e747cbb-0024.parquet",
+      "raw/tushare/daily_bars/359774eea1675b329e747cbb-0025.parquet",
+      "raw/tushare/daily_bars/359774eea1675b329e747cbb-0026.parquet",
+      "raw/tushare/daily_bars/359774eea1675b329e747cbb-0027.parquet",
+      "raw/tushare/daily_bars/359774eea1675b329e747cbb-0028.parquet",
+      "raw/tushare/daily_bars/359774eea1675b329e747cbb-0029.parquet",
+      "raw/tushare/daily_bars/359774eea1675b329e747cbb-0030.parquet",
+      "raw/tushare/daily_bars/359774eea1675b329e747cbb-0031.parquet",
+      "raw/tushare/daily_bars/359774eea1675b329e747cbb-0032.parquet",
+      "raw/tushare/daily_basic/359774eea1675b329e747cbb-0001.parquet",
+      "raw/tushare/daily_basic/359774eea1675b329e747cbb-0002.parquet",
+      "raw/tushare/daily_basic/359774eea1675b329e747cbb-0003.parquet",
+      "raw/tushare/daily_basic/359774eea1675b329e747cbb-0004.parquet",
+      "raw/tushare/daily_basic/359774eea1675b329e747cbb-0005.parquet",
+      "raw/tushare/daily_basic/359774eea1675b329e747cbb-0006.parquet",
+      "raw/tushare/daily_basic/359774eea1675b329e747cbb-0007.parquet",
+      "raw/tushare/daily_basic/359774eea1675b329e747cbb-0008.parquet",
+      "raw/tushare/daily_basic/359774eea1675b329e747cbb-0009.parquet",
+      "raw/tushare/daily_basic/359774eea1675b329e747cbb-0010.parquet",
+      "raw/tushare/daily_basic/359774eea1675b329e747cbb-0011.parquet",
+      "raw/tushare/daily_basic/359774eea1675b329e747cbb-0012.parquet",
+      "raw/tushare/daily_basic/359774eea1675b329e747cbb-0013.parquet",
+      "raw/tushare/daily_basic/359774eea1675b329e747cbb-0014.parquet",
+      "raw/tushare/daily_basic/359774eea1675b329e747cbb-0015.parquet",
+      "raw/tushare/daily_basic/359774eea1675b329e747cbb-0016.parquet",
+      "raw/tushare/daily_basic/359774eea1675b329e747cbb-0017.parquet",
+      "raw/tushare/daily_basic/359774eea1675b329e747cbb-0018.parquet",
+      "raw/tushare/daily_basic/359774eea1675b329e747cbb-0019.parquet",
+      "raw/tushare/daily_basic/359774eea1675b329e747cbb-0020.parquet",
+      "raw/tushare/daily_basic/359774eea1675b329e747cbb-0021.parquet",
+      "raw/tushare/daily_basic/359774eea1675b329e747cbb-0022.parquet",
+      "raw/tushare/daily_basic/359774eea1675b329e747cbb-0023.parquet",
+      "raw/tushare/daily_basic/359774eea1675b329e747cbb-0024.parquet",
+      "raw/tushare/daily_basic/359774eea1675b329e747cbb-0025.parquet",
+      "raw/tushare/daily_basic/359774eea1675b329e747cbb-0026.parquet",
+      "raw/tushare/daily_basic/359774eea1675b329e747cbb-0027.parquet",
+      "raw/tushare/daily_basic/359774eea1675b329e747cbb-0028.parquet",
+      "raw/tushare/daily_basic/359774eea1675b329e747cbb-0029.parquet",
+      "raw/tushare/daily_basic/359774eea1675b329e747cbb-0030.parquet",
+      "raw/tushare/daily_basic/359774eea1675b329e747cbb-0031.parquet",
+      "raw/tushare/daily_basic/359774eea1675b329e747cbb-0032.parquet"
+    ],
+    "raw_daily_parts_n": 103,
+    "raw_daily_date_ranges": [
+      {
+        "part": "359774eea1675b329e747cbb-0001.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0002.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0003.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0004.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0005.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0006.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0007.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0008.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0009.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0010.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0011.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0012.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0013.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0014.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0015.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0016.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0017.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0018.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0019.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0020.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0021.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0022.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0023.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0024.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0025.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0026.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0027.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0028.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0029.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0030.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0031.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0032.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0033.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0034.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0035.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0036.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0037.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0038.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0039.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0040.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0041.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0042.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0043.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0044.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0045.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0046.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0047.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0048.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0049.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0050.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0051.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0052.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0053.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0054.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0055.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0056.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0057.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0058.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0059.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0060.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0061.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0062.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0063.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0064.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0065.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0066.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0067.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0068.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0069.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0070.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0071.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0072.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0073.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0074.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0075.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0076.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0077.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0078.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0079.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0080.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0081.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0082.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0083.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0084.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0085.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0086.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0087.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0088.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0089.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0090.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0091.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0092.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0093.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0094.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0095.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0096.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0097.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0098.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0099.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "359774eea1675b329e747cbb-0100.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "50ed7fb2649dd358590a9ccf-0001.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "50ed7fb2649dd358590a9ccf-0002.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      },
+      {
+        "part": "50ed7fb2649dd358590a9ccf-0003.parquet",
+        "min": "2024-01-02",
+        "max": "2026-07-31"
+      }
+    ]
+  },
+  "RECONCILIATION_RESULTS_GAP_WINDOW": [
+    {
+      "trade_date": "2026-07-08",
+      "status": "PROVISIONAL",
+      "n": "2332"
+    },
+    {
+      "trade_date": "2026-07-08",
+      "status": "CONFIRMED",
+      "n": "3151"
+    },
+    {
+      "trade_date": "2026-07-08",
+      "status": "INCOMPLETE",
+      "n": "116"
+    },
+    {
+      "trade_date": "2026-07-08",
+      "status": "CONFLICTED",
+      "n": "35"
+    },
+    {
+      "trade_date": "2026-07-09",
+      "status": "INCOMPLETE",
+      "n": "2448"
+    },
+    {
+      "trade_date": "2026-07-09",
+      "status": "PROVISIONAL",
+      "n": "3143"
+    },
+    {
+      "trade_date": "2026-07-09",
+      "status": "CONFLICTED",
+      "n": "43"
+    },
+    {
+      "trade_date": "2026-07-10",
+      "status": "INCOMPLETE",
+      "n": "2448"
+    },
+    {
+      "trade_date": "2026-07-10",
+      "status": "CONFLICTED",
+      "n": "60"
+    },
+    {
+      "trade_date": "2026-07-10",
+      "status": "PROVISIONAL",
+      "n": "3126"
+    },
+    {
+      "trade_date": "2026-07-13",
+      "status": "INCOMPLETE",
+      "n": "2447"
+    },
+    {
+      "trade_date": "2026-07-13",
+      "status": "PROVISIONAL",
+      "n": "3167"
+    },
+    {
+      "trade_date": "2026-07-13",
+      "status": "CONFLICTED",
+      "n": "20"
+    },
+    {
+      "trade_date": "2026-07-13",
+      "status": "CONFIRMED_SINGLE_SOURCE",
+      "n": "25"
+    },
+    {
+      "trade_date": "2026-07-14",
+      "status": "PROVISIONAL",
+      "n": "3175"
+    },
+    {
+      "trade_date": "2026-07-14",
+      "status": "CONFLICTED",
+      "n": "14"
+    },
+    {
+      "trade_date": "2026-07-14",
+      "status": "CONFIRMED_SINGLE_SOURCE",
+      "n": "70"
+    },
+    {
+      "trade_date": "2026-07-14",
+      "status": "INCOMPLETE",
+      "n": "2445"
+    },
+    {
+      "trade_date": "2026-07-15",
+      "status": "CONFLICTED",
+      "n": "29"
+    },
+    {
+      "trade_date": "2026-07-15",
+      "status": "CONFIRMED_SINGLE_SOURCE",
+      "n": "65"
+    },
+    {
+      "trade_date": "2026-07-15",
+      "status": "INCOMPLETE",
+      "n": "2444"
+    },
+    {
+      "trade_date": "2026-07-15",
+      "status": "PROVISIONAL",
+      "n": "3161"
+    },
+    {
+      "trade_date": "2026-07-16",
+      "status": "PROVISIONAL",
+      "n": "3160"
+    },
+    {
+      "trade_date": "2026-07-16",
+      "status": "CONFIRMED_SINGLE_SOURCE",
+      "n": "37"
+    },
+    {
+      "trade_date": "2026-07-16",
+      "status": "INCOMPLETE",
+      "n": "2444"
+    },
+    {
+      "trade_date": "2026-07-16",
+      "status": "CONFLICTED",
+      "n": "30"
+    },
+    {
+      "trade_date": "2026-07-17",
+      "status": "CONFIRMED_SINGLE_SOURCE",
+      "n": "30"
+    },
+    {
+      "trade_date": "2026-07-17",
+      "status": "PROVISIONAL",
+      "n": "3145"
+    },
+    {
+      "trade_date": "2026-07-17",
+      "status": "CONFLICTED",
+      "n": "44"
+    },
+    {
+      "trade_date": "2026-07-17",
+      "status": "INCOMPLETE",
+      "n": "2445"
+    },
+    {
+      "trade_date": "2026-07-20",
+      "status": "CONFIRMED_SINGLE_SOURCE",
+      "n": "48"
+    },
+    {
+      "trade_date": "2026-07-20",
+      "status": "CONFLICTED",
+      "n": "10"
+    },
+    {
+      "trade_date": "2026-07-20",
+      "status": "PROVISIONAL",
+      "n": "3181"
+    },
+    {
+      "trade_date": "2026-07-20",
+      "status": "INCOMPLETE",
+      "n": "2443"
+    },
+    {
+      "trade_date": "2026-07-21",
+      "status": "CONFIRMED_SINGLE_SOURCE",
+      "n": "83"
+    },
+    {
+      "trade_date": "2026-07-21",
+      "status": "CONFLICTED",
+      "n": "13"
+    },
+    {
+      "trade_date": "2026-07-21",
+      "status": "INCOMPLETE",
+      "n": "2443"
+    },
+    {
+      "trade_date": "2026-07-21",
+      "status": "PROVISIONAL",
+      "n": "3178"
+    },
+    {
+      "trade_date": "2026-07-22",
+      "status": "CONFIRMED_SINGLE_SOURCE",
+      "n": "41"
+    },
+    {
+      "trade_date": "2026-07-22",
+      "status": "CONFLICTED",
+      "n": "20"
+    },
+    {
+      "trade_date": "2026-07-22",
+      "status": "INCOMPLETE",
+      "n": "2444"
+    },
+    {
+      "trade_date": "2026-07-22",
+      "status": "PROVISIONAL",
+      "n": "3170"
+    },
+    {
+      "trade_date": "2026-07-23",
+      "status": "CONFLICTED",
+      "n": "13"
+    },
+    {
+      "trade_date": "2026-07-23",
+      "status": "PROVISIONAL",
+      "n": "3177"
+    },
+    {
+      "trade_date": "2026-07-23",
+      "status": "INCOMPLETE",
+      "n": "2444"
+    },
+    {
+      "trade_date": "2026-07-23",
+      "status": "CONFIRMED_SINGLE_SOURCE",
+      "n": "104"
+    },
+    {
+      "trade_date": "2026-07-24",
+      "status": "CONFLICTED",
+      "n": "17"
+    },
+    {
+      "trade_date": "2026-07-24",
+      "status": "PROVISIONAL",
+      "n": "3173"
+    },
+    {
+      "trade_date": "2026-07-24",
+      "status": "INCOMPLETE",
+      "n": "2444"
+    },
+    {
+      "trade_date": "2026-07-24",
+      "status": "CONFIRMED_SINGLE_SOURCE",
+      "n": "35"
+    }
+  ],
+  "RAW_PROVIDER_GAP_WINDOW_COVERAGE": {
+    "akshare": [
+      "2026-07-09",
+      "2026-07-10",
+      "2026-07-13",
+      "2026-07-14",
+      "2026-07-15",
+      "2026-07-16",
+      "2026-07-17",
+      "2026-07-20",
+      "2026-07-21",
+      "2026-07-22",
+      "2026-07-23",
+      "2026-07-24"
+    ],
+    "tushare": [
+      "2026-07-09",
+      "2026-07-10",
+      "2026-07-13",
+      "2026-07-14",
+      "2026-07-15",
+      "2026-07-16",
+      "2026-07-17",
+      "2026-07-20",
+      "2026-07-21",
+      "2026-07-22",
+      "2026-07-23",
+      "2026-07-24"
+    ],
+    "baostock": [
+      "2026-07-09",
+      "2026-07-10",
+      "2026-07-13",
+      "2026-07-14",
+      "2026-07-15",
+      "2026-07-16",
+      "2026-07-17",
+      "2026-07-20",
+      "2026-07-21",
+      "2026-07-22",
+      "2026-07-23",
+      "2026-07-24"
+    ]
+  },
+  "ROOT_CAUSE": "SNAPSHOT_RECONCILIATION_OUTCOME: 07-09..07-24 rows exist in raw providers (akshare/tushare/baostock) and in the canonical parquet as PROVISIONAL, but the frozen snapshot's reconciliation produced no CONFIRMED rows for those dates (CONFIRMED_N=0); generator-visible CONFIRMED-only timebase therefore lacks 12 mid-July sessions. Not a raw-source absence; a snapshot construction/reconciliation outcome gap.",
+  "JULY_SESSION_COVERAGE_STATUS": "BLOCKED",
+  "T0_REGISTRY_REBUILD_REQUIRED": "YES",
+  "TRANSITION_RESULT_RERUN_REQUIRED": "YES"
+}
