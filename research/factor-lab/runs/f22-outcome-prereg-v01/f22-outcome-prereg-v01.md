@@ -24,8 +24,10 @@ CONTRACT_HEAD：d3325e298a5c518afae6c82499c4c6acd71352dc
 ## 2. PRIMARY HYPOTHESIS — H22A
 
 **B2 日出现巨量长上影（F22_TRUE）的 episode，其 SECOND_LAUNCH 成功概率
-显著更低（失败风险更高）**——F22 是假突破/出货的 EOD 证据，方向为**负面
-信号**（failure-risk），不是正向确认。
+更低（失败风险更高）**——F22 是假突破/出货的 EOD 证据，方向为**负面
+信号**（failure-risk），不是正向确认。预注册未冻结 significance test，
+verdict 仅由第 6 节的 DELTA_FAIL_RATE / OR_FAILURE 方向 gate 决定
+（不写"显著"）。
 
 - 不预注册任何人为倍数阈值（K=1.0、VOLUME_THRESHOLD=1.5 已冻结，不得调整）
 - F22 为布尔因子（TRUE/FALSE），不做连续化、不做分位切分
