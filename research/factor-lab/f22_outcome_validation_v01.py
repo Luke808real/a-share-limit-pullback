@@ -227,13 +227,16 @@ def check_accounting(population_n: int, defined_true_n: int, defined_false_n: in
 
 def group_metrics(outcomes: pd.Series, r: pd.Series) -> dict:
     """Descriptive metrics for one F22 group (strict denominator = WIN_S1 +
-    LOSS_INVALID; CANCEL_GAP_INVALID excluded from strict; R metrics on the
-    numeric-R defined subset only)."""
+    LOSS_INVALID; CANCEL_GAP_INVALID excluded from strict; R metrics strictly
+    on the WIN_S1 + LOSS_INVALID subset with numeric r_multiple only —
+    CANCEL_GAP_INVALID must never enter R_DEFINED_N / P(R>0) / mean_R /
+    median_R even when it carries a numeric r_multiple)."""
     win = int((outcomes == "WIN_S1").sum())
     loss = int((outcomes == "LOSS_INVALID").sum())
     cancel_gap = int((outcomes == "CANCEL_GAP_INVALID").sum())
     total = int(outcomes.size)
-    r_num = pd.to_numeric(r, errors="coerce")
+    strict_mask = outcomes.isin(STRICT_OUTCOMES)
+    r_num = pd.to_numeric(r[strict_mask], errors="coerce")
     r_defined = r_num.dropna()
     r_def = int(r_defined.size)
     denominator = win + loss

@@ -238,6 +238,23 @@ def test_cancel_gap_excluded_from_strict_denominator() -> None:
     assert gm["CANCEL_GAP_INVALID"] == 2
 
 
+def test_cancel_gap_numeric_r_never_enters_r_metrics() -> None:
+    """Regression (closeout hardening): CANCEL_GAP_INVALID rows carrying
+    numeric r_multiple must never enter R_DEFINED_N / P(R>0) / mean_R /
+    median_R — R is defined only on the WIN_S1 + LOSS_INVALID subset with
+    numeric r_multiple (frozen prereg section 4). This test fails on the
+    pre-fix implementation (which computed R over all rows)."""
+    outcomes = pd.Series(["WIN_S1", "LOSS_INVALID", "CANCEL_GAP_INVALID", "CANCEL_GAP_INVALID"])
+    r = pd.Series([1.5, -0.5, 100.0, -100.0])  # extreme numeric R on CANCEL rows
+    gm = m.group_metrics(outcomes, r)
+    assert gm["STRICT_N"] == 2
+    assert gm["R_DEFINED_N"] == 2  # only WIN_S1 + LOSS_INVALID
+    assert gm["P(R>0)"] == 0.5  # 1.5 > 0, -0.5 <= 0 -> 1/2
+    assert gm["mean_R"] == 0.5  # (1.5 + -0.5) / 2
+    assert gm["median_R"] == 0.5  # (1.5 + -0.5) / 2
+    assert gm["CANCEL_GAP_INVALID"] == 2
+
+
 def test_non_numeric_r_excluded_from_r_population() -> None:
     outcomes = pd.Series(["WIN_S1", "LOSS_INVALID", "WIN_S1"])
     r = pd.Series([1.5, float("nan"), 2.0])
