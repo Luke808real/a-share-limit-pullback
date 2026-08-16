@@ -1,18 +1,59 @@
 # TTL SETUP-LEVEL SURVIVAL CONTRACT FEASIBILITY V01 — 数据合同与可行性报告
 
-- 状态：**FEASIBLE**（数据足以建立 setup-level survival contract；本轮只做
-  contract/feasibility，未运行任何 outcome validation / 生存统计）
+- 状态：**BLOCKED_FOR_T0_SURVIVAL**（CASE B：无冻结 authority 枚举完整 T0
+  setup universe；本轮只做 provenance audit / contract，未运行任何
+  outcome validation / 生存统计）
 - 日期：2026-08-16
-- 分支：`research/ttl-setup-survival-contract-v01`
-- BASE_HEAD：93bbe74b19b701a14d9a2a14c5e2b7f2447e5861
+- 分支：`research/ttl-setup-survival-contract-v01`（fix/ttl-setup-survival-contract-v01 审计后更新）
+- BASE_HEAD：10c2012cd971116ff8e0938d69a26f55df74c4fb
 
 ---
 
 ## 0. PRE-FLIGHT
 
-- branch 从 exact BASE_HEAD 创建；`git HEAD == 93bbe74b...`；tracked
+- branch 从 exact BASE_HEAD 创建；`git HEAD == 10c2012cd...`；tracked
   worktree clean（仅存在先前的 untracked `data/`、`uv.lock`）
-- 未创建 worktree（单分支隔离足够）；无 PR / merge / force
+- 无 PR / merge / force
+
+## 0b. 审计后更新（Sol review @10c2012，fix/ttl-setup-survival-contract-v01）
+
+本轮 provenance audit 结论：
+
+1. **T0 population completeness = NOT ESTABLISHED（CASE B）**
+   - 沿冻结 lineage 向上追溯（outcome.py `_replay_code` / `run_outcome_study`、
+     summary.json audit、diagnosis、warehouse、screen runs/states、b1-lifecycle
+     audit、context-historical）**未找到**任何冻结 artifact 能枚举全部 T0
+     anchor（包括从未出现 B1_READY/B2_READY/B2_CONFIRMED 的 setup）。
+   - episodes.parquet 只携带"至少出现过 1 个 target-label 事件"的 setup
+     （17,691 个 setup；TARGET_LABELS = B1_PREP/B1_READY/B2_READY/B2_CONFIRMED）。
+   - summary.json audit 显示 replay 对 3191 codes × 589 dates 做了
+     1,844,543 次 evaluate_strategy 调用，但仅持久化了 31,422 个
+     target-label 事件行；**未触发任何 stage 的 anchor 不落盘**。
+   - 因此现有数据**不能**估计 `P(B2 by T+k | all T0 setups)`；
+     只能支持 `CONDITIONAL_ON_OBSERVED_SIGNAL_COHORT` 研究。
+   - 任何 T0 分母估计都会引入 ascertainment truncation（向上选择偏差）。
+
+2. **TIMEBASE 审计 = MISMATCH（不能直接冻结 days_since_anchor）**
+   - ROWS_CHECKED = 31,422（全部合法 stage 行）
+   - MATCH_N = 31,044；MISMATCH_N = **378**；MISSING_ANCHOR_DATE_N = 0；
+     MISSING_SIGNAL_DATE_N = 0；MAX_ABS_DIFF = **18**
+   - 378 条 mismatch 中 100% 为 `days_since_anchor < trading-session
+     distance`（dsa 偏小；如 000008:20260330 → 2026-04-10，dsa=3 但
+     session distance=8）。
+   - **结论：不得把 `days_since_anchor` 冻结为 EVENT_TIME。**
+     EVENT_TIME 必须改为 canonical trading-session index distance
+     （用 frozen daily trade_date 逐 code 排序索引差），并记录 mismatch。
+
+3. **DUPLICATE / STAGE ORDER = 干净，policy 收紧为 fail closed**
+   - STAGE_ORDER_VIOLATION_N = 0（B1_READY <= B2_READY；B2_READY <=
+     B2_CONFIRMED 双向均 0 violation）
+   - SAME_SETUP_STAGE_DUPLICATE_N = 0；exact physical duplicate rows = 0
+   - 因无任何重复证据，且无 frozen semantics 证明重复 stage signal 合法：
+     **DUPLICATE_POLICY = FAIL CLOSED**（identical physical duplicate 仅在
+     deterministic equality 被证明时可 dedupe + 显式 accounting；conflicting
+     same-(setup,stage) → FAIL CLOSED；禁止无条件 take FIRST）。
+
+---
 
 ## 1. INPUT AUTHORITIES
 
@@ -68,27 +109,36 @@
   （episodes 与 daily 的最大 trade_date 均为 2026-07-31；无未来数据）
 - setup 在 OBSERVATION_END 前未出现 EVENT_READY（或 EVENT_CONFIRMED）
   → 在该时点**右删失**（right-censored）
-- **关键限制（必须写进 prereg）**：episodes 文件只携带"至少出现过一个
-  信号行"的 setup（17691）；**从未触发任何 stage 的 setup 不在文件中，
-  无法从本输入枚举完整 anchor 人口**。因此 survival 人群 =
-  snapshot 内出现 ≥1 行（anchor 已知）的 setup，属 truncated cohort；
-  该限制在 v01 结论中必须声明，不得声称覆盖全部 anchor。
+- **BLOCKER（CASE B）**：episodes 文件只携带"至少出现过一个 target-label
+  事件"的 setup（17691）；**从未触发任何 stage 的 setup 不在文件中，
+  无法从本输入枚举完整 anchor 人口**。因此生存人群 =
+  snapshot 内出现 ≥1 target-label 事件的 setup，属 truncated cohort；
+  **不能估计 P(B2 by T+k | all T0 setups)**。
 - `future_sessions_available` 仅作生成时刻的审计字段，不作为观测窗口。
 
 ## 6. PIT BOUNDARY
 
-- 只用 `signal_date <= OBSERVATION_END` 的行；行内 `days_since_anchor`
-  与 `anchor_date`/`signal_date` 均来自冻结 snapshot（SHA 门禁）。
-- TIME_SCALE = trading sessions：以 canonical daily 的 trade_date 序列
-  定义自然时间轴 T+1..T+n；`days_since_anchor` 为冻结字段直接使用，
-  prereg 阶段用 daily trade_date 交叉校验其口径（calendar vs trading）。
+- 只用 `signal_date <= OBSERVATION_END` 的行；行内 `anchor_date`/
+  `signal_date` 均来自冻结 snapshot（SHA 门禁）。
+- **EVENT_TIME（冻结决定）**：TIME_SCALE = trading sessions，且
+  EVENT_TIME = **canonical trading-session index distance**（用 frozen
+  daily trade_date 逐 code 排序后的索引差：index(signal_date) −
+  index(anchor_date)）。**不得使用 `days_since_anchor`**：timebase audit
+  显示 31,422 行中 378 行 mismatch（MAX_ABS_DIFF=18），该字段不可靠。
 
-## 7. DUPLICATE / MULTIPLE SIGNAL POLICY
+## 7. DUPLICATE / MULTIPLE SIGNAL POLICY（fail closed）
 
-- DUPLICATE_POLICY：同一 (setup, stage) 只取一行（当前数据已满足，0 重复）；
-  若未来数据出现重复，取 `signal_date` 最早者并记录。
-- MULTIPLE_SIGNAL_POLICY：同一 stage 的多信号（当前数据不存在）取 FIRST；
-  阶段行不叠加、不求和。
+- STAGE_ORDER_VIOLATION_N = 0（B1_READY <= B2_READY <= B2_CONFIRMED，
+  双向检查均 0 violation）
+- SAME_SETUP_STAGE_DUPLICATE_N = 0；exact physical duplicate rows = 0
+- **DUPLICATE_POLICY = FAIL CLOSED**：
+  - identical physical duplicate（逐字段相等）→ 仅当 deterministic
+    equality 被证明时才允许 canonical dedupe + 显式 accounting；
+  - conflicting same-(setup, stage)（内容冲突）→ FAIL CLOSED；
+  - **禁止无条件 take FIRST**（当前数据 0 重复，无 frozen semantics
+    证明重复 stage signal 合法）。
+- MULTIPLE_SIGNAL_POLICY：同一 stage 的多信号（当前数据不存在）——
+  与 duplicate 同样 FAIL CLOSED，不得静默取 FIRST。
 - 禁止把 episodes 多行直接当成独立 setup 样本
   （17,691 是 setup 数；31,422 是 stage 行数，二者不可混用）。
 
@@ -104,10 +154,12 @@
 
 ## 9. KNOWN LIMITATIONS
 
-1. **Truncated cohort**：无任何信号行的 setup 不在 episodes 中 → 右删失
-   估计只能覆盖 snapshot 内出现过的 setup（见 §5）。
-2. `days_since_anchor` 口径（calendar vs trading sessions）需在 prereg 用
-   daily trade_date 交叉校验。
+1. **BLOCKER — T0 universe 不可枚举（CASE B）**：无任何冻结 authority 记录
+   全部 T0 anchor（含从未触发 stage 的 setup）；episodes 仅为
+   CONDITIONAL_ON_OBSERVED_SIGNAL cohort → 不得估计 T0 全体的 survival。
+2. `days_since_anchor` 字段与 canonical trading-session distance 不一致
+   （31,422 行中 378 行 mismatch，MAX_ABS_DIFF=18）→ 不得直接使用该字段；
+   EVENT_TIME 必须用 daily trade_date 重算。
 3. OBSERVATION_END 为 snapshot 边界：2026-07-31 之后的事件不可见，
    靠近边界的 setup 删失率高（v01 已有 83 个删失近似）。
 4. 阶段行是"曾达到"记录，非每日 lineage——无法回答
@@ -129,7 +181,11 @@
 
 ## 11. NEXT RECOMMENDED ACTION
 
-- **PREREGISTRATION V01**：按本 contract 冻结统计设计（SETUP_KEY、
-  EVENT_READY/CONFIRMED、CENSOR_POLICY、PIT、OUTCOME_SEPARATION、
-  truncated-cohort 声明、禁 TTL 阈值决策），之后才允许运行生存曲线。
-- 不直接运行 survival/outcome study。
+- **BLOCKED_FOR_T0_SURVIVAL**：在找到能枚举完整 T0 anchor universe 的
+  冻结 authority（或新冻结的 setup 注册表）之前，**不推荐**
+  PREREGISTRATION V01，不得运行 T0→B2 survival。
+- 可记录的独立未来研究问题（本轮不自动改变目标、不运行）：
+  - `B1_READY → B2_READY / B2_CONFIRMED`（observed-signal cohort 内的
+    state-transition survival，声明 truncated cohort）
+  - 若未来存在完整 anchor/setup 注册 authority：`T0 → B2_READY /
+    B2_CONFIRMED`（需先冻结人口定义）。
