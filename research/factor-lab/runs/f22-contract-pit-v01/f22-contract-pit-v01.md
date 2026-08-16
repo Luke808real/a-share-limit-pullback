@@ -46,52 +46,71 @@ entry confirmation（盘中 B2 入场确认）。若语义不清，可能研究�
 | PRE5_N < 5 | → None（INSUFFICIENT_PRE5；与 F20 INSUFFICIENT_PRE20 同构） |
 | 5 日均量 | `mean(vol, PRE5)`；均量为 0 → None（ZERO_DENOMINATOR） |
 | VOL_RATIO | `vol(B2) / mean(vol, PRE5)` |
-| 量比阈值 | `VOL_RATIO >= 1.5`（**已冻结阈值**：FACTOR_CATALOG 现定义 "vol 为 5 日均量 >= 1.5 倍"） |
-| F22_TRUE | 形态条件（`UPPER_SHADOW > 0 AND UPPER_SHADOW >= K*BODY`）AND 量比条件（`VOL_RATIO >= 1.5`） |
-| 上影/实体阈值 K | **未冻结**（FACTOR_CATALOG 仅 ">= 阈值" 占位）→ 见第 4 节 |
+| 量比阈值 | `VOL_RATIO >= 1.5`（**已冻结阈值**：FACTOR_CATALOG 现定义 "vol 为 5 日均量 >= 1.5 倍"）；VOLUME_TRUE iff `VOL_RATIO >= 1.5` |
+| SHAPE_TRUE | `UPPER_SHADOW > 0 AND UPPER_SHADOW >= K * BODY`（K=1.0 冻结后：`UPPER_SHADOW >= BODY`，且上影严格为正） |
+| SHAPE_FALSE | 数据可计算但 SHAPE_TRUE 不成立（含 BODY=0 且 UPPER_SHADOW=0；UPPER_SHADOW < BODY）——**defined FALSE，非 undefined** |
+| F22_TRUE | `SHAPE_TRUE AND VOLUME_TRUE`；否则 **F22_FALSE（defined）** |
+| 上影/实体阈值 K | **OWNER_FROZEN = 1.0**（SOL 决策：`UPPER_SHADOW >= BODY`，"上影至少不短于实体"；理由：Catalog 无既有数值 authority；1.0 最小自然可解释；VOL_RATIO>=1.5 已有强量能条件无需收窄；冻结后禁止在当前 frozen outcome 上重选 K） |
 
-## 4. THRESHOLD DECISION REQUIRED（上影/实体阈值）
+## 4. THRESHOLD STATUS（已冻结，不再 DECISION_REQUIRED）
 
-- F22_EXISTING_THRESHOLD：上影/实体比的**具体阈值在 Catalog 中未定义**
-  （仅 ">= 阈值"占位）；量比 1.5x 已有定义
-- THRESHOLD_SOURCE：FACTOR_CATALOG（2026-08-16 现状）
-- **THRESHOLD_DECISION_REQUIRED = YES**
-- 建议初始契约值（待 SOL 确认后冻结于预注册）：`UPPER_SHADOW >= BODY`
-  （ratio >= 1.0，即上影不短于实体——"长上影"的最小自然定义）
-- 备选（若 SOL 认为过宽/过窄）：1.5 / 2.0——**必须在预注册前冻结，
-  禁止 outcome-aware 调整**（F20 审计确立的纪律）
+- F22_K = **1.0**；THRESHOLD_STATUS = **OWNER_FROZEN**（SOL 2026-08-16 决策）
+- THRESHOLD_SOURCE：FACTOR_CATALOG 占位（"上影线/实体 >= 阈值"）→ 由 Owner 补全为 1.0
+- 冻结后禁止：在当前 frozen sample 上重新选择 K / outcome-aware 调整
+- 量比 1.5x 维持 CATALOG 既有定义
 
-## 5. BODY_ZERO_POLICY（乘法式，无除零）
+## 5. BODY_ZERO_POLICY（BODY_ZERO ≠ undefined）
 
-- 判定式 `UPPER_SHADOW >= K * BODY` 在 BODY=0 时自然退化为
-  `UPPER_SHADOW >= 0`；配合显式严格正上影规则 `UPPER_SHADOW > 0`：
-  - BODY = 0 且 UPPER_SHADOW > 0（冲高回落 doji）→ 形态条件 **真**
-  - BODY = 0 且 UPPER_SHADOW = 0（无影 doji / 一字线）→ 形态条件 **假**
+- BODY = 0 是**合法 K 线状态**（doji / 十字星），不是 undefined
+- 判定式 `UPPER_SHADOW >= K * BODY`（K=1.0）在 BODY=0 时退化为
+  `UPPER_SHADOW >= 0`；配合严格正上影规则 `UPPER_SHADOW > 0`：
+  - BODY = 0 且 UPPER_SHADOW > 0（冲高回落 doji）→ **SHAPE_TRUE**
+  - BODY = 0 且 UPPER_SHADOW = 0（无影 doji / 一字线）→ **SHAPE_FALSE（defined）**
+- **BODY_ZERO 不得进入 undefined reasons**（与第 6 节一致）
 - 全程无除法、无除零异常、无 NaN 占位（不做 inf 填充）
 
-## 6. FACTOR DOMAIN 与验证人群
+## 6. FACTOR DOMAIN、BOOLEAN DEFINED SEMANTICS 与验证人群
 
-- FACTOR_DOMAIN：**EOD failure-risk diagnostic**（收盘后识别 B2 日假突破/
-  出货形态）
-- FUTURE_VALIDATION_POPULATION：B2-stage resolved episodes
-  （WIN_S1/LOSS_INVALID/CANCEL_GAP_INVALID），`b2_date = signal_date`，
-  F22 使用 B2 日数据（as_of = b2_date，PIT 安全——收盘后信息）；
-  defined = F22 各组件全部可计算（BODY>0、PRE5_N==5、均值非零、量比与
-  上影比通过阈值）；undefined 单独 accounting（INSUFFICIENT_PRE5 /
-  ZERO_DENOMINATOR / BODY_ZERO / 其他）
-- 验证设计（后续独立任务）：布尔/连续因子 → 预注册 outcome validation
-  （F22 为假突破信号，方向性假设为"F22 为真 → 失败概率更高"，
-  pre-register 后再定检验，本任务不预写）
+- FACTOR_DOMAIN：**B2 event EOD failure diagnostic**（收盘后识别 B2 日假
+  突破/出货形态）
+- **BOOLEAN DEFINED SEMANTICS**：F22 是布尔因子（F22_TRUE / F22_FALSE）。
+  defined 条件**只取决于数据是否可计算**：
+  - B2 OHLCV 存在且合法（INVALID_B2_OHLCV → undefined）
+  - PRE5_N == 5（不足 → INSUFFICIENT_PRE5 → undefined）
+  - PRE5 mean volume > 0（为 0 → ZERO_DENOMINATOR → undefined）
+  - 以上全部满足 → **F22 必须 defined**：F22_TRUE iff
+    `SHAPE_TRUE AND VOLUME_TRUE`，否则 F22_FALSE
+  - **不得**因 UPPER_SHADOW < BODY 或 VOL_RATIO < 1.5 记为 undefined
+    （否则未来验证只剩 F22_TRUE，没有对照组）
+- UNDEFINED_REASONS（仅数据不可计算类）：INSUFFICIENT_PRE5 /
+  ZERO_DENOMINATOR / MISSING_B2_BAR / INVALID_B2_OHLCV / OTHER_ERROR
+  **不得有**：BODY_ZERO / THRESHOLD_NOT_MET
+- FUTURE_VALIDATION_POPULATION：resolved episodes（WIN_S1/LOSS_INVALID/
+  CANCEL_GAP_INVALID）AND `setup_stage ∈ {B2_READY, B2_CONFIRMED}`
+  （**domain selection**——F22 的 factor domain 本身就是 B2 event failure
+  diagnostic，与 F20 的"不得 stage 预过滤"不同；F20 是 prereg population
+  已冻结为全部 resolved，F22 是 domain 定义即 B2-stage）
+  - `b2_date = episode.signal_date`；F22 用 B2 日数据（as_of = b2_date，
+    PIT 安全——收盘后信息）
+  - **population 内禁止**：outcome pre-filter、F22_TRUE/FALSE pre-filter；
+    每个 episode 都必须尝试 materialize F22
+- 验证设计（后续独立任务）：布尔因子预注册 outcome validation（方向性
+  假设"F22_TRUE → 失败概率更高"，pre-register 后再定检验，本任务不预写）
 
-## 7. PIT 纪律（与 F20 对齐）
+## 7. PIT 纪律（与 F20 对齐，population 差异已明确）
 
-- 禁止在 factor 调用前按 stage 预过滤（population 由预注册冻结）
+- **F20 vs F22 population 差异**：F20 的 prereg population 冻结为全部
+  resolved（不得 stage 预过滤）；F22 的 FACTOR_DOMAIN 本身就是 B2 event
+  failure diagnostic → population = resolved AND stage ∈ {B2_READY,
+  B2_CONFIRMED} 是 **domain selection**，不是 population bug
+- population 内禁止：outcome pre-filter、F22_TRUE/FALSE pre-filter（每个
+  episode 都必须尝试 materialize F22）
 - SHA 门禁、无 DataFrame bypass、accounting fail closed（沿用 F20 标准）
 - future rows 由 factor 内部排除（`trade_date < b2_date`），caller
   pre-truncation 仅是 hygiene
-- 本任务不读取 outcome、不跑验证、不搜索阈值
+- 本任务不读取 outcome、不跑验证、不搜索阈值（K 已由 Owner 冻结为 1.0）
 
 ---
 
-*本文件为 contract-PIT 决策，不含 outcome 结果。上影/实体阈值待 SOL 确认后
-在预注册中冻结。*
+*本文件为 contract-PIT 决策，不含 outcome 结果。F22_K = 1.0（OWNER_FROZEN）；
+契约一致性问题（BODY_ZERO、THRESHOLD_NOT_MET）已按 SOL review 修正。*
