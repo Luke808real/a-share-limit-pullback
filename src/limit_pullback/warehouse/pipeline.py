@@ -483,8 +483,17 @@ def bootstrap(
     listed_only: bool = False,
     profile: PerformanceProfile | None = None,
     force_finalize: bool = False,
+    repair_lineage: str | None = None,
 ) -> BootstrapResult:
-    """Full historical bootstrap with an exclusive write lock."""
+    """Full historical bootstrap with an exclusive write lock.
+
+    ``repair_lineage``: optional explicit tag for a data-repair run. When
+    None (normal bootstrap) the run identity is EXACTLY the legacy
+    ``_run_id("bootstrap", start, end, codes, policy)`` expression (bit-for-bit
+    backward compatible). When set, a separate ``bootstrap-repair`` namespace
+    is used so the repair run never collides with nor rewrites an existing
+    historical run.
+    """
 
     layout.ensure_dirs()
     with WarehouseLock(layout.root / ".warehouse.lock"):
@@ -527,6 +536,7 @@ def bootstrap(
             listed_only=listed_only,
             profile=profile,
             force_finalize=force_finalize,
+            repair_lineage=repair_lineage,
         )
 
 
@@ -709,6 +719,7 @@ def _bootstrap_impl(
     listed_only: bool = False,
     profile: PerformanceProfile | None = None,
     force_finalize: bool = False,
+    repair_lineage: str | None = None,
 ) -> BootstrapResult:
     """Full historical bootstrap with atomic snapshot publication."""
 
@@ -788,9 +799,24 @@ def _bootstrap_impl(
                     "STOCK_COVERAGE:" + json.dumps(coverage, sort_keys=True)
                 )
 
-            run_id = _run_id(
-                "bootstrap", start, end, codes_tuple, policy.policy_version
-            )
+            if repair_lineage is None:
+                # EXACT legacy identity: must stay bit-for-bit unchanged so
+                # normal bootstrap keeps resolving historical run_ids.
+                run_id = _run_id(
+                    "bootstrap", start, end, codes_tuple, policy.policy_version
+                )
+            else:
+                # Explicit repair namespace: never collides with normal runs
+                # nor with a different repair tag (deterministic pure hash).
+                run_id = _run_id(
+                    "bootstrap-repair",
+                    start,
+                    end,
+                    codes_tuple,
+                    policy.policy_version,
+                    repair_lineage,
+                )
+            repair_mode = repair_lineage is not None
             use_bulk = len(codes_tuple) >= bulk_threshold
             # Lineage guard: a failure BEFORE this attempt begins its own
             # ingest run (e.g. historical completed-run reuse validation)
@@ -835,7 +861,7 @@ def _bootstrap_impl(
                 )
             metadata.begin_ingest_run(
                 run_id=run_id,
-                kind="bootstrap",
+                kind="bootstrap-repair" if repair_mode else "bootstrap",
                 started_at=fetched_at,
                 start_date=start,
                 end_date=end,
@@ -847,6 +873,8 @@ def _bootstrap_impl(
                         "end": end.isoformat(),
                         "all_main_board": all_main_board,
                         "active_providers": list(active_providers),
+                        "repair_lineage": repair_lineage,
+                        "repair_mode": repair_mode,
                     },
                     sort_keys=True,
                 ),

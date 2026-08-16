@@ -189,6 +189,13 @@ def build_parser() -> argparse.ArgumentParser:
         default="CURRENT",
     )
     bootstrap_parser.add_argument(
+        "--repair-lineage",
+        type=str,
+        default=None,
+        help="显式数据修复 lineage tag（如 july-2026-gap-v01）。提供后使用独立 "
+             "bootstrap-repair run_id 命名空间；默认 None 保持既有 run_id 语义不变",
+    )
+    bootstrap_parser.add_argument(
         "--listed-only",
         action="store_true",
         help="stock_basic 仅取上市状态（与既有 run_id 的 universe 一致）",
@@ -531,6 +538,7 @@ def _run_bootstrap(args: argparse.Namespace) -> int:
             snapshot_status=args.snapshot_status,
             aux_backfill=args.aux_backfill,
             listed_only=args.listed_only,
+            repair_lineage=args.repair_lineage,
             profile=PerformanceProfile.load(args.profile),
         )
     except Exception as exc:
