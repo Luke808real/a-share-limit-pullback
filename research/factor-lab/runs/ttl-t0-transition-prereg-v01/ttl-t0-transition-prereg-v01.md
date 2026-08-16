@@ -1,10 +1,10 @@
-# TTL T0 TRANSITION-TIME PREREGISTRATION V01 — 预注册统计设计
+# TTL T0 TRANSITION-TIME PREREGISTRATION V01 — 预注册统计设计（fixed-cohort v01.1）
 
-- 状态：**PREREG_FROZEN**（只冻结统计设计；**NO result run / NO curve /
-  NO TTL cutoff**）
+- 状态：**PREREG_FROZEN**（fixed-cohort closeout 修订版；只冻结统计设计；
+  **NO result run / NO curve / NO TTL cutoff**）
 - 日期：2026-08-16
-- 分支：`research/ttl-t0-transition-prereg-v01`
-- BASE_HEAD：7c501901cef8a520bfd6dd5b54b5f36d4b88ac42
+- 分支：`research/ttl-t0-transition-prereg-v01`（fix/ttl-t0-transition-prereg-fixed-cohort-v01 修订后）
+- BASE_HEAD：dcfbf027cd1b6301d27afac75eee0f9957c5393a
 
 ---
 
@@ -24,16 +24,43 @@
 - code-anchor conflict = 0
 - episode setup not in registry = 0（全部 17,691 个 observed-signal setup 都在 registry 中）
 
-## 1. ESTIMAND（冻结；不是 classical survival）
-
-**不预注册 Kaplan-Meier / hazard。**
-
-PRIMARY ESTIMAND：
+## 1. K_MAX AUTHORITY（冻结；非经验最优 TTL）
 
 ```
-F_STAGE(k) = 
-  在"至少具有 k 个 generator-visible CONFIRMED 后续 trading session"的 T0 中，
-  首次达到 STAGE 的 session distance <= k 的 setup 比例
+K_MAX = 9
+```
+
+依据（策略已有语义，非结果驱动）：
+- frozen config：`anchor.lookback_trade_days = 10`
+  （历史 authority 315fbe0d 与当前 HEAD 的 config/strategy.yaml 均为 10）
+- frozen `detect_anchor()` 只在最近 `lookback_trade_days`（10）根
+  generator-visible bars 中寻找 anchor
+- 因此一个 T0 的原始 anchor 在 generator-visible per-code session 时间轴上
+  最迟可见到 **T+9**：T+10 时 anchor 已退出 10-bar lookback
+
+**K_MAX=9 是 frozen setup observability boundary，不是 validated trading TTL。**
+
+## 2. PRIMARY ESTIMAND（冻结；固定成熟 cohort；不是 classical survival）
+
+**不预注册 Kaplan-Meier / hazard。** 删除动态 denominator 定义
+（denominator(k) = followup >= k 会使相邻 k 的 cohort 成员不同）。
+
+定义：
+
+```
+FULL_WINDOW_MATURED =
+  FOLLOWUP_SESSIONS_AVAILABLE >= 9
+
+FIXED_MATURED_N = count(FULL_WINDOW_MATURED)
+```
+
+Primary（每个 k 使用**同一个** denominator）：
+
+```
+F_STAGE(k) =
+  count( FULL_WINDOW_MATURED AND first_event_time(stage) <= k )
+  / FIXED_MATURED_N
+  for k = 1..9
 ```
 
 分别对：
@@ -41,16 +68,18 @@ F_STAGE(k) =
 - STAGE_B2_READY = B2_READY
 - STAGE_B2_CONFIRMED = B2_CONFIRMED
 
+性质：固定 cohort 保证
+
 ```
-numerator_stage(k)   = first_event_time(stage) <= k
-denominator(k)       = T0 后截至 OBSERVATION_END 至少存在 k 个
-                       CONFIRMED per-code sessions 的 setup 数
+F_STAGE(1) <= F_STAGE(2) <= ... <= F_STAGE(9)
 ```
 
-即 **matured-cohort cumulative transition incidence**（成熟队列累计转换发生率），
-不是 classical survival probability。
+且 `F(k) − F(k−1)` 可干净解释为固定 cohort 中**恰好在 T+k 首次进入该 stage**
+的比例。
 
-## 2. TIME CONTRACT（冻结）
+术语：**fixed-matured-cohort cumulative transition rate**。
+
+## 3. TIME CONTRACT（冻结）
 
 - TIME_ORIGIN = T0 anchor_date
 - TIME_SCALE = generator-visible CONFIRMED per-code trading sessions
@@ -60,31 +89,62 @@ denominator(k)       = T0 后截至 OBSERVATION_END 至少存在 k 个
   timebase lineage 已验证 31,422/31,422 match、MAX_ABS_DIFF = 0
   （见 research/ttl-setup-survival-contract-v01，lineage CLOSED）
 
-## 3. EVENT EXTRACTION（冻结）
+## 4. EVENT SOURCE CONTRACT（冻结）
 
-每个 setup / stage 只允许一个 first event：
+```
+EVENT_SELECTOR_COLUMN = execution_label
+EVENT_DATE_COLUMN     = signal_date
+EVENT_TIME_COLUMN     = days_since_anchor
+```
+
+Primary labels：B1_READY / B2_READY / B2_CONFIRMED。
+
+一致性要求：对 B1_READY / B2_READY / B2_CONFIRMED 这些 rows，必须满足
+
+```
+execution_label == setup_stage
+```
+
+否则 **FAIL CLOSED**（frozen 数据理论上一致，但 runner 不得留下选择空间）。
+
+**B1_PREP：NOT a primary state-transition event**，不得混入 B1_READY。
+
+## 5. STAGE COMPLETENESS / ORDER（冻结，fail closed）
+
+每个 setup 只允许一个 first event：
 
 - FIRST_B1_READY
 - FIRST_B2_READY
 - FIRST_B2_CONFIRMED
 
-必须满足：`B1_READY <= B2_READY <= B2_CONFIRMED`。
+必须 fail closed：
 
-- 若 same-(setup,stage) duplicate → **FAIL CLOSED**（禁止 silent FIRST；
-  现有 frozen data duplicate = 0 是 authority fact，但 runner 仍须 fail closed）
-- **B1_PREP：NOT a primary state-transition event**，不得混入 B1_READY。
+```
+B2_READY exists AND B1_READY missing            -> FAIL CLOSED
+B2_CONFIRMED exists AND B2_READY missing       -> FAIL CLOSED
+B2_CONFIRMED exists AND B1_READY missing       -> FAIL CLOSED
+```
 
-## 4. NO-EVENT SEMANTICS（冻结）
+存在时必须满足：
+
+```
+T_B1_READY <= T_B2_READY <= T_B2_CONFIRMED
+```
+
+same-(setup,stage) duplicate → **FAIL CLOSED**（禁止 silent FIRST；
+现有 frozen data duplicate = 0 是 authority fact，但 runner 仍须 fail closed）。
+
+## 6. NO-EVENT SEMANTICS（冻结）
 
 完整 registry 中没有对应 stage event 的 T0：
 
 - event = NOT OBSERVED
-- 只要该 setup 对 k 已具备足够 follow-up sessions，就进入 denominator(k)
-  并作为 event_by_k = false
+- 只要该 setup 属于 FULL_WINDOW_MATURED，就进入 FIXED_MATURED_N 并作为
+  event_by_k = false（对全部 k=1..9）
 - 不得把 INVALID / NO_FILL / LOSS / CANCEL 当 event
 - 不得因为不知道 invalidation date 而伪造 right censor
 
-## 5. ADMINISTRATIVE MATURITY（冻结；唯一允许的 observation-boundary exclusion）
+## 7. ADMINISTRATIVE MATURITY（冻结；唯一允许的 observation-boundary exclusion）
 
 对每个 T0 计算：
 
@@ -93,54 +153,52 @@ FOLLOWUP_SESSIONS_AVAILABLE =
   CONFIRMED per-code sessions after anchor_date through 2026-07-31
 ```
 
-对某 k：
+```
+FOLLOWUP_SESSIONS_AVAILABLE < 9
+  -> ADMINISTRATIVE_NOT_FULLY_MATURE
+  -> exclude from PRIMARY fixed cohort
+```
+
+未来输出合同必须包含（守恒 fail closed）：
 
 ```
-FOLLOWUP_SESSIONS_AVAILABLE < k
-  → exclude from denominator(k)
-  → ADMINISTRATIVE_NOT_MATURE
+TOTAL_T0_N = FIXED_MATURED_N + ADMINISTRATIVE_NOT_FULLY_MATURE_N
 ```
 
 - 这是唯一允许的 observation-boundary exclusion。
 - **禁止**用 outcome rows 的 `future_sessions_available` 替代 registry-level
   follow-up（never-signal setups 没有 episode row）。
 
-## 6. k AXIS（冻结）
+## 8. FUTURE RESULT OUTPUT CONTRACT（本轮只冻结字段，不计算）
 
-- 不选择 outcome-driven TTL cutoff。
-- 预注册报告轴：k = 1, 2, 3, ...，一直报告到 denominator(k) > 0。
-- **必须同时输出 denominator(k)**。
-- 策略配置中的 B1 `days_after_anchor = 1..7`、optimal = 2..5 只允许作为
-  预先存在的 strategy reference bands，不是研究结果，也不能据此把 T+5/T+7
-  宣布成 validated TTL。
-- 不得根据本次数据再选"最好看的 k"。
-
-## 7. FUTURE RESULT OUTPUT CONTRACT（本轮只冻结字段，不计算）
-
-未来结果至少包括：
+未来 runner 对每个 k = 1..9 输出：
 
 ```
-TOTAL_T0_N
-for each k:
-  MATURED_N(k)
-  B1_READY_BY_K_N
-  B1_READY_BY_K_RATE
-  B2_READY_BY_K_N
-  B2_READY_BY_K_RATE
-  B2_CONFIRMED_BY_K_N
-  B2_CONFIRMED_BY_K_RATE
+FIXED_MATURED_N
+B1_READY_BY_K_N
+B1_READY_BY_K_RATE
+B2_READY_BY_K_N
+B2_READY_BY_K_RATE
+B2_CONFIRMED_BY_K_N
+B2_CONFIRMED_BY_K_RATE
 ```
 
-另输出 first-event timing distribution：
+**所有 rate 的 denominator 都必须是 FIXED_MATURED_N。**
+
+另输出 exact first-event timing distribution：
 
 ```
-EVENT_TIME
+EVENT_TIME = 1..9
 EVENT_N
+EVENT_RATE = EVENT_N / FIXED_MATURED_N
 ```
 
 这是 structural timing distribution，不是 outcome success rate。
 
-## 8. EXPLICITLY FORBIDDEN INTERPRETATION（冻结）
+**MONOTONICITY GATE（fail closed）**：对每个 stage，F_STAGE(k) 必须
+monotonic non-decreasing（k=1..9）；否则 FAIL CLOSED。
+
+## 9. EXPLICITLY FORBIDDEN INTERPRETATION（冻结）
 
 必须写明：
 
@@ -152,32 +210,33 @@ F_STAGE(k) != P(profit | B2)
 F_STAGE(k) != validated TTL cutoff
 ```
 
+T+9 是 frozen setup observability boundary，不是 validated trading TTL。
 不得使用 WIN_S1 / LOSS_INVALID / CANCEL_GAP_INVALID / R multiple /
 MFE / MAE 做任何分组或 threshold selection。
 
-## 9. CLASSICAL SURVIVAL STATUS（冻结）
+## 10. CLASSICAL SURVIVAL STATUS（冻结）
 
 ```
 CLASSICAL_KM_HAZARD_READY = NO
-MATURED_CUMULATIVE_TRANSITION_READY = YES
+FIXED_COHORT_TRANSITION_READY = YES
 ```
 
 - CLASSICAL_KM_HAZARD_READY = NO 的原因：没有完整的逐日 setup exit lineage
   （INVALID / superseded / expiry 的每日状态未记录）。
 - 这两个概念不得混为一谈。
 
-## 10. OUTPUT（本轮）
+## 11. OUTPUT（本轮）
 
-- 只创建：
+- 只修改：
   `research/factor-lab/runs/ttl-t0-transition-prereg-v01/ttl-t0-transition-prereg-v01.md`
 - 不得创建 result CSV / JSON / plot。
 - 状态只能 PREREG_FROZEN 或 BLOCKED。
 - 如果发现任何 denominator / event / time semantics 无法按 authority 实现
   → BLOCKED，不得自行改 estimand。
 
-## 11. FORBIDDEN（冻结）
+## 12. FORBIDDEN（冻结）
 
-- NO transition-rate computation
+- NO result run / transition-rate computation
 - NO survival result / Kaplan-Meier / hazard
 - NO outcome analysis / WIN/LOSS/CANCEL comparison
 - NO P(success | T+k)
@@ -187,7 +246,7 @@ MATURED_CUMULATIVE_TRANSITION_READY = YES
 - NO full-market strategy replay
 - NO frozen artifact mutation
 
-## 12. VERIFICATION（本轮已完成 + runner 必须复验）
+## 13. VERIFICATION（本轮已完成 + runner 必须复验）
 
 - registry authority exists：是（research/factor-lab/runs/t0-registry-v01/t0-registry-v01.csv）
 - REGISTRY_SHA256 exact：130a5698...441c ✓
@@ -196,9 +255,11 @@ MATURED_CUMULATIVE_TRANSITION_READY = YES
 - TOTAL_T0_SETUP_N = 22393 ✓
 - registry duplicate = 0 ✓
 - episode setup not in registry = 0 ✓
+- K_MAX=9 authority：config/strategy.yaml `anchor.lookback_trade_days: 10`
+  （315fbe0d 与 HEAD 一致）✓
 - git diff --check（本轮）
 
 ---
 
 *本文件为预注册设计，不含任何 transition-time 结果。正式 runner 与结果将在
-后续独立任务中实现（SHA 门禁 + fail-closed + matured-cohort 合同）。*
+后续独立任务中实现（SHA 门禁 + fail-closed + fixed matured cohort 合同）。*
