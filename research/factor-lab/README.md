@@ -112,3 +112,10 @@ L2 研究因子层 + L3 统计验证层的落点。目标见 docs/ARCHITECTURE_G
   isolation、accounting、ties、CANCEL exclusion、numeric-R、fail closed、
   future leakage、quartile 独立性）。VALIDATED = NO；PROMOTED = NO；
   禁止 threshold mining；不得写 SUPPORTED / VALIDATED。
+- research/factor-lab-phase-synthesis-v01（2026-08-16，FACTOR LAB 阶段性
+  综合决策；**索引**——不改变任何 factor verdict）：CLOSED_FACTOR_N=8
+  （F11/F14/H4A-H4B/E03/F18/F23/F19/F20），REJECT_N=6、OBSERVE_ONLY_N=1、
+  OBSERVATION_N=1。模式：静态结构/放量正向单因子连续失败；时间/状态结构
+  有信息。决策：**NEXT_FACTOR = F22（巨量长上影，失败结构/假突破方向）**；
+  F21（B2 次日跌回平台）因循环定义已 REJECT（ttl-h5h6-v01）排除。
+  产物：runs/factor-lab-phase-synthesis-v01/factor-lab-phase-synthesis-v01.md。
