@@ -119,3 +119,19 @@ L2 研究因子层 + L3 统计验证层的落点。目标见 docs/ARCHITECTURE_G
   有信息。决策：**NEXT_FACTOR = F22（巨量长上影，失败结构/假突破方向）**；
   F21（B2 次日跌回平台）因循环定义已 REJECT（ttl-h5h6-v01）排除。
   产物：runs/factor-lab-phase-synthesis-v01/factor-lab-phase-synthesis-v01.md。
+- research/f22-contract-pit-v01（2026-08-16，F22 CONTRACT/PIT；FROZEN/CLOSED，
+  AUTHORITY d3325e2，K=1.0 OWNER_FROZEN）：EOD failure-risk diagnostic，
+  **INTRADAY_B2_ENTRY_ELIGIBLE = NO**（上影+全天量仅收盘后确定；
+  NEXT_DAY_RISK / HOLD_EXIT_DIAGNOSTIC / POST_B2_FAILURE_RESEARCH 方向）。
+  契约：SHAPE_TRUE = UPPER_SHADOW>0 AND UPPER_SHADOW>=BODY（乘法式，
+  BODY=0 合法非 undefined）；PRE5 = B2 前严格 5 个 visible sessions；
+  VOLUME_TRUE = VOL_RATIO>=1.5；F22_TRUE = SHAPE_TRUE AND VOLUME_TRUE，
+  可计算未触发 = DEFINED FALSE；undefined 仅数据不可计算类。
+  产物：runs/f22-contract-pit-v01/f22-contract-pit-v01.md。
+- research/f22-factor-implementation-v01（2026-08-16，F22 实现）：
+  `factor_lab.b2_long_upper_shadow(bars, anchor_date, b2_date) -> bool | None`
+  （布尔因子；None 仅 INSUFFICIENT_PRE5 / ZERO_DENOMINATOR；B2/anchor 缺失
+  ValueError fail closed；future rows 内部排除）。**CONTRACT FROZEN /
+  IMPLEMENTATION PENDING REVIEW**；不得写 VALIDATED / SUPPORTED / PROMOTED；
+  prereg 冻结前禁止看 F22_TRUE vs outcome。测试：tests/test_factor_lab.py
+  （F22 10 项：TRUE/FALSE/BODY=0/PRE5<5/零均量/缺失 fail closed/future leak）。

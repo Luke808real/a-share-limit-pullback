@@ -129,9 +129,27 @@ vol(D) = 当日成交量；turn(D) = 当日换手；close/low/high 为原始价�
 ## 6. 失败结构类（H6）
 
 - F21 B2 次日跌回平台：B2 事件次日 close < 平台/突破位（用冻结 support/trigger）
-- F22 巨量长上影：上影线/实体 >= 阈值 且 vol 为 5 日均量 >= 1.5 倍
+- F22 巨量长上影（F22 CONTRACT/PIT FROZEN，2026-08-16，AUTHORITY d3325e2，
+  K=1.0 OWNER_FROZEN）：**EOD failure-risk diagnostic / INTRADAY_B2_ENTRY_ELIGIBLE = NO**
+  （上影与全天量仅收盘后确定；只可作 NEXT_DAY_RISK / HOLD_EXIT_DIAGNOSTIC /
+  POST_B2_FAILURE_RESEARCH，不得进入盘中 B2 买点）。定义：
+  `UPPER_SHADOW = high(B2) − max(open(B2), close(B2))`；
+  `BODY = abs(close(B2) − open(B2))`；
+  `SHAPE_TRUE = UPPER_SHADOW > 0 AND UPPER_SHADOW >= BODY`（乘法式，BODY=0 合法：
+  有正上影 SHAPE_TRUE、无上影 SHAPE_FALSE，BODY_ZERO ≠ undefined）；
+  `PRE5 = B2 前严格最后 5 个 visible sessions`（PRE5_N<5 → undefined）；
+  `VOL_RATIO = vol(B2)/mean(vol(PRE5))`，均量 0 → undefined；
+  `VOLUME_TRUE = VOL_RATIO >= 1.5`；`F22_TRUE = SHAPE_TRUE AND VOLUME_TRUE`，
+  数据可计算但未触发 → **DEFINED FALSE**（保留对照组）；undefined 仅限
+  INSUFFICIENT_PRE5 / ZERO_DENOMINATOR / MISSING_B2_BAR / INVALID_B2_OHLCV /
+  OTHER_ERROR。实现：`factor_lab.b2_long_upper_shadow`（布尔）。
+  **状态：CONTRACT FROZEN / IMPLEMENTATION PENDING REVIEW**（不得写
+  VALIDATED / SUPPORTED / PROMOTED；validation population = resolved AND
+  stage ∈ {B2_READY, B2_CONFIRMED}，b2_date = signal_date，域内禁止
+  outcome/F22 预过滤；prereg 冻结前禁止看 F22_TRUE vs outcome）
 - F23 放量下跌：回调期存在 i 使 close(i)<close(i−1) 且 vol(i)>vol(i−1)（连续计数）
-- 现状：均 GAP。
+- 现状：F21 REJECT（独立因子，ttl-h5h6 循环定义）；F22 CONTRACT FROZEN /
+  IMPLEMENTATION PENDING REVIEW；F23 GAP。
 
 ## 7. BLOCKED 清单（短期不做）
 

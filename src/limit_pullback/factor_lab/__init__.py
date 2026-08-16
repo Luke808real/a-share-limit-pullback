@@ -228,6 +228,49 @@ def b2_next_day_back_under_platform(
     return next_day[0].close < platform_price
 
 
+def b2_long_upper_shadow(bars, anchor_date: date, b2_date: date) -> bool | None:
+    """F22: 巨量长上影布尔因子（EOD failure-risk diagnostic）。
+
+    Contract (F22 CONTRACT / PIT FROZEN, AUTHORITY d3325e2, K=1.0 OWNER_FROZEN):
+      UPPER_SHADOW = high(B2) - max(open(B2), close(B2))
+      BODY         = abs(close(B2) - open(B2))
+      SHAPE_TRUE   = UPPER_SHADOW > 0 AND UPPER_SHADOW >= BODY  (multiplicative
+                     form; BODY == 0 is legal: BODY=0 & UPPER_SHADOW>0 ->
+                     SHAPE_TRUE, BODY=0 & UPPER_SHADOW==0 -> SHAPE_FALSE; no
+                     division, no divide-by-zero)
+      PRE5         = strictly last 5 visible sessions before B2
+                     (trade_date < b2_date only; future rows never participate;
+                     B2 itself never in the mean)
+      VOL_RATIO    = vol(B2) / mean(vol(PRE5)); VOLUME_TRUE = VOL_RATIO >= 1.5
+      F22_TRUE     = SHAPE_TRUE AND VOLUME_TRUE; else, if computable: False
+                     (DEFINED FALSE — never undefined on threshold miss)
+      None (undefined) ONLY for data-incomputability: INSUFFICIENT_PRE5
+                     (PRE5_N < 5) or ZERO_DENOMINATOR (mean(PRE5 vol) == 0).
+      Fail closed: anchor or B2 bar missing -> ValueError. Duplicate dates /
+      multi-code bars fail closed via _ordered/_require_anchor.
+    """
+    ordered = _ordered(bars)
+    _require_anchor(ordered, anchor_date)
+    by_date = _by_date(ordered)
+    b2_bar = by_date.get(b2_date)
+    if b2_bar is None:
+        raise ValueError(f"b2 bar missing: {b2_date}")
+    pre = tuple(bar for bar in ordered if bar.trade_date < b2_date)
+    window = pre[-5:]
+    if len(window) < 5:
+        return None
+    mean_vol = _mean(bar.volume for bar in window)
+    if mean_vol is None or mean_vol == ZERO:
+        return None
+    upper_shadow = b2_bar.high - (
+        b2_bar.open if b2_bar.open > b2_bar.close else b2_bar.close
+    )
+    body = abs(b2_bar.close - b2_bar.open)
+    shape_true = upper_shadow > ZERO and upper_shadow >= body  # K = 1.0
+    volume_true = b2_bar.volume / mean_vol >= Decimal("1.5")
+    return shape_true and volume_true
+
+
 def pullback_down_volume_count(bars, anchor_date: date, as_of: date) -> int | None:
     """F23: count of pullback sessions after T0 through as_of where
     close(i) < close(i-1) and volume(i) > volume(i-1); the previous session

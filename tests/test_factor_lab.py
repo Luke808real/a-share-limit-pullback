@@ -953,3 +953,160 @@ def test_f18_e04_activation_requires_low_inside_body() -> None:
         )
         == 1
     )
+
+
+# ---------- F22 巨量长上影（b2_long_upper_shadow） ----------
+
+def _f22_bars(ohlcv: list[tuple[str, str, str, str, str]]) -> list:
+    """ohlcv rows: (open, high, low, close, volume); 6 rows = 5 pre-B2 + B2."""
+    days = business_dates(date(2026, 2, 2), len(ohlcv))
+    bars = []
+    for day, (op, hi, lo, cl, vol) in zip(days, ohlcv, strict=True):
+        bars.append(
+            make_bar(
+                day,
+                open_price=op,
+                high=hi,
+                low=lo,
+                close=cl,
+                preclose="10.00",
+                volume=vol,
+            )
+        )
+    return bars
+
+
+def test_f22_true_long_upper_shadow_and_volume() -> None:
+    # B2: open 10.00 close 10.20 (body 0.20), high 11.00 (upper shadow 0.80 >= body)
+    # vol 300 vs mean(100*5)=100 -> ratio 3.0 >= 1.5
+    bars = _f22_bars([
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "11.00", "9.90", "10.20", "300"),
+    ])
+    anchor = bars[0].trade_date
+    b2 = bars[-1].trade_date
+    assert fl.b2_long_upper_shadow(bars, anchor, b2) is True
+
+
+def test_f22_shape_true_volume_false() -> None:
+    # long upper shadow but volume ratio 1.0 < 1.5 -> DEFINED FALSE
+    bars = _f22_bars([
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "11.00", "9.90", "10.20", "100"),
+    ])
+    assert fl.b2_long_upper_shadow(bars, bars[0].trade_date, bars[-1].trade_date) is False
+
+
+def test_f22_shape_false_short_shadow() -> None:
+    # upper shadow 0.10 < body 0.50 -> SHAPE_FALSE -> DEFINED FALSE
+    bars = _f22_bars([
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.60", "9.40", "10.50", "300"),
+    ])
+    assert fl.b2_long_upper_shadow(bars, bars[0].trade_date, bars[-1].trade_date) is False
+
+
+def test_f22_body_zero_positive_shadow() -> None:
+    # doji: open == close == 10.00, high 11.00 -> upper shadow 1.00 > 0 -> SHAPE_TRUE
+    bars = _f22_bars([
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "11.00", "9.90", "10.00", "300"),
+    ])
+    assert fl.b2_long_upper_shadow(bars, bars[0].trade_date, bars[-1].trade_date) is True
+
+
+def test_f22_body_zero_no_shadow() -> None:
+    # doji with no upper shadow (high == open == close) -> SHAPE_FALSE
+    bars = _f22_bars([
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.00", "9.90", "10.00", "300"),
+    ])
+    assert fl.b2_long_upper_shadow(bars, bars[0].trade_date, bars[-1].trade_date) is False
+
+
+def test_f22_insufficient_pre5_is_none() -> None:
+    bars = _f22_bars([
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "11.00", "9.90", "10.20", "300"),
+    ])
+    assert fl.b2_long_upper_shadow(bars, bars[0].trade_date, bars[-1].trade_date) is None
+
+
+def test_f22_zero_mean_volume_is_none() -> None:
+    bars = _f22_bars([
+        ("10.00", "10.10", "9.90", "10.00", "0"),
+        ("10.00", "10.10", "9.90", "10.00", "0"),
+        ("10.00", "10.10", "9.90", "10.00", "0"),
+        ("10.00", "10.10", "9.90", "10.00", "0"),
+        ("10.00", "10.10", "9.90", "10.00", "0"),
+        ("10.00", "11.00", "9.90", "10.20", "300"),
+    ])
+    assert fl.b2_long_upper_shadow(bars, bars[0].trade_date, bars[-1].trade_date) is None
+
+
+def test_f22_b2_missing_raises() -> None:
+    bars = _f22_bars([
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "11.00", "9.90", "10.20", "300"),
+    ])
+    with pytest.raises(ValueError, match="b2 bar missing"):
+        fl.b2_long_upper_shadow(bars, bars[0].trade_date, date(2030, 1, 1))
+
+
+def test_f22_anchor_missing_raises() -> None:
+    bars = _f22_bars([
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "11.00", "9.90", "10.20", "300"),
+    ])
+    with pytest.raises(ValueError, match="anchor"):
+        fl.b2_long_upper_shadow(bars, date(2030, 1, 1), bars[-1].trade_date)
+
+
+def test_f22_future_rows_do_not_leak() -> None:
+    # B2 = 6th bar; 7th bar with enormous volume and huge shadow must not participate
+    days = business_dates(date(2026, 2, 2), 7)
+    rows = [
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "11.00", "9.90", "10.20", "300"),
+        ("10.00", "99.00", "9.90", "10.20", "99999"),
+    ]
+    bars = [
+        make_bar(day, open_price=op, high=hi, low=lo, close=cl, preclose="10.00", volume=vol)
+        for day, (op, hi, lo, cl, vol) in zip(days, rows, strict=True)
+    ]
+    b2 = bars[5].trade_date
+    assert fl.b2_long_upper_shadow(bars, bars[0].trade_date, b2) is True
