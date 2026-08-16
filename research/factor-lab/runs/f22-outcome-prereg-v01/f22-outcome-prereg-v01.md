@@ -46,6 +46,22 @@ AND setup_stage ∈ {B2_READY, B2_CONFIRMED}
   OTHER_ERROR）**单独 accounting**，不进 primary population（F18/F20
   undefined-isolation 纪律）
 
+## 3b. MATERIALIZATION ACCOUNTING（required output contract，冻结）
+
+validation artifact 必须固定输出以下五项（缺一不可，fail closed）：
+
+```
+POPULATION_N         域内 episode 总数（resolved AND B2-stage）
+DEFINED_TRUE_N       materialize 后 F22_TRUE 数
+DEFINED_FALSE_N      materialize 后 F22_FALSE 数
+UNDEFINED_N          materialize 后 undefined 数
+UNDEFINED_REASONS    各 reason 计数（INSUFFICIENT_PRE5 / ZERO_DENOMINATOR /
+                      MISSING_B2_BAR / OTHER_ERROR）
+```
+
+守恒约束（fail closed）：`DEFINED_TRUE_N + DEFINED_FALSE_N + UNDEFINED_N
+== POPULATION_N`；任何 OTHER_ERROR 必须阻止 artifact 产出。
+
 ## 4. OUTCOME MAPPING
 
 - strict binary：`WIN_S1 = 1`（成功），`LOSS_INVALID = 0`（失败）
@@ -54,43 +70,56 @@ AND setup_stage ∈ {B2_READY, B2_CONFIRMED}
 - R 定义：仅 WIN_S1 + LOSS_INVALID 且 r_multiple 数值化（R-defined 子集）；
   `P(R>0)`、`mean_R`、`median_R` 在该子集上计算
 
-## 5. PRIMARY METRICS（F22_TRUE vs F22_FALSE 两组对比）
+## 5. PRIMARY METRICS（F22_TRUE vs F22_FALSE 两组对比，冻结）
 
-- `Δstrict_win_rate = strict_win_rate(F22_TRUE) − strict_win_rate(F22_FALSE)`
-  （strict denominator：WIN_S1 + LOSS_INVALID）
-- `ΔP(R>0) = P(R>0 | F22_TRUE) − P(R>0 | F22_FALSE)`（R-defined 子集）
-- 报告：各组 N、WIN_S1、LOSS_INVALID、CANCEL_GAP、strict_win_rate、
-  R_DEFINED_N、P(R>0)、mean_R、median_R，以及两个 Δ
+strict denominator：WIN_S1 + LOSS_INVALID（CANCEL_GAP_INVALID 排除）。
+
+- `FAIL_RATE = LOSS_INVALID / (WIN_S1 + LOSS_INVALID)`（即 1 − strict_win_rate）
+- `DELTA_FAIL_RATE = FAIL_RATE(F22_TRUE) − FAIL_RATE(F22_FALSE)`
+- `OR_FAILURE = odds(LOSS_INVALID | F22_TRUE) / odds(LOSS_INVALID | F22_FALSE)`，
+  其中 odds(LOSS_INVALID | group) = LOSS_INVALID / WIN_S1（组内）
+- 报告：各组 N、WIN_S1、LOSS_INVALID、CANCEL_GAP、FAIL_RATE、
+  strict_win_rate、OR_FAILURE、DELTA_FAIL_RATE，以及 R-defined 子集的
+  P(R>0)、mean_R、median_R（**P(R>0) 仅 secondary/descriptive，不进 gate**）
 
 ## 6. VERDICT GATE（预注册唯一 gate，冻结不变）
 
 ```
-Δstrict_win_rate < 0 AND ΔP(R>0) < 0  →  SUPPORTED_DIRECTIONALLY
-（F22_TRUE 组成功概率更低 → 支持"F22_TRUE 预示失败风险"）
-否则                                    →  REJECT
+DELTA_FAIL_RATE > 0 AND OR_FAILURE > 1  →  SUPPORTED_DIRECTIONALLY
+（F22_TRUE 组失败率更高 → 支持"F22_TRUE 预示失败风险"）
+否则                                      →  REJECT
 ```
 
 - SUPPORTED_DIRECTIONALLY ≠ VALIDATED ≠ PROMOTED
-- 若 Δ > 0（F22_TRUE 反而更好）→ REJECT 该假设并记录方向反转（observation）
-- 不允许替换/增补 metric 改变 verdict
-- PRIMARY_RHO_UNDEFINED 等价情形（任一组 N < 2 或全部同值）→ **FAIL CLOSED**
-  （抛错不产出 artifact），不得映射为 REJECT
+- 若 DELTA_FAIL_RATE < 0（F22_TRUE 反而更成功）→ REJECT 该假设并记录
+  方向反转（observation）
+- 不允许替换/增补 metric 改变 verdict；P(R>0) 不得进入 gate
+- **PRIMARY_METRIC_UNDEFINED**（F22 primary 无 rho；此术语替代 F20 时代的
+  rho-undefined 概念）→ **FAIL CLOSED**（抛错不产出 artifact），不得映射为
+  REJECT：
+  - 任一组 strict denominator N < 2（zero cell）
+  - odds denominator 为 0（组内 WIN_S1 = 0 或 LOSS_INVALID = 0 → OR_FAILURE
+    无法计算）
+  - 其他 primary metric undefined
+- **禁止 continuity correction / 0.5 correction**（预注册不冻结修正项）
 
-## 7. PRIMARY SMALL_CELL POLICY
+## 7. PRIMARY SMALL_CELL POLICY（verdict precedence 冻结）
 
-- F22_TRUE 或 F22_FALSE 组 strict denominator N < 20 → 报告标记
-  `PRIMARY_SMALL_CELL`；verdict 仍按 gate 计算，但结论标注"不可靠/仅提示"，
-  不做强解释、不升级
+- F22_TRUE 或 F22_FALSE 组 strict denominator **N < 20** →
+  `PRIMARY_SMALL_CELL` → `STATUS = INSUFFICIENT_PRIMARY_N`
+  - **禁止 SUPPORTED_DIRECTIONALLY**（小样本不得产生支持结论）
+  - primary metrics 仍可 descriptive 输出，但结论级别固定为
+    INSUFFICIENT_PRIMARY_N（不是 REJECT、不是 SUPPORTED）
 
 ## 8. SECONDARY DESCRIPTIVE（仅描述，不改变 verdict）
 
 - stage composition：B2_READY / B2_CONFIRMED 每层 F22_TRUE vs F22_FALSE 的
-  Δstrict_win_rate、ΔP(R>0) 方向；任一层任一侧 N < 20 → SMALL_CELL 排除
+  FAIL_RATE、P(R>0) 方向；任一层任一侧 N < 20 → SMALL_CELL 排除
 - timing composition：T1-2 / T3 / T4-5 / T6-10（days_since_anchor）同上
 - R 尾部诊断（H4B right-tail caveat）：R-defined 子集的
   p90/p95/p99/max/top1pct_contribution/trim_mean——不作为 gate
-- 各组 descriptive 表（N、strict_win_rate、P(R>0)、mean_R、median_R、
-  CANCEL_GAP 计数）
+- 各组 descriptive 表（N、strict_win_rate、FAIL_RATE、P(R>0)、mean_R、
+  median_R、CANCEL_GAP 计数）
 
 ## 9. PIT
 
