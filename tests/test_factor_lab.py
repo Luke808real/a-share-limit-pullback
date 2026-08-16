@@ -1097,3 +1097,89 @@ def test_f22_future_rows_do_not_leak() -> None:
     ]
     b2 = bars[5].trade_date
     assert fl.b2_huge_upper_shadow_volume(bars, b2) is True
+
+
+def test_f22_exact_boundary_true() -> None:
+    # upper_shadow == body (0.20) AND vol_ratio == exactly 1.5 -> True
+    # locks >= (not >) for both K=1.0 and VOL_THRESHOLD=1.5
+    bars = _f22_bars([
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.40", "9.90", "10.20", "150"),  # upper = 0.20 == body, ratio = 1.5
+    ])
+    assert fl.b2_huge_upper_shadow_volume(bars, bars[-1].trade_date) is True
+
+
+def test_f22_strictly_last_5_pre_bars() -> None:
+    # 6 pre-B2 bars: first vol=1000 must NOT enter the mean (strictly last 5)
+    # wrong impl (all 6): mean=(1000+500)/6=250 -> ratio 0.6 -> False
+    days = business_dates(date(2026, 2, 2), 7)
+    rows = [
+        ("10.00", "10.10", "9.90", "10.00", "1000"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.40", "9.90", "10.20", "150"),  # B2; last-5 mean = 100 -> ratio 1.5
+    ]
+    bars = [
+        make_bar(day, open_price=op, high=hi, low=lo, close=cl, preclose="10.00", volume=vol)
+        for day, (op, hi, lo, cl, vol) in zip(days, rows, strict=True)
+    ]
+    assert fl.b2_huge_upper_shadow_volume(bars, bars[-1].trade_date) is True
+
+
+def test_f22_duplicate_trade_date_fails_closed() -> None:
+    bars = _f22_bars([
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "11.00", "9.90", "10.20", "300"),
+    ])
+    dup = make_bar(bars[-1].trade_date, open_price="10.00", high="11.00", low="9.90",
+                   close="10.20", preclose="10.00", volume="300")
+    with pytest.raises(ValueError):
+        fl.b2_huge_upper_shadow_volume(bars + [dup], bars[-1].trade_date)
+
+
+def test_f22_multi_code_fails_closed() -> None:
+    bars = _f22_bars([
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "11.00", "9.90", "10.20", "300"),
+    ])
+    other = make_bar(date(2026, 3, 2), code="600001", open_price="10.00", high="11.00",
+                     low="9.90", close="10.20", preclose="10.00", volume="300")
+    with pytest.raises(ValueError):
+        fl.b2_huge_upper_shadow_volume(bars + [other], bars[-1].trade_date)
+
+
+def test_f22_pre5_n_boundaries_none() -> None:
+    # PRE5_N == 0: only the B2 bar
+    one = make_bar(date(2026, 2, 9), open_price="10.00", high="11.00", low="9.90",
+                   close="10.20", preclose="10.00", volume="300")
+    assert fl.b2_huge_upper_shadow_volume([one], one.trade_date) is None
+    # PRE5_N == 1
+    bars1 = _f22_bars([
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "11.00", "9.90", "10.20", "300"),
+    ])
+    assert fl.b2_huge_upper_shadow_volume(bars1, bars1[-1].trade_date) is None
+    # PRE5_N == 4
+    bars4 = _f22_bars([
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "11.00", "9.90", "10.20", "300"),
+    ])
+    assert fl.b2_huge_upper_shadow_volume(bars4, bars4[-1].trade_date) is None

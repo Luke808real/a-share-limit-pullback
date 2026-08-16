@@ -250,6 +250,8 @@ def b2_huge_upper_shadow_volume(bars, b2_date: date) -> bool | None:
       ValueError("b2 bar missing ..."). Single-code / duplicate-date checks
       follow the factor_lab `_ordered` convention. No anchor is required by
       the F22 contract (B2-event EOD diagnostic uses only B2 OHLCV + PRE5).
+      INVALID_B2_OHLCV is enforced by canonical DailyBar validation upstream;
+      this entrypoint assumes valid DailyBar objects (no local OHLC re-check).
     """
     ordered = _ordered(bars)
     by_date = _by_date(ordered)
