@@ -1183,3 +1183,26 @@ def test_f22_pre5_n_boundaries_none() -> None:
         ("10.00", "11.00", "9.90", "10.20", "300"),
     ])
     assert fl.b2_huge_upper_shadow_volume(bars4, bars4[-1].trade_date) is None
+
+
+def test_f22_no_anchor_required() -> None:
+    # F22 has no anchor concept: bars = PRE5 + B2 only, no anchor bar anywhere;
+    # must compute a normal True/False result.
+    bars = _f22_bars([
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "11.00", "9.90", "10.20", "300"),
+    ])
+    assert fl.b2_huge_upper_shadow_volume(bars, bars[-1].trade_date) is True
+    bars_false = _f22_bars([
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "10.10", "9.90", "10.00", "100"),
+        ("10.00", "11.00", "9.90", "10.20", "100"),
+    ])
+    assert fl.b2_huge_upper_shadow_volume(bars_false, bars_false[-1].trade_date) is False
