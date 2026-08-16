@@ -1393,17 +1393,27 @@ def repair_daily_sessions(
     boundary.
 
     ``repair_lineage`` is required and must satisfy the shared tag contract.
-    ``provider_name`` names the authoritative primary source for persistent
-    provenance (raw paths, source_files, manifest hashes); the default
-    "TUSHARE" keeps historical behavior, "ASL" makes the ASL lake the
-    primary source while the reconciliation logic still treats it as the
-    authoritative "TUSHARE" slot.
-    The run identity is ``_run_id("daily-session-repair", base_snapshot_id,
-    parent_run_id, tuple(repair_dates), policy.policy_version,
-    repair_lineage)``; a completed run with no pending failures is ALWAYS
-    reused (deterministic, never rewritten in place).
+    ``provider_name`` names the authoritative primary source on ALL THREE
+    layers — run identity, persistent provenance (raw paths, source_files,
+    manifest hashes) and canonical ``selected_provider`` — and must be one
+    of {"TUSHARE", "ASL"} (anything else: ``REPAIR_PROVIDER_UNSUPPORTED``
+    before any side effect).
+    The run identity is provider-bound: TUSHARE keeps the exact legacy
+    ``_run_id("daily-session-repair", base_snapshot_id, parent_run_id,
+    tuple(repair_dates), policy.policy_version, repair_lineage)`` expression
+    bit-for-bit, ASL uses a separate ``daily-session-repair-asl`` namespace,
+    so the two execution lineages can never share identity or overwrite
+    each other's attempts. A completed run with no pending failures is
+    ALWAYS reused (deterministic, never rewritten in place) and its recorded
+    provider must match the requested one
+    (``REPAIR_PROVIDER_IDENTITY_MISMATCH``).
     """
 
+    if provider_name not in ("TUSHARE", "ASL"):
+        raise PipelineError(
+            "REPAIR_PROVIDER_UNSUPPORTED",
+            f"provider_name must be TUSHARE or ASL; got {provider_name!r}",
+        )
     if repair_lineage is None:
         raise PipelineError(
             "REPAIR_LINEAGE_REQUIRED",
@@ -1457,14 +1467,29 @@ def repair_daily_sessions(
                         f"as_of {base.as_of.isoformat()}",
                     )
                 notes: list[str] = []
-                run_id = _run_id(
-                    "daily-session-repair",
-                    base_snapshot_id,
-                    parent_run_id,
-                    dates,
-                    policy.policy_version,
-                    repair_lineage,
-                )
+                if provider_name == "TUSHARE":
+                    # EXACT legacy identity: bit-for-bit unchanged so every
+                    # historical TUSHARE repair run keeps resolving.
+                    run_id = _run_id(
+                        "daily-session-repair",
+                        base_snapshot_id,
+                        parent_run_id,
+                        dates,
+                        policy.policy_version,
+                        repair_lineage,
+                    )
+                else:
+                    # ASL is a DIFFERENT execution lineage: separate
+                    # namespace so it can never share or overwrite a
+                    # TUSHARE run's identity (provider-bound identity).
+                    run_id = _run_id(
+                        "daily-session-repair-asl",
+                        base_snapshot_id,
+                        parent_run_id,
+                        dates,
+                        policy.policy_version,
+                        repair_lineage,
+                    )
                 heartbeat = _Heartbeat(layout=layout, run_id=run_id, clock=clock)
                 heartbeat.start()
                 start_wall = time.monotonic()
@@ -1478,6 +1503,14 @@ def repair_daily_sessions(
                     # never through source-hash marker search, which would
                     # drift once a descendant snapshot inherits these hashes.
                     run_config = json.loads(existing.config_json or "{}")
+                    recorded_provider = run_config.get("provider_name")
+                    if recorded_provider != provider_name:
+                        raise PipelineError(
+                            "REPAIR_PROVIDER_IDENTITY_MISMATCH",
+                            f"completed repair run {run_id} was recorded with "
+                            f"provider {recorded_provider!r} but requested "
+                            f"provider is {provider_name!r}",
+                        )
                     published_id = run_config.get("published_snapshot_id")
                     if published_id is None:
                         raise PipelineError(
@@ -1789,15 +1822,14 @@ def repair_daily_sessions(
                         )
 
                 rows_by_provider: dict[str, list[dict[str, Any]]] = {}
-                # The primary source (TUSHARE by default, or the ASL lake
-                # when provider_name="ASL") occupies the reconciliation
-                # "TUSHARE" slot: reconcile_daily_rows treats that slot as
-                # the authoritative preferred source for CONFIRMED verdicts
-                # and corporate-action preclose handling. Persistent
-                # provenance (raw paths, source_files, manifest hashes) is
-                # honest to the real provider via provider_name.
+                # The primary source occupies its OWN provider slot
+                # ("TUSHARE" or "ASL"): reconcile_daily_rows treats the
+                # primary_provider slot as the authoritative preferred
+                # source for CONFIRMED verdicts and corporate-action
+                # preclose handling, so canonical selected_provider is
+                # honest to the real data source.
                 if tushare_daily:
-                    rows_by_provider["TUSHARE"] = tushare_daily
+                    rows_by_provider[provider_name] = tushare_daily
                 if akshare_parent:
                     rows_by_provider["AKSHARE"] = akshare_parent
                 if baostock_parent:
@@ -1807,6 +1839,7 @@ def repair_daily_sessions(
                     policy=policy,
                     clock=clock,
                     adjustment_factor_rows=tushare_aux.get("adjustment_factor", []),
+                    primary_provider=provider_name,
                 )
 
                 # Every repair date must produce at least one CONFIRMED row;
@@ -1841,19 +1874,37 @@ def repair_daily_sessions(
                     )
                 pool_rows = read_snapshot_pool(layout, base)
 
+                # Source isolation: only the requested primary provider's
+                # sources may enter this run's provenance. A foreign
+                # provider source under the same run_id (e.g. a leftover
+                # from a previous cross-provider attempt) fails closed
+                # instead of being silently carried into the snapshot.
                 source_rows = metadata._connection.execute(
-                    "SELECT path, sha256, row_count FROM source_files "
+                    "SELECT path, sha256, row_count, provider FROM source_files "
                     "WHERE ingest_run_id = ?",
                     [run_id],
                 ).fetchall()
+                foreign_sources = [
+                    (path_value, provider)
+                    for path_value, _sha, _row_count, provider in source_rows
+                    if provider != provider_name
+                ]
+                if foreign_sources:
+                    raise PipelineError(
+                        "REPAIR_RUN_FOREIGN_SOURCE_PROVIDER",
+                        f"repair run {run_id} contains "
+                        f"{len(foreign_sources)} source file(s) from a "
+                        f"foreign provider (expected {provider_name}), "
+                        f"e.g. {foreign_sources[:3]}",
+                    )
                 new_repair_hashes = {
                     str(Path(path_value).relative_to(layout.root)): sha
-                    for path_value, sha, _row_count in source_rows
+                    for path_value, sha, _row_count, _provider in source_rows
                 }
                 # Snapshot provenance is the union of every source actually
                 # used: base snapshot sources + verified parent AK/BS hashes +
-                # new repair-run TUSHARE hashes. The same source path with two
-                # different hashes fails closed.
+                # new repair-run primary-provider hashes. The same source path
+                # with two different hashes fails closed.
                 source_file_hashes: dict[str, str] = {}
                 for label, hashes in (
                     ("base", base.source_file_hashes),
@@ -1927,7 +1978,7 @@ def repair_daily_sessions(
                     quarantine_by_date=quarantine_by_date,
                 )
                 metrics["rows_written"] = sum(
-                    row_count for _, _, row_count in source_rows
+                    row_count for _, _, row_count, _ in source_rows
                 )
                 metrics["wall_seconds"] = round(time.monotonic() - start_wall, 3)
                 heartbeat.stop()

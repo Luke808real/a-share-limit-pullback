@@ -228,11 +228,24 @@ def test_asl_provider_full_repair_succeeds(tmp_path) -> None:
         # provenance carries new ASL hashes
         asl_keys = [k for k in repaired.source_file_hashes if "/asl/" in k.lower()]
         assert asl_keys, "no ASL sources in snapshot provenance"
-        # composed rows all CONFIRMED on repair dates
+        # composed rows all CONFIRMED on repair dates with HONEST canonical
+        # provider provenance (selected_provider = ASL, not the TUSHARE slot)
         daily = read_snapshot_daily(layout, repaired)
         for row in daily:
             if row["trade_date"] in REPAIR_DATES:
                 assert row["reconciliation_status"] == "CONFIRMED"
+                assert row["selected_provider"] == "ASL"
+        # reconciliation records carry ASL as provider and in notes
+        rec = metadata._connection.execute(
+            "SELECT providers, selected_provider, notes FROM reconciliation_results "
+            "WHERE snapshot_id = ? AND trade_date = ? LIMIT 3",
+            [result.snapshot_id, D22],
+        ).fetchall()
+        assert rec, "no reconciliation records for repaired snapshot"
+        for providers, selected, notes in rec:
+            assert selected == "ASL"
+            assert "ASL" in providers
+            assert "ASL_AKSHARE_AGREEMENT" in (notes or "")
 
 
 # ---------- 2. adjustment-factor coverage: predecessor + repair dates ----------

@@ -148,12 +148,18 @@ def reconcile_daily_rows(
     snapshot_id: str | None = None,
     clock=None,
     adjustment_factor_rows: Sequence[Mapping[str, Any]] = (),
+    primary_provider: str = "TUSHARE",
 ) -> tuple[list[dict[str, Any]], list[ReconciliationRecord], list[QuarantineRecord]]:
     """Return (canonical rows, reconciliation records, quarantine records).
 
     Canonical rows are emitted only for CONFIRMED pairs. Conflicts are
     quarantined and never published. Rows are never merged field-by-field
     across providers.
+
+    ``primary_provider`` names the authoritative preferred source slot
+    (default "TUSHARE", bit-for-bit unchanged behavior). The ASL repair
+    passes ``primary_provider="ASL"`` so canonical provenance honestly
+    records ASL as the selected provider.
     """
 
     policy = policy or ReconciliationPolicy()
@@ -222,13 +228,13 @@ def reconcile_daily_rows(
 
         corporate_action = False
         if conflict is None and preclose_divergences:
-            tushare_row = usable.get("TUSHARE")
-            if tushare_row is not None:
+            primary_row = usable.get(primary_provider)
+            if primary_row is not None:
                 corporate_action = (
                     _corporate_action_confirmed(
                         code, trade_date, adjustment_factor_rows
                     )
-                    and _pct_change_consistent(tushare_row)
+                    and _pct_change_consistent(primary_row)
                 )
             if not corporate_action:
                 conflict = "PRECLOSE_DIVERGENCE_UNCONFIRMED"
@@ -263,19 +269,23 @@ def reconcile_daily_rows(
             )
             continue
 
-        if corporate_action and "TUSHARE" in usable and "AKSHARE" in usable:
+        if (
+            corporate_action
+            and primary_provider in usable
+            and "AKSHARE" in usable
+        ):
             status = CONFIRMED
-            selected = "TUSHARE"
+            selected = primary_provider
             notes = [
-                "TUSHARE_AKSHARE_AGREEMENT",
+                f"{primary_provider}_AKSHARE_AGREEMENT",
                 CORPORATE_ACTION_PRECLOSE_DIVERGENCE,
             ]
             if "BAOSTOCK" not in usable:
                 notes.append("BAOSTOCK_LAGGING")
-        elif "TUSHARE" in usable and "AKSHARE" in usable:
+        elif primary_provider in usable and "AKSHARE" in usable:
             status = CONFIRMED
-            selected = "TUSHARE"
-            notes: list[str] = ["TUSHARE_AKSHARE_AGREEMENT"]
+            selected = primary_provider
+            notes: list[str] = [f"{primary_provider}_AKSHARE_AGREEMENT"]
             if "BAOSTOCK" not in usable:
                 notes.append("BAOSTOCK_LAGGING")
         elif len(providers) == 1:
@@ -285,7 +295,11 @@ def reconcile_daily_rows(
         else:
             status = PROVISIONAL
             selected = (
-                "TUSHARE" if "TUSHARE" in usable else "AKSHARE" if "AKSHARE" in usable else "BAOSTOCK"
+                primary_provider
+                if primary_provider in usable
+                else "AKSHARE"
+                if "AKSHARE" in usable
+                else "BAOSTOCK"
             )
             notes = ["PARTIAL_CROSS_VALIDATION"]
 
