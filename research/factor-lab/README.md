@@ -145,3 +145,21 @@ L2 研究因子层 + L3 统计验证层的落点。目标见 docs/ARCHITECTURE_G
   Δstrict_win_rate / ΔP(R>0) 双负 → SUPPORTED_DIRECTIONALLY 否则 REJECT；
   SMALL_CELL N<20；禁止 threshold mining / 子组 rescue；undefined 仅
   accounting。产物：runs/f22-outcome-prereg-v01/f22-outcome-prereg-v01.md。
+- research/f22-outcome-validation-v01（2026-08-16，F22 OUTCOME VALIDATION
+  V01；预注册 3d2c8a7 PASS/FROZEN/CLOSED 后正式验证）：population = resolved
+  AND stage ∈ {B2_READY, B2_CONFIRMED}，POPULATION_N=3214；F22 materialize
+  全部成功：DEFINED_TRUE_N=196、DEFINED_FALSE_N=3018、UNDEFINED_N=0（无
+  undefined reason，守恒成立）。primary：PRIMARY_TRUE_N=176（WIN 129 /
+  LOSS 47，FAIL_RATE=0.2670）、PRIMARY_FALSE_N=2722（WIN 1904 / LOSS 818，
+  FAIL_RATE=0.3005）；DELTA_FAIL_RATE=-0.0335（<0，方向反转）AND
+  OR_FAILURE=0.8481（<1）→ **OUTCOME VALIDATION = REJECT**（F22_TRUE 组失败
+  率反而更低，H22A 不支持；方向反转按 prereg §6 记录 observation）。
+  stage/timing composition 仅描述（B2_READY TRUE 0.359 vs FALSE 0.366；
+  B2_CONFIRMED TRUE 0.214 vs FALSE 0.244；T1-2 TRUE 0.364 vs FALSE 0.371，
+  其余 timing 层 TRUE 均更低），不改变 verdict。产物：
+  runs/f22-outcome-validation-v01/f22-outcome-validation-v01.{json,md}；
+  测试：tests/test_f22_validation.py（SHA 门禁、no bypass、undefined
+  isolation、accounting 守恒、CANCEL 排除、numeric-R、primary metrics 手算、
+  verdict 分支、PRIMARY_METRIC_UNDEFINED fail closed、small cell N<20、
+  B1_READY 排除、future leakage）。VALIDATED = NO；PROMOTED = NO；
+  禁止 threshold mining；不得写 SUPPORTED / VALIDATED。
