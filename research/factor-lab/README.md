@@ -137,3 +137,11 @@ L2 研究因子层 + L3 统计验证层的落点。目标见 docs/ARCHITECTURE_G
   IMPLEMENTATION PENDING REVIEW**；不得写 VALIDATED / SUPPORTED / PROMOTED；
   prereg 冻结前禁止看 F22_TRUE vs outcome。测试：tests/test_factor_lab.py
   （F22 10 项：TRUE/FALSE/BODY=0/PRE5<5/零均量/缺失 fail closed/future leak）。
+- research/f22-outcome-prereg-v01（2026-08-16，F22 OUTCOME VALIDATION
+  PREREGISTRATION V01；**PREREGISTERED / NOT RUN**）：H22A——B2 日巨量长
+  上影（F22_TRUE）预示 SECOND_LAUNCH 失败风险更高（EOD failure-risk
+  diagnostic，负面信号）。population = resolved AND stage ∈ {B2_READY,
+  B2_CONFIRMED}；strict binary（CANCEL_GAP 排除）+ R-defined；primary
+  Δstrict_win_rate / ΔP(R>0) 双负 → SUPPORTED_DIRECTIONALLY 否则 REJECT；
+  SMALL_CELL N<20；禁止 threshold mining / 子组 rescue；undefined 仅
+  accounting。产物：runs/f22-outcome-prereg-v01/f22-outcome-prereg-v01.md。
