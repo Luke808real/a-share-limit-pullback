@@ -33,16 +33,22 @@
      只能支持 `CONDITIONAL_ON_OBSERVED_SIGNAL_COHORT` 研究。
    - 任何 T0 分母估计都会引入 ascertainment truncation（向上选择偏差）。
 
-2. **TIMEBASE 审计 = MISMATCH（不能直接冻结 days_since_anchor）**
-   - ROWS_CHECKED = 31,422（全部合法 stage 行）
-   - MATCH_N = 31,044；MISMATCH_N = **378**；MISSING_ANCHOR_DATE_N = 0；
-     MISSING_SIGNAL_DATE_N = 0；MAX_ABS_DIFF = **18**
-   - 378 条 mismatch 中 100% 为 `days_since_anchor < trading-session
-     distance`（dsa 偏小；如 000008:20260330 → 2026-04-10，dsa=3 但
-     session distance=8）。
-   - **结论：不得把 `days_since_anchor` 冻结为 EVENT_TIME。**
-     EVENT_TIME 必须改为 canonical trading-session index distance
-     （用 frozen daily trade_date 逐 code 排序索引差），并记录 mismatch。
+2. **TIMEBASE 审计 = CLOSED（上一轮 378 条 mismatch 是 audit-method
+   artifact；generator-identical semantics 下 MISMATCH_N = 0）**
+   - **ROOT_CAUSE = AUDIT_TIMEBASE_SEMANTICS_MISMATCH**：上一轮 audit 用
+     `trade_status == True` 过滤 daily rows；而 frozen generator
+     （EPISODE_STRATEGY_COMMIT 315fbe0d）的 `_iter_confirmed_code_bars()`
+     使用 **`reconciliation_status == "CONFIRMED"`** 过滤，二者并非同一
+     row set，导致 378 条伪 mismatch（全部为 dsa < session distance）。
+   - 用与 generator 完全相同的输入语义重做只读 audit
+     （`reconciliation_status == "CONFIRMED"`，逐 code 按 trade_date 排序）：
+     - ROWS_CHECKED = 31,422；MATCH_N = **31,422**；MISMATCH_N = **0**；
+       MAX_ABS_DIFF = **0**；MISSING_ANCHOR/SIGNAL = 0
+   - **结论**：`days_since_anchor` 与 canonical trading-session index
+     distance 在 generator 语义下**完全一致**；该字段可冻结。
+   - EVENT_TIME 权威定义 = canonical trading-session index distance
+     （`reconciliation_status == "CONFIRMED"` 的逐 code trade_date 索引差）；
+     frozen `days_since_anchor` 与之等价（31,422/31,422 全匹配）。
 
 3. **DUPLICATE / STAGE ORDER = 干净，policy 收紧为 fail closed**
    - STAGE_ORDER_VIOLATION_N = 0（B1_READY <= B2_READY；B2_READY <=
@@ -89,7 +95,7 @@
 
 | 事件 | 定义 | 时间 |
 | --- | --- | --- |
-| EVENT_READY | 该 setup **首个** `setup_stage == B2_READY` 的行 | 该行 `signal_date`（= days_since_anchor 语义） |
+| EVENT_READY | 该 setup **首个** `setup_stage == B2_READY` 的行 | 该行 `signal_date`（EVENT_TIME = canonical trading-session index distance） |
 | EVENT_CONFIRMED | 该 setup **首个** `setup_stage == B2_CONFIRMED` 的行 | 该行 `signal_date` |
 
 - **每个 setup 最多贡献一次 EVENT_READY / EVENT_CONFIRMED**
@@ -98,8 +104,9 @@
   - setups with B1_READY：17689；B2_READY：10952；B2_CONFIRMED：2773
   - rows/setup ∈ {1,2,3}（6735 / 8181 / 2775）
   - **0 个 setup 在同一 stage 有 >1 行**（同一阶段最多一行）
-  - **0 个 violation：B2_READY 晚于 B1_READY；0 个 violation：
-    B2_CONFIRMED 早于 B2_READY**（阶段时序单调）
+  - **violation condition：B2_READY < B1_READY（observed = 0）；
+    B2_CONFIRMED < B2_READY（observed = 0）**——正常顺序
+    B1_READY <= B2_READY <= B2_CONFIRMED 单调成立（双向检查均 0）
 - WATCH_PULLBACK（8 行，execution_label B1_PREP）为阶段前记录；
   其中 2 个 setup 无 B1_READY 行——仍以 anchor_date 入列，不阻断。
 
@@ -120,11 +127,14 @@
 
 - 只用 `signal_date <= OBSERVATION_END` 的行；行内 `anchor_date`/
   `signal_date` 均来自冻结 snapshot（SHA 门禁）。
-- **EVENT_TIME（冻结决定）**：TIME_SCALE = trading sessions，且
-  EVENT_TIME = **canonical trading-session index distance**（用 frozen
-  daily trade_date 逐 code 排序后的索引差：index(signal_date) −
-  index(anchor_date)）。**不得使用 `days_since_anchor`**：timebase audit
-  显示 31,422 行中 378 行 mismatch（MAX_ABS_DIFF=18），该字段不可靠。
+- **EVENT_TIME（冻结决定，lineage 已闭合）**：TIME_SCALE = trading
+  sessions，EVENT_TIME = **canonical trading-session index distance**
+  （`reconciliation_status == "CONFIRMED"` 的逐 code trade_date 排序索引差：
+  index(signal_date) − index(anchor_date)，与 frozen generator
+  `_iter_confirmed_code_bars()` 输入语义完全一致）。
+  **frozen `days_since_anchor` 与该定义等价**（31,422/31,422 全匹配，
+  MAX_ABS_DIFF=0，lineage closeout 验证）；可使用 `days_since_anchor`
+  作为等价实现，权威定义仍以上述 canonical index distance 为准。
 
 ## 7. DUPLICATE / MULTIPLE SIGNAL POLICY（fail closed）
 
@@ -157,9 +167,11 @@
 1. **BLOCKER — T0 universe 不可枚举（CASE B）**：无任何冻结 authority 记录
    全部 T0 anchor（含从未触发 stage 的 setup）；episodes 仅为
    CONDITIONAL_ON_OBSERVED_SIGNAL cohort → 不得估计 T0 全体的 survival。
-2. `days_since_anchor` 字段与 canonical trading-session distance 不一致
-   （31,422 行中 378 行 mismatch，MAX_ABS_DIFF=18）→ 不得直接使用该字段；
-   EVENT_TIME 必须用 daily trade_date 重算。
+2. TIMEBASE lineage 已闭合：`days_since_anchor` 在 generator 语义
+   （`reconciliation_status == "CONFIRMED"`）下与 canonical
+   trading-session index distance 完全一致（31,422/31,422 匹配，
+   MAX_ABS_DIFF=0）；上一轮 378 条 mismatch 系 audit 使用了
+   `trade_status` 过滤所致（ROOT_CAUSE = AUDIT_TIMEBASE_SEMANTICS_MISMATCH）。
 3. OBSERVATION_END 为 snapshot 边界：2026-07-31 之后的事件不可见，
    靠近边界的 setup 删失率高（v01 已有 83 个删失近似）。
 4. 阶段行是"曾达到"记录，非每日 lineage——无法回答
