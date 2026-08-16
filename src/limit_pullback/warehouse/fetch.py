@@ -287,14 +287,34 @@ class FetchContext:
             rows=rows,
             updated_at=self.clock(),
         )
-        self.metadata._connection.execute(
-            """
-            UPDATE ingest_failures
-            SET status = 'RESOLVED', updated_at = ?
-            WHERE run_id = ? AND provider = ? AND dataset = ? AND code = ?
-            """,
-            [self.clock(), self.run_id, provider, dataset, code],
-        )
+        if code.startswith("DATE:"):
+            # Date-keyed progress resolves the matching trade_date failure
+            # (code is NULL on date failures; the old code-only UPDATE would
+            # never resolve them).
+            self.metadata._connection.execute(
+                """
+                UPDATE ingest_failures
+                SET status = 'RESOLVED', updated_at = ?
+                WHERE run_id = ? AND provider = ? AND dataset = ?
+                  AND trade_date = ? AND (code IS NULL OR code = '')
+                """,
+                [
+                    self.clock(),
+                    self.run_id,
+                    provider,
+                    dataset,
+                    date.fromisoformat(code[len("DATE:") :]),
+                ],
+            )
+        else:
+            self.metadata._connection.execute(
+                """
+                UPDATE ingest_failures
+                SET status = 'RESOLVED', updated_at = ?
+                WHERE run_id = ? AND provider = ? AND dataset = ? AND code = ?
+                """,
+                [self.clock(), self.run_id, provider, dataset, code],
+            )
 
     def _fail(
         self,
@@ -396,6 +416,7 @@ def fetch_rows(
     bulk_fn: Callable[[list[Any]], list[dict[str, Any]]] | None = None,
     use_bulk: bool = False,
     item_is_date: bool = False,
+    require_date_presence: bool = False,
     batch_size: int = 20,
     workers: int = 1,
     isolate_process: bool = False,
@@ -412,12 +433,27 @@ def fetch_rows(
     Items are codes (per-code fetch) or trade dates (bulk fetch). Completed
     items from a previous attempt are skipped; failed items are recorded and
     retried on the next run of the same run_id.
+
+    ``require_date_presence`` (bulk date fetch only): every requested trade
+    date must be present in the returned rows. A requested date with no
+    returned rows is recorded as a PENDING failure
+    (``EMPTY_BULK_DATE_RESULT``) instead of being marked COMPLETED, so a
+    silent empty provider response can never masquerade as a successful
+    fetch.
     """
 
     def key(item: Any) -> str:
         if item_is_date:
             return f"DATE:{item.isoformat()}"
         return str(item).zfill(6)
+
+    def _row_trade_date(row: dict[str, Any]) -> date | None:
+        value = row.get("trade_date")
+        if value is None:
+            return None
+        if isinstance(value, date):
+            return value
+        return date.fromisoformat(str(value))
 
     completed = ctx.completed(provider, dataset)
     pending_rows: list[dict[str, Any]] = []
@@ -447,8 +483,26 @@ def fetch_rows(
                     retries=ctx.retries,
                     backoff_seconds=ctx.backoff_seconds,
                 )
-                pending_rows.extend(rows)
-                pending_keys.extend(key(item) for item in todo)
+                if require_date_presence and item_is_date:
+                    returned_dates = {
+                        _row_trade_date(row) for row in rows if _row_trade_date(row) is not None
+                    }
+                    for item in todo:
+                        if item in returned_dates:
+                            pending_keys.append(key(item))
+                        else:
+                            ctx._fail(
+                                provider,
+                                dataset,
+                                None,
+                                item,
+                                "EMPTY_BULK_DATE_RESULT",
+                                status="PENDING",
+                            )
+                    pending_rows.extend(rows)
+                else:
+                    pending_rows.extend(rows)
+                    pending_keys.extend(key(item) for item in todo)
             except Exception as exc:
                 for item in todo:
                     _record_fetch_failure(

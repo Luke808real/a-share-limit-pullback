@@ -199,6 +199,38 @@ def _run_id(*parts: object) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:24]
 
 
+def _tushare_daily_missing_sessions(
+    layout: WarehouseLayout,
+    run_id: str,
+    trading_dates: Sequence[date],
+) -> list[date]:
+    """Distinct generator-visible TUSHARE daily sessions present for a run.
+
+    Reads TUSHARE/daily_bars/{run_id}-*.parquet (raw fetch output) and returns
+    the requested trading dates with NO row at all. This is the pre-snapshot
+    core-coverage gate input: MISSING != [] must fail closed before snapshot
+    publication (silent-empty-as-success must never publish a session gap).
+    """
+    directory = layout.raw_dataset_dir("TUSHARE", "daily_bars")
+    files = sorted(directory.glob(f"{run_id}-*.parquet"))
+    if not files:
+        return list(trading_dates)
+    import duckdb
+
+    glob_expr = str(directory / f"{run_id}-*.parquet")
+    con = duckdb.connect()
+    try:
+        present = {
+            row[0]
+            for row in con.execute(
+                f"SELECT DISTINCT trade_date FROM read_parquet('{glob_expr}')"
+            ).fetchall()
+        }
+    finally:
+        con.close()
+    return [d for d in trading_dates if d not in present]
+
+
 def _dedupe(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     seen: set[str] = set()
     result: list[dict[str, Any]] = []
@@ -759,6 +791,7 @@ def _bootstrap_impl(
             run_id = _run_id(
                 "bootstrap", start, end, codes_tuple, policy.policy_version
             )
+            use_bulk = len(codes_tuple) >= bulk_threshold
             heartbeat = _Heartbeat(layout=layout, run_id=run_id, clock=clock)
             heartbeat.start()
             start_wall = time.monotonic()
@@ -770,6 +803,20 @@ def _bootstrap_impl(
                 and not pending
                 and not force_finalize
             ):
+                # Completed-run reuse gate: a historical COMPLETED bulk run
+                # whose TUSHARE daily coverage has a session hole must not be
+                # reused and must not hand back its old snapshot.
+                if use_bulk and "TUSHARE" in active_providers:
+                    missing = _tushare_daily_missing_sessions(
+                        layout, run_id, trading_dates
+                    )
+                    if missing:
+                        raise PipelineError(
+                            "COMPLETED_RUN_DAILY_COVERAGE_INVALID",
+                            "TUSHARE daily session coverage hole in COMPLETED run "
+                            f"{run_id}: missing {len(missing)} sessions, e.g. "
+                            f"{[d.isoformat() for d in missing[:5]]}",
+                        )
                 snapshot = metadata.latest_snapshot_for(end)
                 return BootstrapResult(
                     run_id=run_id,
@@ -837,6 +884,7 @@ def _bootstrap_impl(
                 return fetchers[dataset]((code,), start, end)
 
             tushare_aux: dict[str, list[dict[str, Any]]] = {}
+            use_bulk = len(codes_tuple) >= bulk_threshold
             if "TUSHARE" in active_providers and not skip_tushare_aux:
                 heartbeat.set_phase("tushare-aux")
                 for dataset in (
@@ -899,6 +947,7 @@ def _bootstrap_impl(
                         ),
                         use_bulk=True,
                         item_is_date=True,
+                        require_date_presence=True,
                         batch_size=batch_size,
                         return_rows=False,
                     )
@@ -980,6 +1029,24 @@ def _bootstrap_impl(
             else:
                 baostock_daily = []
                 notes.append("SKIPPED_DATASET:baostock_daily:INACTIVE")
+
+            # Pre-snapshot core coverage gate (fail closed): the bulk TUSHARE
+            # daily fetch must cover every requested trading session. A
+            # silent-empty fetch (no rows for a requested date) must never
+            # reach reconciliation / snapshot publication / COMPLETED.
+            # Per-code fetch paths are excluded: their per-item failure
+            # isolation already records failures, and auxiliary-only runs may
+            # legitimately have empty TUSHARE daily.
+            if use_bulk and "TUSHARE" in active_providers:
+                missing_sessions = _tushare_daily_missing_sessions(
+                    layout, run_id, trading_dates
+                )
+                if missing_sessions:
+                    raise PipelineError(
+                        "TUSHARE_DAILY_SESSION_COVERAGE_INCOMPLETE",
+                        f"missing {len(missing_sessions)} TUSHARE daily sessions, "
+                        f"e.g. {[d.isoformat() for d in missing_sessions[:5]]}",
+                    )
 
             daily_table, daily_records, quarantines, missing = _stream_reconcile_market(
                 layout=layout,
