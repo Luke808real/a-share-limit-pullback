@@ -40,13 +40,15 @@ entry confirmation（盘中 B2 入场确认）。若语义不清，可能研究�
 | --- | --- |
 | UPPER_SHADOW | `high(B2) − max(open(B2), close(B2))`；Decimal，可为 0 |
 | BODY | `abs(close(B2) − open(B2))`；Decimal，可为 0 |
-| UPPER_SHADOW / BODY 比 | `upper_shadow / body`；**BODY == 0 → None**（doji：比率无定义，fail closed 进 undefined，不塞进低值组——沿用 F18/F20 undefined-isolation 纪律） |
+| 长上影判定式 | **乘法形式（无除法、无除零异常）**：`UPPER_SHADOW >= K * BODY`，且 `UPPER_SHADOW > 0`（严格正上影）——K 为待冻结阈值 |
+| **BODY == 0 语义** | `K * BODY = 0`，判定退化为 `UPPER_SHADOW > 0`：冲高回落 doji（BODY=0 且 UPPER_SHADOW>0）→ 形态条件真；无影 doji/一字线（BODY=0 且 UPPER_SHADOW=0）→ 形态条件假。**不产生除零/NaN** |
 | PRE5 | B2 之前**严格最后 5 个 visible trading sessions**（`trade_date < b2_date`；与 PRE20 同构；future rows 内部自动排除） |
 | PRE5_N < 5 | → None（INSUFFICIENT_PRE5；与 F20 INSUFFICIENT_PRE20 同构） |
 | 5 日均量 | `mean(vol, PRE5)`；均量为 0 → None（ZERO_DENOMINATOR） |
 | VOL_RATIO | `vol(B2) / mean(vol, PRE5)` |
 | 量比阈值 | `VOL_RATIO >= 1.5`（**已冻结阈值**：FACTOR_CATALOG 现定义 "vol 为 5 日均量 >= 1.5 倍"） |
-| 上影/实体阈值 | **未冻结**（FACTOR_CATALOG 现写 "上影线/实体 >= 阈值"，无具体值）→ 见第 4 节 |
+| F22_TRUE | 形态条件（`UPPER_SHADOW > 0 AND UPPER_SHADOW >= K*BODY`）AND 量比条件（`VOL_RATIO >= 1.5`） |
+| 上影/实体阈值 K | **未冻结**（FACTOR_CATALOG 仅 ">= 阈值" 占位）→ 见第 4 节 |
 
 ## 4. THRESHOLD DECISION REQUIRED（上影/实体阈值）
 
@@ -59,11 +61,13 @@ entry confirmation（盘中 B2 入场确认）。若语义不清，可能研究�
 - 备选（若 SOL 认为过宽/过窄）：1.5 / 2.0——**必须在预注册前冻结，
   禁止 outcome-aware 调整**（F20 审计确立的纪律）
 
-## 5. BODY_ZERO_POLICY
+## 5. BODY_ZERO_POLICY（乘法式，无除零）
 
-- `BODY == 0`（doji / 十字星）：上影/实体比无定义 → **None**
-  （undecidable，进 undefined accounting，不进 primary population）
-- 不得用 inf / 极大值占位（避免把 doji 全部塞进"高上影"组）
+- 判定式 `UPPER_SHADOW >= K * BODY` 在 BODY=0 时自然退化为
+  `UPPER_SHADOW >= 0`；配合显式严格正上影规则 `UPPER_SHADOW > 0`：
+  - BODY = 0 且 UPPER_SHADOW > 0（冲高回落 doji）→ 形态条件 **真**
+  - BODY = 0 且 UPPER_SHADOW = 0（无影 doji / 一字线）→ 形态条件 **假**
+- 全程无除法、无除零异常、无 NaN 占位（不做 inf 填充）
 
 ## 6. FACTOR DOMAIN 与验证人群
 
