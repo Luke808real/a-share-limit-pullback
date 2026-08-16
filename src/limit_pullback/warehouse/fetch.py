@@ -40,6 +40,10 @@ SOURCE_UNITS: dict[tuple[str, str], tuple[str, str]] = {
     ("AKSHARE", "daily_bars"): ("yuan;shares;yuan", "yuan;shares;yuan"),
     ("AKSHARE", "limit_up_pool"): ("yuan;percent;yuan", "yuan;percent;yuan"),
     ("BAOSTOCK", "daily_bars"): ("yuan;shares;yuan", "yuan;shares;yuan"),
+    # ASL lake (curated v2): volume in shares, amount in yuan (same unit
+    # contract as AKSHARE); adjustment factor is a raw hfq factor.
+    ("ASL", "daily_bars"): ("yuan;shares;yuan", "yuan;shares;yuan"),
+    ("ASL", "adjustment_factor"): ("raw_factor", "raw_factor"),
 }
 
 HASH_FIELDS: dict[str, tuple[str, ...]] = {

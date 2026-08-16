@@ -178,6 +178,9 @@ RAW_SCHEMAS = {
     ("AKSHARE", "daily_bars"): raw_daily_schema,
     ("AKSHARE", "limit_up_pool"): raw_limit_up_pool_schema,
     ("BAOSTOCK", "daily_bars"): raw_daily_schema,
+    # ASL lake (curated v2 daily bars + derived hfq factors).
+    ("ASL", "daily_bars"): raw_daily_schema,
+    ("ASL", "adjustment_factor"): raw_adjustment_factor_schema,
 }
 
 RAW_DAILY_HASH_FIELDS = (

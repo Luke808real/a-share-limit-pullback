@@ -224,15 +224,18 @@ def _tushare_daily_missing_sessions(
     layout: WarehouseLayout,
     run_id: str,
     trading_dates: Sequence[date],
+    provider: str = "TUSHARE",
 ) -> list[date]:
-    """Distinct generator-visible TUSHARE daily sessions present for a run.
+    """Distinct generator-visible daily sessions present for a run.
 
-    Reads TUSHARE/daily_bars/{run_id}-*.parquet (raw fetch output) and returns
-    the requested trading dates with NO row at all. This is the pre-snapshot
-    core-coverage gate input: MISSING != [] must fail closed before snapshot
-    publication (silent-empty-as-success must never publish a session gap).
+    Reads ``{provider}/daily_bars/{run_id}-*.parquet`` (raw fetch output) and
+    returns the requested trading dates with NO row at all. This is the
+    pre-snapshot core-coverage gate input: MISSING != [] must fail closed
+    before snapshot publication (silent-empty-as-success must never publish
+    a session gap). The provider defaults to TUSHARE so bootstrap callers
+    keep their exact historical behavior.
     """
-    directory = layout.raw_dataset_dir("TUSHARE", "daily_bars")
+    directory = layout.raw_dataset_dir(provider, "daily_bars")
     files = sorted(directory.glob(f"{run_id}-*.parquet"))
     if not files:
         return list(trading_dates)
@@ -1348,6 +1351,7 @@ def repair_daily_sessions(
     today: date | None = None,
     repair_lineage: str | None = None,
     batch_size: int = 50,
+    provider_name: str = "TUSHARE",
 ) -> DailySessionRepairResult:
     """Bounded repair of a small explicit set of daily sessions.
 
@@ -1389,6 +1393,11 @@ def repair_daily_sessions(
     boundary.
 
     ``repair_lineage`` is required and must satisfy the shared tag contract.
+    ``provider_name`` names the authoritative primary source for persistent
+    provenance (raw paths, source_files, manifest hashes); the default
+    "TUSHARE" keeps historical behavior, "ASL" makes the ASL lake the
+    primary source while the reconciliation logic still treats it as the
+    authoritative "TUSHARE" slot.
     The run identity is ``_run_id("daily-session-repair", base_snapshot_id,
     parent_run_id, tuple(repair_dates), policy.policy_version,
     repair_lineage)``; a completed run with no pending failures is ALWAYS
@@ -1533,7 +1542,9 @@ def repair_daily_sessions(
                     )
                     ts_rows = [
                         row
-                        for row in _read_run_daily_rows(metadata, run_id, "TUSHARE")
+                        for row in _read_run_daily_rows(
+                            metadata, run_id, provider_name
+                        )
                         if row.get("trade_date") in repair_set
                     ]
                     per_date_stats = _repair_date_stats(
@@ -1576,6 +1587,7 @@ def repair_daily_sessions(
                             "parent_run_id": parent_run_id,
                             "repair_dates": [d.isoformat() for d in dates],
                             "repair_lineage": repair_lineage,
+                            "provider_name": provider_name,
                         },
                         sort_keys=True,
                     ),
@@ -1647,10 +1659,10 @@ def repair_daily_sessions(
                     ("adjustment_factor", adj_dates),
                     ("daily_basic", dates),
                 ):
-                    heartbeat.set_phase(f"tushare-{dataset}")
+                    heartbeat.set_phase(f"{provider_name}-{dataset}")
                     tushare_aux[dataset] = fetch_rows(
                         ctx,
-                        provider="TUSHARE",
+                        provider=provider_name,
                         dataset=dataset,
                         items=items,
                         bulk_fn=lambda wanted, d=dataset: _tushare_bulk(d, wanted),
@@ -1662,10 +1674,10 @@ def repair_daily_sessions(
                         batch_size=batch_size,
                     )
 
-                heartbeat.set_phase("tushare-daily")
+                heartbeat.set_phase(f"{provider_name}-daily")
                 tushare_daily = fetch_rows(
                     ctx,
-                    provider="TUSHARE",
+                    provider=provider_name,
                     dataset="daily_bars",
                     items=dates,
                     bulk_fn=lambda wanted: _fill_auxiliary(
@@ -1698,7 +1710,7 @@ def repair_daily_sessions(
                 # the repair window (a bulk fetch answering with extra dates
                 # must fail closed, not silently extend the repair).
                 for label, rows in (
-                    ("TUSHARE", tushare_daily),
+                    (provider_name, tushare_daily),
                     ("AKSHARE", akshare_parent),
                     ("BAOSTOCK", baostock_parent),
                 ):
@@ -1713,7 +1725,9 @@ def repair_daily_sessions(
                         )
 
                 # Session presence gates (fail closed before any publication).
-                missing = _tushare_daily_missing_sessions(layout, run_id, dates)
+                missing = _tushare_daily_missing_sessions(
+                    layout, run_id, dates, provider=provider_name
+                )
                 if missing:
                     raise PipelineError(
                         "REPAIR_TUSHARE_SESSION_COVERAGE_INCOMPLETE",
@@ -1775,6 +1789,13 @@ def repair_daily_sessions(
                         )
 
                 rows_by_provider: dict[str, list[dict[str, Any]]] = {}
+                # The primary source (TUSHARE by default, or the ASL lake
+                # when provider_name="ASL") occupies the reconciliation
+                # "TUSHARE" slot: reconcile_daily_rows treats that slot as
+                # the authoritative preferred source for CONFIRMED verdicts
+                # and corporate-action preclose handling. Persistent
+                # provenance (raw paths, source_files, manifest hashes) is
+                # honest to the real provider via provider_name.
                 if tushare_daily:
                     rows_by_provider["TUSHARE"] = tushare_daily
                 if akshare_parent:
