@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import threading
 import time
 from datetime import date, datetime, timedelta, timezone
@@ -197,6 +198,24 @@ def _now_utc() -> datetime:
 def _run_id(*parts: object) -> str:
     payload = "|".join(str(part) for part in parts)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:24]
+
+
+_REPAIR_LINEAGE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+
+
+def _validate_repair_lineage(tag: str) -> None:
+    """Repair-lineage input contract: non-empty, bounded (1..64), safe charset.
+
+    Must be called BEFORE any side effect (ensure_dirs / lock / probe /
+    calendar / stock_basic / begin_ingest_run) so an invalid tag cannot create
+    directories, metadata rows, provider calls, or network opportunities.
+    """
+    if not isinstance(tag, str) or not _REPAIR_LINEAGE_RE.match(tag):
+        raise PipelineError(
+            "INVALID_REPAIR_LINEAGE",
+            f"repair_lineage must match ^[A-Za-z0-9][A-Za-z0-9._-]{{0,63}}$; "
+            f"got {tag!r}",
+        )
 
 
 def _tushare_daily_missing_sessions(
@@ -494,6 +513,15 @@ def bootstrap(
     is used so the repair run never collides with nor rewrites an existing
     historical run.
     """
+
+    if repair_lineage is not None:
+        _validate_repair_lineage(repair_lineage)
+    if repair_lineage is not None and aux_backfill:
+        raise PipelineError(
+            "REPAIR_LINEAGE_AUX_BACKFILL_UNSUPPORTED",
+            "aux_backfill does not support repair_lineage; refusing to "
+            "silently ignore the repair flag",
+        )
 
     layout.ensure_dirs()
     with WarehouseLock(layout.root / ".warehouse.lock"):
