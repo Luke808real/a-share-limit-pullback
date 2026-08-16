@@ -24,6 +24,20 @@
 统计：**CLOSED_FACTOR_N = 8**；**REJECT_N = 6**（F11, H4A/H4B, F18, F23, F19, F20）；
 **OBSERVE_ONLY_N = 1**（F14）；**OBSERVATION_N = 1**（E03）。
 
+## 1b. SYNTHESIS TABLE（统一证据表；仅引用已正式完成结果，verdict 保持原级别）
+
+| FACTOR | HYPOTHESIS | POPULATION | PRIMARY_METRIC | RESULT | VERDICT | EFFECT_DIRECTION | PROMOTED | KEY_LIMITATION |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| F11 | 回调见底天数与成功相关 | 冻结 episodes（H2 口径） | 天数分布 vs outcome | 无正向主效应 | **REJECT** | 无 | NO | 形态时序与标签近义 |
+| F14 | 回调缩量比与成功相关 | 冻结 episodes（H3 口径） | min(vol,T1..Tn)/vol(T0) | 弱方向，不稳定 | **OBSERVE_ONLY** | 弱 | NO | 口径为 REUSE_B2C 近似，需核对 |
+| H4A/H4B | MA10 触及/收回支持有效 | resolved（H4 口径） | 触及/收回事件 vs outcome | 无正向主效应 | **REJECT** | 无 | NO | — |
+| E03 | 破位后 3 日内快速收回 | resolved（H4 事件） | j−i<=3 收回事件率 | 观察性分离 | **OBSERVATION** | 观察 | NO | 非正式 verdict（事件研究） |
+| F18 | 支撑共振深度越大越成功 | F18 defined N=9594 | Δstrict_win_rate + ΔP(R>0) | 双负（修正后） | **REJECT** | 负（深层更差） | NO | 深度表无单调；F18=0 层 0.312 最优 |
+| F19/H9 | B2 放量（相对回调均量）越大越成功 | B2 阶段 N=3214 | F19 分布 + 三倍量频率 | 三倍量事件仅 0.03% | **REJECT**（事件频率层） | 弱正→频率不足 | NO | 事件频率极低，无法支撑 |
+| F20/H5A | B2 放量（相对前 20 日均量）越大越成功 | 全部 resolved，F20 defined N=9508 | Spearman 双 rho（strict / R>0） | -0.112699 / -0.118177 | **REJECT / CLOSED** | 负（双 gate 均非正） | NO | B2_READY 层 +0.056 仅 OBSERVATION，prereg 禁止 rescue |
+| F23/H6 | 回调期放量下跌计数与失败相关 | resolved（H6 口径） | 计数 vs outcome | 无独立正向信息 | **REJECT** | 无 | NO | — |
+| TTL/timing | 时间位置影响第二波概率 | B2 stage/timing strata | composition rho | B2_READY +0.056；T3-T6-10 strict 正 | 结构性信息（观察） | 混合 | NO | composition 不改变 global verdict |
+
 ## 2. 模式总结
 
 ### 2.1 静态结构（形态/支撑）——连续失败
